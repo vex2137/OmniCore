@@ -5,19 +5,34 @@ Ostatnia aktualizacja: **2026-10-28**.
 
 ## Status i sposób realizacji
 
-Repozytorium nie zawiera jeszcze implementacji aplikacji ani testów produktu.
-Wszystkie poniższe funkcje mają status **planowane / nierozpoczęte**.
+Repozytorium zawiera fundament backendu Etapu 1 i testy bez GPU.
+Funkcje inferencji i klientów pozostają **planowane / nierozpoczęte**.
 Puste pola `[ ]` są zadaniami do wykonania, a nie potwierdzeniem funkcji.
 Zakończenie funkcji wymaga kodu, właściwych testów i udokumentowanej weryfikacji
 w [PROGRESS.md](PROGRESS.md). Zasady sesji: [AGENTS.md](../AGENTS.md).
 
-Dokumentacja i test dostępu do GitHub są przygotowaniem projektu; nie oznaczają
-realizacji funkcji wydania. Nie ustalono jeszcze stosu, wymagań sprzętowych,
-terminów ani macierzy wspieranych urządzeń. Wybory wymagają analizy przed kodowaniem.
+Wybrany stos, granice modułów, plan etapów i ryzyka opisuje
+[ARCHITECTURE.md](ARCHITECTURE.md). Nie ustalono terminów ani potwierdzonej
+macierzy sprzętowej. Testy fundamentu nie potwierdzają zgodności modeli.
 
 ## OmniCore 0.1.0 — Text & Image
 
-**Status:** planowane, implementacja nierozpoczęta.
+**Status:** w realizacji — fundament Etapu 1 zaimplementowany i przetestowany;
+cała wersja 0.1.0 Alpha pozostaje nieukończona.
+
+### Fundament — Etap 1
+
+- [x] Audyt istniejącego repozytorium, architektura i ryzyka.
+- [x] Backend FastAPI uruchamiany bez GUI i GPU.
+- [x] Wersjonowane schematy Pydantic, OpenAPI i JSON Schema.
+- [x] SQLite, migracje transakcyjne i trwałe preferencje.
+- [x] REST i zdarzenia ustawień przez WebSocket.
+- [x] Katalogi PL/EN i preferencje motywu oraz trybu interfejsu.
+- [x] Podstawowa kontrola dostępu, Origin/Host i rozmiaru żądań.
+- [x] Testy bez GPU oraz rzeczywisty start i restart z zachowaniem danych.
+
+Gotowość tego fundamentu nie oznacza działania czatu, obrazów, menedżera modeli
+ani klientów. Przed Etapem 2 wymagany jest raport Etapu 1 zgodnie z zakresem zadania.
 
 ### Cele
 

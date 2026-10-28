@@ -48,9 +48,10 @@ flowchart LR
 
 - `backend/src/omnicore`: konfiguracja procesu, modele danych, API, repozytorium
   SQLite, lokalizacja i kontrakt adapterów. Logika inferencji nigdy nie trafia do klientów.
-- `shared/locales`: katalogi `pl-PL.json` i `en-US.json`; źródło wspólnego nazewnictwa
+- `backend/src/omnicore/locales`: katalogi `pl-PL.json` i `en-US.json`; źródło wspólnego nazewnictwa
   Chat, Images, Models, Hardware, Settings, preferencji i błędów.
-- `contracts`: OpenAPI i schematy konfiguracji, metadanych oraz zdarzeń.
+- `contracts`: OpenAPI i schematy konfiguracji, metadanych oraz zdarzeń;
+  `contracts/locales` udostępnia wygenerowane kopie katalogów klientom bez zależności od Pythona.
 - `backend/tests`: testy bez GPU. Oddzielne testy rzeczywistych silników i GPU
   powstaną wraz z integracjami; brak silnika nie oznacza zaliczonego testu inferencji.
 - Katalogi aplikacji Linux, Web i Android powstaną z działającymi klientami w Etapie 4.
@@ -119,6 +120,8 @@ uruchamiać wielu workerów Uvicorn ze współdzieloną kolejką w pamięci.
   keyringu Linux/Android Keystore, nie w localStorage.
 - CORS dopuszcza wyłącznie jawne origins; WebSocket sprawdza Origin osobno.
   Brak `*` z poświadczeniami. Ograniczony rozmiar ciała żądania i komunikatu WS.
+- Jawna lista Host chroni lokalny backend przed DNS rebinding; zdalne nazwy/IP
+  należy dodać do konfiguracji przy nasłuchu na wszystkich interfejsach.
 - Etap 1 nie przyjmuje ścieżek, wag ani uploadów i nie uruchamia poleceń użytkownika.
   Katalog bazy i pliki mają prywatne uprawnienia. Przed uploadami w kolejnych
   etapach: kontrola traversal, symlinków, rozmiaru i izolacja katalogów.

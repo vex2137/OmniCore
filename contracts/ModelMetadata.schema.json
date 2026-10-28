@@ -1,0 +1,91 @@
+{
+  "additionalProperties": false,
+  "description": "Descriptive metadata only; compatibility requires a real integration test.",
+  "properties": {
+    "format": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Format",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9._-]+$",
+      "title": "Id",
+      "type": "string"
+    },
+    "license": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "License"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "quantization": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Quantization"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sha256"
+    },
+    "size_bytes": {
+      "minimum": 0,
+      "title": "Size Bytes",
+      "type": "integer"
+    },
+    "tested_backends": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Tested Backends",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "format",
+    "size_bytes"
+  ],
+  "title": "ModelMetadata",
+  "type": "object"
+}

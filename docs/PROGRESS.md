@@ -2,107 +2,131 @@
 
 ## Project Status
 
-- **Current version:** 0.1.0 Alpha — docelowa wersja rozwojowa, bez wydania aplikacji.
-- **Current milestone:** przygotowanie repozytorium i trwałej dokumentacji projektu — ukończone.
-- **Current development branch:** `docs/omnicore-project-foundation`.
-- **Last verified commit:** `d090530304401ca425cae3935bc03c95633018c3`
-  na `docs/omnicore-project-foundation`; odczytany ponownie z GitHub po pushu.
-  Jest to punkt kontrolny dokumentacji sprzed commita zapisującego niniejszy wynik.
+- **Current version:** 0.1.0 Alpha (`0.1.0a0`), fundament; bez wydania produktu.
+- **Current milestone:** Etap 1 — Fundament: implementacja i walidacja wykonane,
+  trwa zapis oraz publikacja etapu. Etapu 2 nie rozpoczęto.
+- **Current development branch:** `feature/0.1.0-alpha`.
+- **Last verified commit:** `270f2b924b6854c834a5472f7f39d05aea0a26dd`
+  (zdalny punkt kontrolny dokumentacji, potwierdzony podczas bieżącego audytu).
 - **Last update:** 2026-10-28 (Europe/Warsaw).
 
 ## Completed
 
-Ukończone przygotowanie projektu:
-
-- Zidentyfikowano `https://github.com/vex2137/OmniCore`, bazowy `main`:
-  `0f91a3e9a7ba28cac3324238248e1fda75fdb174`.
-- Potwierdzono odczyt Git i zapis przez commit, push oraz porównanie zdalnego SHA
-  gałęzi `test/omnicore-github-access`.
-- Dodano [zapis testu dostępu](github-access-test.md).
-- Utworzono [AGENTS.md](../AGENTS.md), [ROADMAP.md](ROADMAP.md) z pięcioma
-  wersjami oraz PROGRESS.md z mechanizmem przekazania pracy kolejnej sesji.
-- Sprawdzono wymagane sekcje, lokalne odnośniki, bloki kodu i `git diff --check`.
-- Opublikowano dokumentację na osobnej gałęzi, pobrano zdalny ref i porównano
-  zawartość wszystkich czterech nowych plików z lokalnymi plikami.
-
-**Ukończone funkcje aplikacji: brak.** Repozytorium bazowe zawierało wyłącznie
-README i licencję; żaden silnik AI, backend ani klient nie został zaimplementowany.
+- Zachowano wcześniejszą dokumentację, test dostępu GitHub i historię repozytorium.
+- Odczytano wszystkie istniejące pliki i historię, wybrano zgodny z wymaganiami
+  stos oraz zapisano plan i ryzyka w [ARCHITECTURE.md](ARCHITECTURE.md).
+- Backend headless FastAPI z CLI, wersjonowanym REST i sprawdzaniem SQLite przez health.
+- Trwałe ustawienia: PL/EN, system/light/dark, simple/advanced; zapis i odczyt po restarcie.
+- SQLite: prywatny katalog i plik, transakcyjne migracje, rollback, zachowanie danych
+  przy ponownym starcie i odmowa downgrade nowszej bazy.
+- Schematy konfiguracji preferencji, metadanych modeli, adapterów i zdarzeń;
+  snapshoty OpenAPI/JSON Schema oraz kontrola ich zgodności z kodem.
+- Katalogi PL/EN z równymi kluczami, API tłumaczeń i wybór języka komunikatów błędów.
+- WebSocket: powitanie z aktualnym stanem, ping/pong, rozsyłanie zmian ustawień,
+  ograniczony bufor i sprzątanie po odłączeniu.
+- Fundament bezpieczeństwa: domyślny loopback, jawny opt-in zdalnego dostępu,
+  token, CORS, kontrola Origin/Host, limity żądań, brak sekretów w odpowiedziach.
+- Interfejs adaptera i rejestr. Lista silników jest celowo pusta; nie ma atrap inferencji.
+- Przypięte zależności uv.lock, instrukcje uruchamiania, workflow CI bez GPU,
+  testy i działający smoke test prawdziwego procesu.
+- Zbudowano sdist i wheel; wheel zainstalowano do osobnego środowiska bez narzędzi
+  deweloperskich i uruchomiono jego HTTP/WS oraz test trwałości po restarcie.
+- Uruchomiono także udokumentowane polecenie startu z katalogiem `.local-data`;
+  działający proces odpowiedział poprawnie na health i żądanie katalogu PL.
+- Zapisano w szkicu konfiguracji środowiska `install_script` i `start_skill`.
+  Skrypt instalacji sprawdzono ponownie; zapis szkicu nie publikuje środowiska.
 
 ## In Progress
 
-- Brak aktywnych prac implementacyjnych. Konfiguracja repozytorium i dokumentacji
-  została zakończona; ten zapis utrwala zweryfikowany punkt kontrolny.
+- Zapis etapu w Git, push gałęzi funkcjonalnej i potwierdzenie zdalnego SHA.
 
 ## Planned Next
 
-1. Przejrzeć gałąź dokumentacyjną przed ewentualnym włączeniem do `main`.
-2. W kolejnym zadaniu wybrać architekturę backendu, klientów i integracji inferencji;
-   określić wymagania sprzętowe i macierz wspieranych platform.
-3. Uzgodnić pierwszy mały zakres 0.1.0, jego testy oraz narzędzia budowania.
-4. Dopiero potem rozpocząć implementację według [ROADMAP.md](ROADMAP.md).
+1. Zakończyć raport Etapu 1 i zatrzymać pracę przed Etapem 2.
+2. W następnym zadaniu: adaptery Ollama/llama.cpp, menedżer modeli, czat,
+   streaming, historia i import/eksport rozmów wraz z testami rzeczywistej inferencji.
+3. Dopiero w Etapie 3: ComfyUI i sprawdzone workflowy, kolejka, obrazy, LoRA.
+4. Dopiero w Etapie 4: natywne Linux/Android i Web; renderowanie oraz testy motywów.
 
 ## Known Issues
 
-- Brak kodu aplikacji, manifestów zależności, procesu budowania, CI i testów produktu.
-- Nie wybrano stosu technologicznego ani minimalnych wymagań sprzętowych.
-- Nie zweryfikowano GPU, modeli, natywnego Linux, Androida ani działania Web.
-- Test pushu dotyczy gałęzi testowej; nie potwierdza uprawnień do merge, wydań,
-  chronionego `main`, API GitHub ani innych repozytoriów.
-- SHA zapisane tutaj są punktami kontrolnymi, nie samoodnoszącym się hashem tego
-  pliku. Bieżący stan zawsze sprawdzać poleceniami Git podanymi poniżej.
+- To fundament, nie kompletna Alpha. Brak inferencji, czatu, pobierania/importu
+  modeli, ComfyUI, generowania obrazów, galerii i aplikacji klienckich.
+- Nie potwierdzono zgodności żadnego modelu ani sprzętu GPU. CachyOS/RTX 4060,
+  NVIDIA/AMD/Intel, OOM i anulowanie generowania wymagają późniejszych testów.
+- Testy motywów w Etapie 1 dotyczą trwałych preferencji; nie testują wyglądu UI.
+- Test rejestru używa test double tylko do probe; nie jest testem integracji silnika.
+- Jeden proces backendu: bufor zdarzeń nie jest współdzielony między workerami.
+  Wolny klient otrzymuje ostatnie snapshoty; nie jest to trwała historia zdarzeń.
+- Zdalne użycie wymaga TLS w zaufanym reverse proxy; backend sam nie kończy TLS.
+  Magazyny tokenów klientów będą wdrożone przy klientach; token procesu nie jest zapisywany do DB.
+- Etap 1 nie ma uploadów ani endpointów operujących na ścieżkach. Izolacja plików,
+  bezpieczne pobieranie i limity zadań muszą powstać przed tymi funkcjami.
+- Workflow CI został dodany; wyniki uruchomienia na GitHub Actions nie są jeszcze znane.
+- Szkic konfiguracji środowiska wymaga przeglądu, zapisania i publikacji w ustawieniach;
+  nie weryfikowano przywrócenia snapshotu w nowym zadaniu.
 
 ## Test Results
 
-Środowisko: zarządzane środowisko chmurowe Linux, `/workspace/OmniCore`;
-Git 2.52.0, Python 3.12.14, Node.js 24.19.0, npm 11.9.0.
+Weryfikacja 2026-10-28: zarządzany Linux, Python 3.12.14, uv 0.12.23,
+FastAPI 0.162.0, Pydantic 2.14.1, SQLite ze standardowej biblioteki Pythona;
+bez modeli, silników inferencji i wymaganego GPU.
 
 | Sprawdzenie | Wynik |
 | --- | --- |
-| Początkowy status Git i lista plików | Czysty checkout; README.md i LICENSE |
-| `git ls-remote --exit-code origin refs/heads/main` | PASS, zgodny z bazowym lokalnym HEAD |
-| Commit i push `test/omnicore-github-access` | PASS |
-| Porównanie lokalnego SHA z `git ls-remote` gałęzi testowej | PASS, `53cd9ed0cb1fa17e4c81b4ffe860c934978ae43d` |
-| Walidacja kompletnej dokumentacji i lokalnych odnośników | PASS: 4 pliki, 5 wersji z wymaganymi sekcjami, 8 sekcji PROGRESS.md, brak oznaczonych ukończonych funkcji |
-| `git diff --check` i `git diff --cached --check` | PASS |
-| Push, ponowny odczyt SHA i pobranie refa dokumentacji | PASS, `d090530304401ca425cae3935bc03c95633018c3` |
-| Porównanie 4 plików z committem pobranym ze zdalnej gałęzi | PASS, zawartość zgodna z lokalnymi plikami |
-| Testy aplikacji / build / uruchomienie | Niewykonane: brak kodu i konfiguracji testów |
+| `uv sync --frozen` | PASS — zależności z uv.lock |
+| `uv run --frozen pytest -q` | PASS — 65 zaliczonych, 0 niezaliczonych, 0 pominiętych, bez ostrzeżeń |
+| Migracje | Świeża baza, ponowna inicjalizacja, upgrade zachowujący dane, rollback DDL/danych/wersji, nowsza i uszkodzona baza, symlinki |
+| API i kontrakty | Health, ustawienia po restarcie, walidacja, błędy, OpenAPI/JSON Schema, brak deklaracji silników |
+| Lokalizacja i motywy | Identyczne klucze PL/EN, wybór języka bez restartu, zapis trzech preferencji motywu |
+| WebSocket | Hello, ping/pong, fan-out, błędy, limity, rozłączenie, błąd DB, ograniczony bufor |
+| Bezpieczeństwo | Odmowa zdalnego bindu bez opt-in/tokena, autoryzacja HTTP/WS, Origin, Host, CORS i limit rzeczywistego ciała żądania |
+| `ruff check .` i `ruff format --check .` | PASS |
+| `python scripts/export_contracts.py --check` | PASS |
+| `python scripts/smoke.py` | PASS — proces CLI, HTTP/WS, PL, zapis, restart, trwałość |
+| `uv build` | PASS — sdist i wheel |
+| Instalacja wheel do `.venv-package` z zależnościami runtime z locka i hashami | PASS |
+| `.venv-package/bin/python -I scripts/smoke.py` | PASS — bez importowania pakietu z checkoutu |
+| GPU / silniki / anulowanie generowania / GUI | Niewykonane — moduły powstaną w kolejnych etapach |
+| GitHub Actions | Nie potwierdzono wykonania workflow; lokalne polecenia CI wykonano |
 
 ## GitHub Status
 
-Zweryfikowany punkt kontrolny dokumentacji (sprzed commita zapisującego ten raport):
-
-- **Branch:** `docs/omnicore-project-foundation`.
-- **Local commit SHA:** `d090530304401ca425cae3935bc03c95633018c3`.
-- **Remote commit SHA:** `d090530304401ca425cae3935bc03c95633018c3`.
-- **Push status:** sukces; SHA potwierdzony przez ponowny odczyt zdalnego refa.
-- **Access test branch:** `test/omnicore-github-access`, push potwierdzony,
+- **Branch:** `feature/0.1.0-alpha`.
+- **Local commit SHA:** `cbd36fc` — commit audytu/architektury; pełny SHA dostępny przez Git.
+- **Remote commit SHA:** gałąź funkcjonalna nie została jeszcze opublikowana.
+- **Push status:** oczekuje na commit i push fundamentu.
+- **Pull request status:** nie utworzono w tej sesji.
+- **Main:** podczas audytu `0f91a3e9a7ba28cac3324238248e1fda75fdb174`, nie zmieniano.
+- **Access test:** historyczny push potwierdzony na `test/omnicore-github-access`,
   SHA `53cd9ed0cb1fa17e4c81b4ffe860c934978ae43d`.
-- **Pull request status:** nie utworzono PR w tej sesji; nie wykonano merge ani wydania.
+
+SHA w tym dokumencie są zweryfikowanymi punktami kontrolnymi. Commit zapisujący
+wynik weryfikacji może być późniejszy; nie próbować wpisywać hasha commita do niego samego.
 
 ## Session Handoff
 
-Przeprowadzono test zapisu do GitHub, przygotowano dokumentację i potwierdzono
-jej obecność na osobnej gałęzi. Nie rozpoczęto implementacji aplikacji.
-Powyższe SHA odnoszą się do faktycznie sprawdzonych commitów; końcowy commit
-zapisujący raport należy sprawdzić poniższymi poleceniami i porównać z GitHub.
-
-Na początku kolejnej sesji przeczytać AGENTS.md, ROADMAP.md i PROGRESS.md,
-sprawdzić stan kodu i Git, a następnie kontynuować od potwierdzonego etapu.
-Nie zakładać, że aktualna gałąź lub zdalny HEAD pozostały niezmienione.
+Najpierw przeczytać AGENTS.md, ROADMAP.md, PROGRESS.md i ARCHITECTURE.md.
+Fundament jest zaimplementowany i przetestowany; dokończyć commit, push i raport.
+Nie rozpoczynać Etapu 2 w tym zadaniu. W nowym zadaniu porównać dokumentację
+z rzeczywistym kodem i stanem Git; nie zakładać stałości gałęzi lub zdalnego HEAD.
 
 ```sh
 cd /workspace/OmniCore
-cat AGENTS.md docs/ROADMAP.md docs/PROGRESS.md
-git status --short
-git branch --show-current
-git remote -v
+git status --short --branch
 git log -3 --oneline
 git rev-parse HEAD
-git ls-remote --exit-code origin refs/heads/docs/omnicore-project-foundation
-git diff --check
+git ls-remote --exit-code origin refs/heads/feature/0.1.0-alpha
+uv sync --frozen
+uv run --frozen ruff check .
+uv run --frozen ruff format --check .
+uv run --frozen python scripts/export_contracts.py --check
+uv run --frozen pytest
+uv run --frozen python scripts/smoke.py
+uv run --frozen omnicore --data-dir .local-data
 ```
 
-Używać istniejącej autoryzacji środowiska; nie odczytywać tokenów z plików.
-Chronić cudze zmiany, nie wykonywać force push ani nie umieszczać wag modeli w Git.
-Przed implementacją pozostaje wybór architektury i określenie testowalnego zakresu.
+Baza `.local-data` i środowiska `.venv*` są lokalnymi, ignorowanymi wynikami setupu;
+nie commitować danych użytkownika, tokenów ani wag. Backend domyślnie jest lokalny.
+Nie tworzyć dodatkowego worktree; zachować cudze zmiany i używać istniejącej autoryzacji.
+Publiczne wydanie pozostaje nieautoryzowane.

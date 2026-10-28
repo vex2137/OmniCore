@@ -1,0 +1,15 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "const": "ping",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type"
+  ],
+  "title": "ClientEvent",
+  "type": "object"
+}
