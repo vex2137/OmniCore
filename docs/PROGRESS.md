@@ -6,7 +6,8 @@
 - **Current milestone:** Etap 2 A–F zaimplementowany i przetestowany bez modeli.
   **Akceptacja rzeczywistego GGUF pozostaje zablokowana**; nie oznaczamy całego Etapu 2 jako ukończonego.
 - **Current development branch:** `feature/0.1.0-alpha`.
-- **Last verified commit:** `1a2826b55efa419629f462233e1e56f29d10fa79` — zdalny punkt wejścia bieżącego zadania.
+- **Last verified commit:** `4622eb35369c3373a63d2ba7ac60d765c1e0bc64` — implementacja Text AI;
+  lokalny HEAD, ref GitHub i ponownie pobrany commit są zgodne.
 - **Last update:** 2026-10-28 (Europe/Warsaw).
 
 ## Completed
@@ -22,7 +23,7 @@ projekt opcjonalnego Rust; nie wdrożono żadnego własnego komponentu natywnego
 | C | HF search/pliki, przypięty commit, rozmiar/licencja/checksum, potwierdzany download, postęp, resume i cancel, atomowy zapis | `0e166f6` |
 | D | Rozmowy/model/parametry, role i czas, trwała historia, wyszukiwanie, import/eksport JSON i idempotentny zapis asystenta | `9518e77` |
 | E | Kolejka, request_key/fingerprint, snapshoty, streaming, timeout/OOM/cancel, częściowa odpowiedź, odzyskiwanie po restarcie | `01fdfc8` |
-| F | API `/api/v1/text`, stary WS plus generation.updated/watch, SSE, kontrakty, lokalizacja, security, osobne scenariusze realne | commit końcowy zadania |
+| F | API `/api/v1/text`, stary WS plus generation.updated/watch, SSE, kontrakty, lokalizacja, security, osobne scenariusze realne | `4622eb3` |
 
 Checkboxy i tabela A–F dotyczą kodu i testów komponentów. Kontrolowany adapter,
 syntetyczny GGUF i odpowiedzi HTTP nie są testem działania realnego modelu.
@@ -44,10 +45,11 @@ Dodatkowo zweryfikowano:
   z zależnościami/hashes z locka; smoke sprawdził HTTP, WS i rozmowę po restarcie.
 - Zapisano szkic środowiska: install_script, aktualny start_skill,
   OMNICORE_LLAMA_SERVER oraz domeny HF. Nie opublikowano snapshotu środowiska.
+- Wysłano commity A–F, potwierdzono SHA przez ls-remote i fetch oraz porównano
+  pliki API, guard, kontrakty, dokumentację i test akceptacyjny z GitHub.
 
 ## In Progress
 
-- Zapis końcowej części F i potwierdzenie pushu/SHA.
 - Akceptacja rzeczywistej inferencji bez Ollamy jest otwarta; nie ma aktywnego
   generowania i nie pobierano wag. Etapu 3 nie rozpoczęto.
 
@@ -120,9 +122,9 @@ ani automatycznego pobierania modeli; brak warunku wstępnego powoduje błąd te
 ## GitHub Status
 
 - **Branch:** `feature/0.1.0-alpha`.
-- **Local commit SHA / Remote commit SHA:** ostatni potwierdzony zdalnie punkt wejścia
-  `1a2826b55efa419629f462233e1e56f29d10fa79`; nowe commity A–F wymagają końcowego pushu.
-- **Push status:** przed końcowym zapisem części F; wynik aktualizowany po weryfikacji refa.
+- **Local commit SHA / Remote commit SHA:** zweryfikowany punkt kontrolny implementacji
+  `4622eb35369c3373a63d2ba7ac60d765c1e0bc64`. Ten raport zapisuje wynik w późniejszym commicie.
+- **Push status:** sukces; zdalny ref, fetch i lokalny HEAD implementacji zgodne.
 - **Pull request status:** nie utworzono w tej sesji.
 - **Main:** `0f91a3e9a7ba28cac3324238248e1fda75fdb174`, nie zmieniano.
 - **Wydanie/tag Alpha:** nie opublikowano.
