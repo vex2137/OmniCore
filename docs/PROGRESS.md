@@ -11,6 +11,16 @@
 
 ## Completed
 
+### Etap 2 C — pobieranie Hugging Face
+
+- Wyszukiwanie repozytoriów i GGUF, przypięcie rewizji, rozmiar/licencja i checksum.
+- Jawne potwierdzenie rozmiaru, prywatne pliki częściowe, resume Range/If-Range,
+  checksum, walidacja GGUF, atomowy zapis, anulowanie i stan trwały po restarcie.
+- Brak uruchamiania kodu modeli; kontrola redirectów nie przekazuje tokenu innym hostom.
+- Regresja: 92 PASS; transport HF sprawdzony kontrolowanymi odpowiedziami HTTP.
+- Zbudowany llama-server: 0.8.0-dev, c3df4b7e22a1ac38da663552d19e649dd97ca936,
+  CPU-only; --version i --list-devices uruchomione. Rzeczywista inferencja jeszcze niewykonana.
+
 ### Etap 2 A — adaptery i procesy (2026-10-28)
 
 - Dodano transporty llama.cpp SSE i Ollama NDJSON, wykrywanie wersji i możliwości,

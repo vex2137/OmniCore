@@ -1,5 +1,6 @@
 """Text module schema versions share SQLite while preserving the core v1 contract."""
 
+import json
 import uuid
 from datetime import UTC, datetime
 
@@ -30,6 +31,12 @@ TEXT_MIGRATIONS = (
         id TEXT PRIMARY KEY, backend TEXT NOT NULL, location TEXT NOT NULL,
         record TEXT NOT NULL, device INTEGER, inode INTEGER,
         UNIQUE(backend, location)
+    );
+    """,
+    """
+    CREATE TABLE text_jobs (
+        kind TEXT NOT NULL, id TEXT NOT NULL, record TEXT NOT NULL,
+        PRIMARY KEY(kind,id)
     );
     """,
 )
@@ -147,3 +154,27 @@ class TextStore:
         if row is None:
             raise TextError("not_found", 404)
         return row[0], row[1]
+
+    def save_job(self, kind: str, job_id: str, record: dict):
+        with self.db.connect() as connection, connection:
+            connection.execute(
+                "INSERT INTO text_jobs VALUES(?,?,?) "
+                "ON CONFLICT(kind,id) DO UPDATE SET record=excluded.record",
+                (kind, job_id, json.dumps(record, ensure_ascii=False)),
+            )
+
+    def job(self, kind: str, job_id: str):
+        with self.db.connect() as connection:
+            row = connection.execute(
+                "SELECT record FROM text_jobs WHERE kind=? AND id=?", (kind, job_id)
+            ).fetchone()
+        if row is None:
+            raise TextError("not_found", 404)
+        return json.loads(row[0])
+
+    def jobs(self, kind: str):
+        with self.db.connect() as connection:
+            rows = connection.execute(
+                "SELECT record FROM text_jobs WHERE kind=? ORDER BY rowid DESC", (kind,)
+            ).fetchall()
+        return [json.loads(row[0]) for row in rows]
