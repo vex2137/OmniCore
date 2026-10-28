@@ -3,14 +3,24 @@
 ## Project Status
 
 - **Current version:** 0.1.0 Alpha (`0.1.0a0`), fundament; bez wydania produktu.
-- **Current milestone:** rozszerzenie architektury o opcjonalny Rust — analiza i dokumentacja.
-  Ukończony Etap 1 zachowano; Etapu 2 i implementacji komponentów Rust nie rozpoczęto.
+- **Current milestone:** Etap 2 A–F — backend Text AI; część A zaimplementowana i przetestowana.
 - **Current development branch:** `feature/0.1.0-alpha`.
 - **Last verified commit:** `59dd09f87b793a86dd3059dd64b7d7823311744c`
   (fundament Etapu 1; lokalny HEAD, zdalny ref i ponownie pobrany commit są zgodne).
 - **Last update:** 2026-10-28 (Europe/Warsaw).
 
 ## Completed
+
+### Etap 2 A — adaptery i procesy (2026-10-28)
+
+- Dodano transporty llama.cpp SSE i Ollama NDJSON, wykrywanie wersji i możliwości,
+  parametry, anulowanie, diagnostykę zasobów, własny proces loopback i bezpieczny stop.
+- Naprawiono błąd zamykania WebSocket przez ustrukturyzowaną grupę zadań AnyIO.
+- Regresja: 75 PASS, w tym wszystkie 65 dotychczasowych testów; Ruff PASS.
+- Testy protokołów i procesu używają kontrolowanych fixture — nie są dowodem inferencji.
+- Build CPU llama.cpp z oficjalnego źródła w toku; HF pozostaje zablokowany (403).
+
+### Zachowany fundament i wcześniejsze prace
 
 - Zachowano wcześniejszą dokumentację, test dostępu GitHub i historię repozytorium.
 - Odczytano wszystkie istniejące pliki i historię, wybrano zgodny z wymaganiami
@@ -50,8 +60,8 @@
 
 ## In Progress
 
-- Brak aktywnego etapu implementacji; bieżący zakres obejmuje wyłącznie dokumentację Rust.
-  Etap 1 pozostaje zakończony, a Etap 2 wymaga kolejnego zadania.
+- Etap 2: A zakończone na poziomie transportów/procesów; B–F w kolejności docs/TEXT_AI.md.
+- Rzeczywisty scenariusz GGUF bez Ollamy wymaga binarki i modelu; nie jest jeszcze PASS.
 
 ## Planned Next
 

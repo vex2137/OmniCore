@@ -4,6 +4,7 @@ import asyncio
 import sqlite3
 from contextlib import asynccontextmanager
 
+import anyio
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -193,16 +194,22 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
                 )
                 await websocket.close(code=1011)
                 return
-            tasks = [asyncio.create_task(sender(queue)), asyncio.create_task(receiver(queue))]
-            try:
-                done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-                for task in done:
-                    task.result()
-            except WebSocketDisconnect:
-                pass
-            finally:
-                for task in tasks:
-                    task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
+            async with anyio.create_task_group() as group:
+
+                async def send_events():
+                    try:
+                        await sender(queue)
+                    except WebSocketDisconnect:
+                        pass
+                    finally:
+                        group.cancel_scope.cancel()
+
+                group.start_soon(send_events)
+                try:
+                    await receiver(queue)
+                except WebSocketDisconnect:
+                    pass
+                finally:
+                    group.cancel_scope.cancel()
 
     return app

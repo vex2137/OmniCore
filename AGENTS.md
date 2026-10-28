@@ -71,9 +71,10 @@ zdalny sprawdzaj poleceniami Git; nie próbuj wpisać hasha commita do niego sam
 
 ## Bieżąca granica prac
 
-Bieżące zadanie realizuje wyłącznie Etap 1 wersji 0.1.0 Alpha: audyt,
-architekturę, fundament backendu, schematy, SQLite, kontrakty, lokalizację i testy.
-Zakres i ryzyka opisuje [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-Po przetestowaniu i raporcie Etapu 1 zatrzymaj pracę przed Etapem 2.
+Bieżące zadanie realizuje Etap 2 wersji 0.1.0 Alpha: kompletny backend Text AI,
+GGUF przez llama.cpp niezależnie od Ollamy, opcjonalną Ollamę, modele, pobieranie,
+trwałe rozmowy, streaming i anulowanie. Zachowaj fundament Etapu 1.
+Plan A–F i wyniki opisują docs/TEXT_AI.md oraz docs/PROGRESS.md.
+Nie rozpoczynaj Etapu 3 (Image AI), klientów graficznych ani implementacji Rust.
 Nie deklaruj działania inferencji, klientów ani zgodności modeli na podstawie
 samych interfejsów adapterów lub testów bez rzeczywistego silnika.
