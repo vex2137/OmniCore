@@ -71,7 +71,9 @@ zdalny sprawdzaj poleceniami Git; nie próbuj wpisać hasha commita do niego sam
 
 ## Bieżąca granica prac
 
-To zadanie przygotowuje wyłącznie repozytorium i dokumentację.
-Nie rozpoczynaj implementacji OmniCore 0.1.0 w ramach tego zadania.
-Przed implementacją w kolejnym zadaniu potwierdź zakres z jego instrukcji
-i wybierz udokumentowaną architekturę oraz narzędzia.
+Bieżące zadanie realizuje wyłącznie Etap 1 wersji 0.1.0 Alpha: audyt,
+architekturę, fundament backendu, schematy, SQLite, kontrakty, lokalizację i testy.
+Zakres i ryzyka opisuje [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Po przetestowaniu i raporcie Etapu 1 zatrzymaj pracę przed Etapem 2.
+Nie deklaruj działania inferencji, klientów ani zgodności modeli na podstawie
+samych interfejsów adapterów lub testów bez rzeczywistego silnika.
