@@ -148,3 +148,108 @@ def test_catalog_parity_and_format_fields():
         assert catalogs[0][key] and catalogs[1][key]
         fields = [{f for _, f, _, _ in Formatter().parse(c[key]) if f} for c in catalogs]
         assert fields[0] == fields[1], key
+
+
+def test_reuse_external_backend_never_stops_its_process(desktop, qtbot, monkeypatch):
+    from omnicore.desktop.api import ApiClient
+    from omnicore.desktop.lifecycle import BackendSession
+
+    owner = desktop.session
+    monkeypatch.setenv("OMNICORE_DESKTOP_URL", desktop.api.base_url)
+    monkeypatch.setenv("OMNICORE_DESKTOP_TOKEN", desktop.api._token)
+    client = ApiClient()
+    external = BackendSession(client, DesktopConfig(ollama_enabled=False))
+    with qtbot.waitSignal(external.ready, timeout=5000):
+        external.start()
+    assert not external.owned
+    with qtbot.waitSignal(external.stopped, timeout=5000):
+        external.stop()
+    assert owner.process.state() == QProcess.Running
+    assert request(desktop, "GET", "/api/v1/health")["status"] == "ok"
+    client.close()
+
+
+def test_async_transport_sse_handles_fragmented_frames_and_errors(qtbot):
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from omnicore.desktop.api import ApiClient
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            # Controlled transport test only. These are not model responses.
+            for fragment in (
+                b"da",
+                b'ta: {"state":"running","content":"a"}\n',
+                b"\ndata: ",
+                b'{"state":"completed","content":"ab"}\n\n',
+            ):
+                self.wfile.write(fragment)
+                self.wfile.flush()
+
+        def log_message(self, *_):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    api = ApiClient()
+    api.configure(f"http://127.0.0.1:{server.server_port}")
+    records = []
+    api.snapshot.connect(records.append)
+    try:
+        with qtbot.waitSignal(api.stream_closed, timeout=5000):
+            api.watch("controlled-job")
+        assert [r["content"] for r in records] == ["a", "ab"]
+    finally:
+        api.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_second_generation_terminal_sequence_is_not_compared_to_previous_job(desktop):
+    w = desktop
+    w.last_job = {"id": "previous", "sequence": 1000, "content": "previous response"}
+    w.active_job = "new-job"
+    w.generation_snapshot({"id": "new-job", "sequence": 3, "state": "cancelled", "content": ""})
+    assert w.active_job is None
+    assert w.last_job["id"] == "new-job"
+    assert w.send_button.isEnabled() and not w.stop_button.isEnabled()
+
+
+def test_huggingface_controls_require_confirmation_and_send_explicit_payload(desktop, monkeypatch):
+    w = desktop
+    calls = []
+    remote = {
+        "repository": "example/model-GGUF",
+        "filename": "model.gguf",
+        "revision": "abcdef",
+        "size_bytes": 123456789,
+        "license": "apache-2.0",
+    }
+    w.hf_files.addItem("model.gguf", remote)
+    monkeypatch.setattr(w.api, "request", lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.No)
+    w.download_file()
+    assert not calls
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.Yes)
+    w.download_file()
+    args, _kwargs = calls[-1]
+    assert args[:2] == ("POST", "/api/v1/text/downloads")
+    assert args[2] == {
+        "repository": remote["repository"],
+        "filename": "model.gguf",
+        "revision": "abcdef",
+        "confirmed": True,
+        "expected_size": 123456789,
+    }
+    w.downloads = [{"id": "download1", "state": "downloading"}]
+    w.download_list.addItem("model.gguf", "download1")
+    w.cancel_download()
+    assert calls[-1][0][:2] == ("POST", "/api/v1/text/downloads/download1/cancel")
+    w.resume_download()
+    assert calls[-1][0][:2] == ("POST", "/api/v1/text/downloads/download1/resume")

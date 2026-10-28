@@ -185,3 +185,24 @@ nie benchmark sprzętu użytkownika. Bez testu CUDA/Ollamy/CachyOS/Wayland.
 AppImage, dodatkowe testy GUI, benchmarki Rust i integracja main pozostają następnymi
 modułami. API GitHub oraz uploads.github.com stały się dostępne po zmianie runtime.
 Nie utworzono jeszcze release ani nie zmieniono main.
+
+## Linux GUI — moduł 2: stabilizacja (2026-10-28)
+
+Rozszerzono diagnostykę o uwierzytelnione, tylko odczytywane API sprzętu i zadań
+bez promptów/tokenów. Dodano obsługę nowego oficjalnego CDN HF `us.aws.cdn.hf.co`
+z zachowaniem HTTPS, ograniczeń redirectów i braku przekazywania tokenu do CDN.
+Poprawiono porównywanie sekwencji między kolejnymi zadaniami i lifecycle obiektów
+QtNetwork po zamknięciu; test SSE ujawnił natywną awarię przy przedwczesnym
+niszczeniu transportu, usuniętą przez własność QObject i wygaszanie callbacków.
+
+Wynik po poprawkach: **126 PASS = 116 backend + 10 GUI** przez rzeczywisty X11/Xvfb.
+Wszystkie wcześniejsze 115 testów zachowano. Osobno **1 PASS rzeczywistego GUI GGUF**:
+streaming, żywy event loop Qt, kopiowanie, druga generacja, anulowanie, historia,
+restart i zamknięcie. **1 PASS rzeczywistego HF**: metadane, transfer, cancel/resume,
+SHA-256 oraz import. Są to osobne testy integracyjne wymagające środowiska/sieci;
+nie wchodzą do domyślnego CI bez wag.
+
+Pierwszy lokalny AppImage (jeszcze przed końcowymi poprawkami) przeszedł uruchomienie
+z własnym backendem i realną inferencją przez dołączony CPU llama.cpp. Sprawdzono
+też jego start przez X11 bez dodatkowego LD_LIBRARY_PATH. Końcowy plik będzie
+zbudowany ponownie z poprawkami; jego suma zostanie podana w późniejszym raporcie.

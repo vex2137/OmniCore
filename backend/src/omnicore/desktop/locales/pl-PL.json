@@ -132,5 +132,12 @@
   "unloaded": "Model zwolniony",
   "imported": "Model zaimportowany",
   "empty_models": "Tu zaczyna się Twoja kolekcja modeli.",
-  "advanced": "Zaawansowane parametry generowania"
+  "advanced": "Zaawansowane parametry generowania",
+  "ram_total": "RAM ogółem / dostępna",
+  "disk_free": "Wolne miejsce na dysku",
+  "ollama_managed": "Ollama ładuje model przy pierwszej wiadomości.",
+  "invalid_settings": "Nieprawidłowe ustawienia. Sprawdź parametry i uprawnienia katalogu.",
+  "invalid_backend_url": "Nieprawidłowy adres backendu. Użyj lokalnego HTTP lub zdalnego HTTPS.",
+  "remote_requires_https": "Zdalne połączenie wymaga HTTPS.",
+  "incompatible_backend": "Backend jest niezgodny z OmniCore API."
 }

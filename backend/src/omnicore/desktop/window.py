@@ -2,7 +2,6 @@
 
 import html
 import os
-import platform
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -73,6 +72,8 @@ class MainWindow(QMainWindow):
         self.conversations, self.models, self.messages = [], [], []
         self.current_id = None
         self.active_job = None
+        self._submitting = False
+        self._loading_model = False
         self.last_job = None
         self.downloads, self.remote_files = [], []
         self.engines = []
@@ -449,6 +450,9 @@ class MainWindow(QMainWindow):
         self.config.theme = self.theme.currentData()
         self.apply_theme()
 
+    def system_theme_changed(self, _scheme):
+        self.apply_theme()
+
     def apply_theme(self):
         dark = self.config.theme == "dark" or (
             self.config.theme == "system"
@@ -733,7 +737,7 @@ class MainWindow(QMainWindow):
             )
 
     def send_message(self):
-        if self.active_job or not self.is_connected:
+        if self.active_job or self._submitting or not self.is_connected:
             return
         if not self.current_id:
             self.show_error("no_conversation")
@@ -746,6 +750,7 @@ class MainWindow(QMainWindow):
         if not content:
             return
         self.send_button.setEnabled(False)
+        self._submitting = True
         payload = {
             "content": content,
             "request_key": uuid.uuid4().hex,
@@ -754,9 +759,11 @@ class MainWindow(QMainWindow):
         }
 
         def submitted(record):
+            self._submitting = False
             self.composer.clear()
             self.messages.append({"role": "user", "content": content})
             self.active_job = record["id"]
+            self.last_job = None
             self.stop_button.setEnabled(True)
             self.conversation_list.setEnabled(False)
             self.new_button.setEnabled(False)
@@ -765,6 +772,7 @@ class MainWindow(QMainWindow):
             self.api.watch(record["id"])
 
         def failure(code):
+            self._submitting = False
             self.send_button.setEnabled(True)
             self.show_error(code)
 
@@ -779,7 +787,11 @@ class MainWindow(QMainWindow):
     def generation_snapshot(self, record):
         if not isinstance(record, dict) or record.get("id") != self.active_job:
             return
-        if self.last_job and record["sequence"] < self.last_job["sequence"]:
+        if (
+            self.last_job
+            and self.last_job["id"] == record["id"]
+            and record["sequence"] < self.last_job["sequence"]
+        ):
             return
         self.last_job = record
         state = record["state"]
@@ -915,6 +927,12 @@ class MainWindow(QMainWindow):
 
     def model_details(self):
         record = self.selected_model()
+        self.load_button.setEnabled(
+            bool(record and record["backend"] == "llama.cpp" and not self._loading_model)
+        )
+        self.load_button.setToolTip(
+            self.tr("ollama_managed") if record and record["backend"] == "ollama" else ""
+        )
         if record:
             self.model_detail.setText(
                 f"{record['name']} · {record['format']} · {record.get('quantization') or '—'}\n"
@@ -945,6 +963,8 @@ class MainWindow(QMainWindow):
             self.config.save()
             self.roots.addItem(str(candidate.parent))
             self._pending_import = str(candidate)
+            self.is_connected = False
+            self.connection.setText(self.tr("connecting"))
             self.pages.setEnabled(False)
             self.session.restart(self.config)
             return
@@ -970,16 +990,19 @@ class MainWindow(QMainWindow):
         if not record:
             self.show_error("model_required")
             return
+        self._loading_model = True
         self.load_button.setEnabled(False)
         self.notify(self.tr("loading"))
 
         def loaded(_):
+            self._loading_model = False
             self.load_button.setEnabled(True)
             self.notify(self.tr("loaded"))
             self.model_combo.setCurrentIndex(self.model_combo.findData(record["id"]))
             self.refresh_models()
 
         def failure(code):
+            self._loading_model = False
             self.load_button.setEnabled(True)
             self.show_error("llama_unavailable" if code == "engine_unavailable" else code)
 
@@ -1187,6 +1210,8 @@ class MainWindow(QMainWindow):
             return
         self.notify(self.tr("saved"))
         if changed:
+            self.is_connected = False
+            self.connection.setText(self.tr("connecting"))
             self.pages.setEnabled(False)
             self.session.restart(self.config)
         else:
@@ -1200,7 +1225,6 @@ class MainWindow(QMainWindow):
             self.engines = records
             lines = [
                 f"{self.tr('backend')}: {self.api.base_url}",
-                f"{self.tr('cpu')}: {platform.machine()} · {os.cpu_count()}",
                 f"{self.tr('active_task')}: {self.active_job or self.tr('none')}",
             ]
             for record in records:
@@ -1218,7 +1242,28 @@ class MainWindow(QMainWindow):
                         f"{self.tr('vram')}: {human_size(resources.get('vram_bytes'))}",
                     ]
                 )
-            self.diagnostic_text.setPlainText("\n".join(lines))
+
+            def hardware_received(snapshot):
+                hardware = snapshot["hardware"]
+                lines.extend(
+                    [
+                        "",
+                        f"{self.tr('cpu')}: {hardware['cpu_architecture']}"
+                        f" · {hardware['cpu_count']}",
+                        f"{self.tr('ram_total')}: {human_size(hardware['ram_total_bytes'])} / "
+                        f"{human_size(hardware['ram_available_bytes'])}",
+                        f"{self.tr('disk_free')}: {human_size(hardware['disk_free_bytes'])}",
+                    ]
+                )
+                for record in snapshot["generations"]:
+                    if record["state"] not in TERMINAL or record["error_code"]:
+                        lines.append(
+                            f"{record['id']}: {self.tr(record['state'])} · "
+                            f"{record['error_code'] or '—'}"
+                        )
+                self.diagnostic_text.setPlainText("\n".join(lines))
+
+            self.api.request("GET", TEXT + "/diagnostics", success=hardware_received)
 
         self.api.request("GET", TEXT + "/engines", success=received)
 

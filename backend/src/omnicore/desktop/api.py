@@ -2,7 +2,7 @@
 
 import json
 
-from PySide6.QtCore import QObject, QUrl, Signal
+from PySide6.QtCore import QCoreApplication, QObject, QUrl, Signal
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 
 
@@ -12,18 +12,23 @@ class ApiClient(QObject):
     stream_closed = Signal()
 
     def __init__(self, parent=None):
-        super().__init__(parent)
+        # Keep the C++ transport alive until queued reply deletions have drained.
+        super().__init__(parent or QCoreApplication.instance())
         self.manager = QNetworkAccessManager(self)
         self.base_url = ""
         self._token = ""
+        self._closed = False
         self._requests = set()
         self._stream = None
         self._buffer = b""
 
     def configure(self, url: str, token: str = ""):
+        self._closed = False
         self.base_url, self._token = url.rstrip("/"), token
 
     def request(self, method, path, payload=None, success=None, failure=None, timeout=15000):
+        if self._closed:
+            return None
         request = QNetworkRequest(QUrl(self.base_url + path))
         request.setHeader(QNetworkRequest.ContentTypeHeader, "application/json")
         request.setTransferTimeout(timeout)
@@ -39,6 +44,9 @@ class ApiClient(QObject):
 
         def finished():
             self._requests.discard(reply)
+            if self._closed:
+                reply.deleteLater()
+                return
             status = reply.attribute(QNetworkRequest.HttpStatusCodeAttribute)
             data = bytes(reply.readAll())
             try:
@@ -114,6 +122,7 @@ class ApiClient(QObject):
             reply.abort()
 
     def close(self):
+        self._closed = True
         self.close_stream()
         for reply in tuple(self._requests):
             reply.abort()

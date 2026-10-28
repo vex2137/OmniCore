@@ -69,6 +69,7 @@ class HuggingFace:
             "cdn-lfs.huggingface.co",
             "cdn-lfs-us-1.huggingface.co",
             "cas-bridge.xethub.hf.co",
+            "us.aws.cdn.hf.co",
         }
 
     def headers(self, url):

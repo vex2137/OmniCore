@@ -105,6 +105,8 @@ class SmokeRun:
                         "stage": self.stage,
                         "backend_pid": self.pid,
                         "owned": self.window.session.owned,
+                        "locale": self.window.config.locale,
+                        "theme": self.window.config.theme,
                         "real_gguf": bool(self.gguf),
                         "generation": self.record,
                         "models": len(self.window.models),

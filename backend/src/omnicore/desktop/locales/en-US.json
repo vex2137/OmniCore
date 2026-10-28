@@ -132,5 +132,12 @@
   "unloaded": "Model unloaded",
   "imported": "Model imported",
   "empty_models": "Your model collection starts here.",
-  "advanced": "Advanced generation controls"
+  "advanced": "Advanced generation controls",
+  "ram_total": "RAM total / available",
+  "disk_free": "Free disk space",
+  "ollama_managed": "Ollama loads the model on the first message.",
+  "invalid_settings": "Invalid settings. Check parameters and directory permissions.",
+  "invalid_backend_url": "Invalid backend URL. Use local HTTP or remote HTTPS.",
+  "remote_requires_https": "Remote connections require HTTPS.",
+  "incompatible_backend": "The backend is not compatible with the OmniCore API."
 }

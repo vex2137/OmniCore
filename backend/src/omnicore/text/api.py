@@ -12,6 +12,7 @@ from pydantic import Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
 from omnicore.config import RuntimeConfig
+from omnicore.diagnostics import HardwareSnapshot, hardware_snapshot
 from omnicore.events import EventHub
 from omnicore.schemas import BackendInfo, WireModel
 from omnicore.text.conversations import (
@@ -87,6 +88,18 @@ class EngineDiagnostic(WireModel):
     gpu_devices: list[str] = Field(default_factory=list)
 
 
+class TaskDiagnostic(WireModel):
+    id: str
+    model_id: str
+    state: str
+    error_code: str | None = None
+
+
+class TextDiagnostic(WireModel):
+    hardware: HardwareSnapshot
+    generations: list[TaskDiagnostic]
+
+
 class TextService:
     def __init__(self, db, config: RuntimeConfig, hub: EventHub):
         self.config = config
@@ -125,6 +138,18 @@ class TextService:
 
 def routes(service: TextService):
     router = APIRouter(prefix="/api/v1/text", tags=["Text AI"])
+
+    @router.get("/diagnostics", response_model=TextDiagnostic)
+    async def diagnostics():
+        hardware = await run_in_threadpool(hardware_snapshot, service.config.data_dir)
+
+        def records():
+            return [
+                TaskDiagnostic(**{k: record[k] for k in ("id", "model_id", "state", "error_code")})
+                for record in service.store.jobs("generation")[-100:]
+            ]
+
+        return TextDiagnostic(hardware=hardware, generations=await run_in_threadpool(records))
 
     @router.get("/engines", response_model=list[EngineDiagnostic])
     async def engines():
