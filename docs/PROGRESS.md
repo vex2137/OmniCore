@@ -3,11 +3,11 @@
 ## Project Status
 
 - **Current version:** 0.1.0 Alpha (`0.1.0a0`), fundament; bez wydania produktu.
-- **Current milestone:** Etap 1 — Fundament: implementacja i walidacja wykonane,
-  trwa zapis oraz publikacja etapu. Etapu 2 nie rozpoczęto.
+- **Current milestone:** Etap 1 — Fundament ukończony, przetestowany i wysłany na GitHub.
+  Etapu 2 nie rozpoczęto; raport kończy bieżący zakres prac.
 - **Current development branch:** `feature/0.1.0-alpha`.
-- **Last verified commit:** `270f2b924b6854c834a5472f7f39d05aea0a26dd`
-  (zdalny punkt kontrolny dokumentacji, potwierdzony podczas bieżącego audytu).
+- **Last verified commit:** `59dd09f87b793a86dd3059dd64b7d7823311744c`
+  (fundament Etapu 1; lokalny HEAD, zdalny ref i ponownie pobrany commit są zgodne).
 - **Last update:** 2026-10-28 (Europe/Warsaw).
 
 ## Completed
@@ -35,14 +35,17 @@
   działający proces odpowiedział poprawnie na health i żądanie katalogu PL.
 - Zapisano w szkicu konfiguracji środowiska `install_script` i `start_skill`.
   Skrypt instalacji sprawdzono ponownie; zapis szkicu nie publikuje środowiska.
+- Zapisano audyt/architekturę w `cbd36fc`, a fundament w
+  `59dd09f87b793a86dd3059dd64b7d7823311744c`. Push gałęzi funkcjonalnej powiódł się;
+  ponownie pobrano ref i porównano SHA oraz kluczowe pliki źródłowe i kontrakty.
 
 ## In Progress
 
-- Zapis etapu w Git, push gałęzi funkcjonalnej i potwierdzenie zdalnego SHA.
+- Brak aktywnego etapu implementacji. Etap 1 zakończony; Etap 2 wymaga kolejnego zadania.
 
 ## Planned Next
 
-1. Zakończyć raport Etapu 1 i zatrzymać pracę przed Etapem 2.
+1. Przejrzeć rezultat Etapu 1 na gałęzi funkcjonalnej; nie rozpoczynać Etapu 2 w tej sesji.
 2. W następnym zadaniu: adaptery Ollama/llama.cpp, menedżer modeli, czat,
    streaming, historia i import/eksport rozmów wraz z testami rzeczywistej inferencji.
 3. Dopiero w Etapie 3: ComfyUI i sprawdzone workflowy, kolejka, obrazy, LoRA.
@@ -89,13 +92,14 @@ bez modeli, silników inferencji i wymaganego GPU.
 | `.venv-package/bin/python -I scripts/smoke.py` | PASS — bez importowania pakietu z checkoutu |
 | GPU / silniki / anulowanie generowania / GUI | Niewykonane — moduły powstaną w kolejnych etapach |
 | GitHub Actions | Nie potwierdzono wykonania workflow; lokalne polecenia CI wykonano |
+| Push `feature/0.1.0-alpha` i niezależny odczyt SHA | PASS — `59dd09f87b793a86dd3059dd64b7d7823311744c` |
 
 ## GitHub Status
 
 - **Branch:** `feature/0.1.0-alpha`.
-- **Local commit SHA:** `cbd36fc` — commit audytu/architektury; pełny SHA dostępny przez Git.
-- **Remote commit SHA:** gałąź funkcjonalna nie została jeszcze opublikowana.
-- **Push status:** oczekuje na commit i push fundamentu.
+- **Local commit SHA:** `59dd09f87b793a86dd3059dd64b7d7823311744c` — punkt kontrolny fundamentu.
+- **Remote commit SHA:** `59dd09f87b793a86dd3059dd64b7d7823311744c` — potwierdzony przez `git ls-remote` i fetch.
+- **Push status:** sukces; porównano zdalny commit z lokalnym i obecność kluczowych plików.
 - **Pull request status:** nie utworzono w tej sesji.
 - **Main:** podczas audytu `0f91a3e9a7ba28cac3324238248e1fda75fdb174`, nie zmieniano.
 - **Access test:** historyczny push potwierdzony na `test/omnicore-github-access`,
@@ -107,7 +111,9 @@ wynik weryfikacji może być późniejszy; nie próbować wpisywać hasha commit
 ## Session Handoff
 
 Najpierw przeczytać AGENTS.md, ROADMAP.md, PROGRESS.md i ARCHITECTURE.md.
-Fundament jest zaimplementowany i przetestowany; dokończyć commit, push i raport.
+Fundament jest zaimplementowany, przetestowany i opublikowany na gałęzi funkcjonalnej.
+Ten dokument zapisuje wynik weryfikacji wcześniejszego commita; aktualny HEAD
+raportu sprawdzić poniższymi poleceniami i porównać ze zdalnym refem.
 Nie rozpoczynać Etapu 2 w tym zadaniu. W nowym zadaniu porównać dokumentację
 z rzeczywistym kodem i stanem Git; nie zakładać stałości gałęzi lub zdalnego HEAD.
 
