@@ -100,12 +100,26 @@
       ],
       "default": null
     },
+    "task": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task"
+    },
     "type": {
       "enum": [
         "hello",
         "settings.updated",
         "pong",
-        "error"
+        "error",
+        "generation.updated"
       ],
       "title": "Type",
       "type": "string"

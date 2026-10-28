@@ -11,6 +11,15 @@
 
 ## Completed
 
+### Etap 2 E — generowanie i anulowanie
+
+- Trwała kolejka z jedną generacją, request_key z kontrolą fingerprintu, jawne
+  stany, limity czasu, atomowe snapshoty odpowiedzi i historii, zachowanie częściowego tekstu.
+- Integracja obu transportów, wykrywanie OOM/braku silnika, bezpieczny deskryptor
+  modelu przekazany do procesu, anulowanie i odtwarzanie przerwanych zadań po restarcie.
+- Regresja: 104 PASS; testy generowania korzystają z kontrolowanego adaptera,
+  więc nie potwierdzają rzeczywistej inferencji. API części F w realizacji.
+
 ### Etap 2 D — rozmowy i historia
 
 - Rozmowy, model/parametry, role, znaczniki czasu, Unicode search, zmiana nazwy,

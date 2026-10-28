@@ -1,0 +1,308 @@
+"""Durable, bounded generation jobs. Stream snapshots are never the only copy."""
+
+import asyncio
+import hashlib
+import json
+import os
+import uuid
+from typing import Literal
+
+from pydantic import Field
+
+from omnicore.schemas import ServerEvent, WireModel
+from omnicore.text.conversations import Conversations, MessageRecord
+from omnicore.text.models import ModelManager
+from omnicore.text.store import TextStore, timestamp
+from omnicore.text.types import GenerationParameters, TextError, TextMessage
+
+TERMINAL = {"completed", "cancelled", "failed", "interrupted"}
+
+
+class GenerationRecord(WireModel):
+    id: str
+    conversation_id: str
+    model_id: str
+    state: Literal["queued", "running", "completed", "cancelled", "failed", "interrupted"] = (
+        "queued"
+    )
+    parameters: GenerationParameters
+    content: str = ""
+    sequence: int = 0
+    error_code: str | None = None
+    output_tokens: int | None = None
+    tokens_per_second: float | None = None
+    created_at: str
+    updated_at: str
+
+
+class GenerationRequest(WireModel):
+    content: str = Field(min_length=1, max_length=60000)
+    request_key: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
+    model_id: str | None = None
+    parameters: GenerationParameters | None = None
+
+
+class GenerationManager:
+    def __init__(
+        self, store: TextStore, models: ModelManager, engines: dict, hub, timeout: float = 300
+    ):
+        self.store, self.models, self.engines, self.hub = store, models, engines, hub
+        self.history = Conversations(store)
+        self.timeout = timeout
+        self.semaphore = asyncio.Semaphore(1)
+        self.submission_lock = asyncio.Lock()
+        self.tasks: dict[str, asyncio.Task] = {}
+
+    def record(self, job_id):
+        return GenerationRecord.model_validate(self.store.job("generation", job_id))
+
+    def _save(self, record):
+        record.updated_at = timestamp()
+        record.sequence += 1
+        self.store.save_job("generation", record.id, record.model_dump(mode="json"))
+        self.hub.publish(
+            ServerEvent(type="generation.updated", task=record.model_dump(mode="json"))
+        )
+
+    def initialize(self):
+        for item in self.store.jobs("generation"):
+            if item["state"] not in TERMINAL:
+                record = GenerationRecord.model_validate(item)
+                record.state, record.error_code = "interrupted", "backend_restarted"
+                self.store.save_job("generation", record.id, record.model_dump(mode="json"))
+                self.history.save_assistant(
+                    record.conversation_id,
+                    record.id,
+                    record.content,
+                    "interrupted",
+                    record.parameters,
+                )
+
+    def active_for(self, *, model_id=None, conversation_id=None):
+        return any(
+            (model_id is None or self.record(job_id).model_id == model_id)
+            and (conversation_id is None or self.record(job_id).conversation_id == conversation_id)
+            for job_id in list(self.tasks)
+        )
+
+    async def submit(self, conversation_id, request: GenerationRequest):
+        async with self.submission_lock:
+            conversation = await asyncio.to_thread(self.history.get, conversation_id)
+            model_id = request.model_id or conversation.model_id
+            if not model_id:
+                raise TextError("model_required", 422)
+            await asyncio.to_thread(self.store.model, model_id)
+            parameters = request.parameters or conversation.parameters
+            fingerprint = hashlib.sha256(
+                json.dumps(
+                    {
+                        "conversation": conversation_id,
+                        "model": model_id,
+                        "content": request.content,
+                        "parameters": parameters.model_dump(),
+                    },
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()
+
+            def reserve():
+                with self.store.db.connect() as connection, connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    previous = connection.execute(
+                        "SELECT job_id,fingerprint FROM text_generation_keys WHERE request_key=?",
+                        (request.request_key,),
+                    ).fetchone()
+                    if previous:
+                        if previous[1] != fingerprint:
+                            raise TextError("idempotency_conflict", 409)
+                        return previous[0], False
+                    if self.active_for(conversation_id=conversation_id):
+                        raise TextError("conversation_busy", 409)
+                    if len(self.tasks) >= 16:
+                        raise TextError("queue_full", 429)
+                    record = GenerationRecord(
+                        id=uuid.uuid4().hex,
+                        conversation_id=conversation_id,
+                        model_id=model_id,
+                        parameters=parameters,
+                        created_at=timestamp(),
+                        updated_at=timestamp(),
+                    )
+                    user = MessageRecord(
+                        id=uuid.uuid4().hex,
+                        conversation_id=conversation_id,
+                        role="user",
+                        content=request.content,
+                        created_at=timestamp(),
+                    )
+                    connection.execute(
+                        "INSERT INTO text_generation_keys VALUES(?,?,?)",
+                        (request.request_key, record.id, fingerprint),
+                    )
+                    connection.execute(
+                        "INSERT INTO text_jobs VALUES('generation',?,?)",
+                        (record.id, record.model_dump_json()),
+                    )
+                    connection.execute(
+                        "INSERT INTO text_messages(id,conversation_id,record) VALUES(?,?,?)",
+                        (user.id, conversation_id, user.model_dump_json()),
+                    )
+                    return record.id, True
+
+            job_id, created = await asyncio.to_thread(reserve)
+            if created:
+                await asyncio.to_thread(
+                    self.history.update, conversation_id, model_id=model_id, parameters=parameters
+                )
+                self.tasks[job_id] = asyncio.create_task(self._run(job_id))
+            return self.record(job_id)
+
+    async def _persist(self, record):
+        record.updated_at = timestamp()
+        record.sequence += 1
+        snapshot = record.model_copy(deep=True)
+
+        def commit_snapshot():
+            with self.store.db.connect() as connection, connection:
+                row = connection.execute(
+                    "SELECT record FROM text_messages WHERE generation_id=?", (snapshot.id,)
+                ).fetchone()
+                message = (
+                    MessageRecord.model_validate_json(row[0])
+                    if row
+                    else MessageRecord(
+                        id=uuid.uuid4().hex,
+                        conversation_id=snapshot.conversation_id,
+                        role="assistant",
+                        generation_id=snapshot.id,
+                        created_at=timestamp(),
+                    )
+                )
+                message.content, message.status = snapshot.content, snapshot.state
+                message.parameters = snapshot.parameters
+                connection.execute(
+                    "INSERT INTO text_messages(id,conversation_id,generation_id,record) "
+                    "VALUES(?,?,?,?) "
+                    "ON CONFLICT(generation_id) DO UPDATE SET record=excluded.record",
+                    (
+                        message.id,
+                        message.conversation_id,
+                        message.generation_id,
+                        message.model_dump_json(),
+                    ),
+                )
+                connection.execute(
+                    "UPDATE text_jobs SET record=? WHERE kind='generation' AND id=?",
+                    (snapshot.model_dump_json(), snapshot.id),
+                )
+
+        writer = asyncio.create_task(asyncio.to_thread(commit_snapshot))
+        try:
+            await asyncio.shield(writer)
+        except asyncio.CancelledError:
+            await writer
+            raise
+        self.hub.publish(
+            ServerEvent(type="generation.updated", task=snapshot.model_dump(mode="json"))
+        )
+
+    async def _run(self, job_id):
+        record = self.record(job_id)
+        engine = None
+        unload_name = None
+        try:
+            async with self.semaphore, asyncio.timeout(self.timeout):
+                record.state = "running"
+                await self._persist(record)
+                model = await asyncio.to_thread(self.store.model, record.model_id)
+                unload_name = model.location if model.backend == "ollama" else None
+                engine = self.engines.get(model.backend)
+                if engine is None or not (await engine.probe()).available:
+                    raise TextError("engine_unavailable", 503)
+                history = await asyncio.to_thread(self.history.messages, record.conversation_id)
+                messages = [
+                    TextMessage(role=item.role, content=item.content)
+                    for item in history
+                    if item.role != "assistant" or item.status == "completed"
+                ]
+                if record.parameters.system_prompt:
+                    messages.insert(
+                        0, TextMessage(role="system", content=record.parameters.system_prompt)
+                    )
+                if model.backend == "llama.cpp":
+                    # The child inherits the validated descriptor, so replacing a pathname cannot
+                    # swap in a different model between validation and llama-server opening it.
+                    path = self.models.validated_reference(model.id)
+                    with self.models.policy.open(path) as stream:
+                        info = os.fstat(stream.fileno())
+                        if (info.st_dev, info.st_ino) != self.store.model_identity(model.id):
+                            raise TextError("model_file_changed", 409)
+                        await engine.load(path, record.parameters, file_descriptor=stream.fileno())
+                        await self._consume(engine, str(path), messages, record)
+                else:
+                    await self._consume(engine, model.location, messages, record)
+                record.state = "completed"
+                await self._persist(record)
+                model.compatibility = "tested"
+                model.capabilities = list(dict.fromkeys([*model.capabilities, "text-generation"]))
+                model.tested_backends = list(dict.fromkeys([*model.tested_backends, model.backend]))
+                model.metadata["last_inference"] = {
+                    "at": timestamp(),
+                    "engine_version": (await engine.probe()).version,
+                    "device": record.parameters.device,
+                }
+                await asyncio.to_thread(self.store.update_model, model)
+        except asyncio.CancelledError:
+            record.state, record.error_code = "cancelled", None
+            await self._persist(record)
+            if engine:
+                await engine.unload(unload_name)
+            raise
+        except TimeoutError:
+            record.state, record.error_code = "failed", "engine_timeout"
+            await self._persist(record)
+            if engine:
+                await engine.unload(unload_name)
+        except TextError as exc:
+            record.state, record.error_code = "failed", exc.code
+            await self._persist(record)
+            if engine:
+                await engine.unload(unload_name)
+        except Exception:
+            record.state, record.error_code = "failed", "generation_failed"
+            await self._persist(record)
+            if engine:
+                await engine.unload(unload_name)
+        finally:
+            self.tasks.pop(job_id, None)
+
+    async def _consume(self, engine, model, messages, record):
+        async for chunk in engine.stream(model, messages, record.parameters):
+            if len(record.content) + len(chunk.content) > 1_000_000:
+                raise TextError("generation_limit_exceeded", 422)
+            record.content += chunk.content
+            if chunk.output_tokens is not None:
+                record.output_tokens = chunk.output_tokens
+            if chunk.tokens_per_second is not None:
+                record.tokens_per_second = chunk.tokens_per_second
+            await self._persist(record)
+
+    async def cancel(self, job_id):
+        record = self.record(job_id)
+        if record.state in TERMINAL:
+            return record
+        task = self.tasks.get(job_id)
+        if task:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        record = self.record(job_id)
+        if record.state not in TERMINAL:
+            record.state = "cancelled"
+            await self._persist(record)
+        return record
+
+    async def close(self):
+        for job_id in list(self.tasks):
+            await self.cancel(job_id)
+        for engine in self.engines.values():
+            await engine.stop()

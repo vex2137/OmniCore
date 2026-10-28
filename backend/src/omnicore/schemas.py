@@ -87,9 +87,10 @@ class ErrorResponse(WireModel):
 
 class ServerEvent(WireModel):
     schema_version: Literal[1] = 1
-    type: Literal["hello", "settings.updated", "pong", "error"]
+    type: Literal["hello", "settings.updated", "pong", "error", "generation.updated"]
     settings: Preferences | None = None
     error: ErrorDetail | None = None
+    task: dict[str, object] | None = None
 
 
 class ClientEvent(WireModel):

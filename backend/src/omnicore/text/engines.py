@@ -286,7 +286,9 @@ class LlamaEngine:
         # Only the successfully loaded model is advertised. Vision is not inferred from GGUF alone.
         return ["text-generation"] if self.model == model else []
 
-    async def load(self, path: Path, parameters: GenerationParameters) -> None:
+    async def load(
+        self, path: Path, parameters: GenerationParameters, file_descriptor: int | None = None
+    ) -> None:
         async with self._lock:
             desired = (str(path), parameters.context_size, parameters.gpu_layers, parameters.device)
             if self.parameters == desired and self.process and self.process.returncode is None:
@@ -303,10 +305,13 @@ class LlamaEngine:
             with socket.socket() as sock:
                 sock.bind(("127.0.0.1", 0))
                 port = sock.getsockname()[1]
+            model_path = (
+                f"/proc/self/fd/{file_descriptor}" if file_descriptor is not None else str(path)
+            )
             arguments = [
                 str(self.executable),
                 "--model",
-                str(path),
+                model_path,
                 "--host",
                 "127.0.0.1",
                 "--port",
@@ -332,6 +337,7 @@ class LlamaEngine:
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=self._log,
                     start_new_session=True,
+                    pass_fds=(file_descriptor,) if file_descriptor is not None else (),
                 )
                 self.client = client_for(f"http://127.0.0.1:{port}")
                 async with asyncio.timeout(self.startup_timeout):

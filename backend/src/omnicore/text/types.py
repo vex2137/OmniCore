@@ -27,7 +27,7 @@ class GenerationParameters(WireModel):
 
 class TextMessage(WireModel):
     role: Literal["system", "user", "assistant"]
-    content: str = Field(max_length=60000)
+    content: str = Field(max_length=1_000_000)
 
 
 class TextChunk(WireModel):
