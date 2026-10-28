@@ -39,6 +39,18 @@ TEXT_MIGRATIONS = (
         PRIMARY KEY(kind,id)
     );
     """,
+    """
+    CREATE TABLE text_conversations (id TEXT PRIMARY KEY, record TEXT NOT NULL);
+    CREATE TABLE text_messages (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+        conversation_id TEXT NOT NULL REFERENCES text_conversations(id) ON DELETE CASCADE,
+        generation_id TEXT UNIQUE, record TEXT NOT NULL
+    );
+    CREATE INDEX text_message_conversation ON text_messages(conversation_id,seq);
+    CREATE TABLE text_generation_keys (
+        request_key TEXT PRIMARY KEY, job_id TEXT NOT NULL, fingerprint TEXT NOT NULL
+    );
+    """,
 )
 
 

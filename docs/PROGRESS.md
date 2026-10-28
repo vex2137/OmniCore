@@ -11,6 +11,14 @@
 
 ## Completed
 
+### Etap 2 D — rozmowy i historia
+
+- Rozmowy, model/parametry, role, znaczniki czasu, Unicode search, zmiana nazwy,
+  usuwanie kaskadowe i zachowanie historii po zmianie modelu oraz restarcie.
+- JSON import/eksport waliduje role/czas/pola, zachowuje treść i tworzy nowe ID;
+  zapis odpowiedzi po generation_id jest idempotentny i zachowuje częściowy tekst.
+- Regresja: 97 PASS, Ruff PASS. GUI i inferencja nie są częścią tych testów.
+
 ### Etap 2 C — pobieranie Hugging Face
 
 - Wyszukiwanie repozytoriów i GGUF, przypięcie rewizji, rozmiar/licencja i checksum.
