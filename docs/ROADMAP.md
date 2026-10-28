@@ -5,8 +5,9 @@ Ostatnia aktualizacja: **2026-10-28**.
 
 ## Status i sposób realizacji
 
-Repozytorium zawiera fundament backendu Etapu 1 i testy bez GPU.
-Funkcje inferencji i klientów pozostają **planowane / nierozpoczęte**.
+Repozytorium zawiera fundament Etapu 1 oraz implementację backendu Text AI Etapu 2
+z testami bez GPU. Rzeczywista inferencja GGUF pozostaje niezweryfikowana z powodu
+braku modelu i blokady sieci HF. Klienci i Image AI pozostają planowane.
 Puste pola `[ ]` są zadaniami do wykonania, a nie potwierdzeniem funkcji.
 Zakończenie funkcji wymaga kodu, właściwych testów i udokumentowanej weryfikacji
 w [PROGRESS.md](PROGRESS.md). Zasady sesji: [AGENTS.md](../AGENTS.md).
@@ -56,7 +57,8 @@ deklarować zgodności modeli na podstawie zmiany języka.
 ## OmniCore 0.1.0 — Text & Image
 
 **Status:** w realizacji — fundament Etapu 1 zaimplementowany i przetestowany;
-cała wersja 0.1.0 Alpha pozostaje nieukończona.
+backend Etapu 2 A–F zaimplementowany, ale jego akceptacja z rzeczywistym modelem
+pozostaje otwarta. Cała wersja 0.1.0 Alpha pozostaje nieukończona.
 
 ### Fundament — Etap 1
 
@@ -71,6 +73,25 @@ cała wersja 0.1.0 Alpha pozostaje nieukończona.
 
 Gotowość tego fundamentu nie oznacza działania czatu, obrazów, menedżera modeli
 ani klientów. Przed Etapem 2 wymagany jest raport Etapu 1 zgodnie z zakresem zadania.
+
+### Text AI — Etap 2
+
+- [x] A: transporty llama.cpp/Ollama, detekcja, własny proces i lifecycle.
+- [x] B: katalog, referencje GGUF, metadane, ograniczenia ścieżek i struktury pliku.
+- [x] C: HF search/pliki i mechanizm potwierdzonego download/resume/checksum/cancel.
+- [x] D: SQLite, trwałe rozmowy, model/parametry, historia i import/eksport JSON.
+- [x] E: mechanizm kolejki, streamingu, idempotencji, timeoutów i anulowania.
+- [x] F: nowe API/WS, kontrakty, lokalizacja, zabezpieczenia i regresja komponentów.
+- [ ] Wykonać rzeczywisty HF transfer po zastosowaniu polityki sieciowej.
+- [ ] Wykonać wymagany scenariusz: brak Ollamy, realny GGUF i llama.cpp, odpowiedź,
+  historia oraz unload. Build silnika i fixture nie spełniają tego warunku.
+- [ ] Zweryfikować opcjonalną integrację rzeczywistej Ollamy z istniejącym modelem.
+- [ ] Zweryfikować CachyOS/RTX 4060, dostępny backend GPU, VRAM/OOM i anulowanie na sprzęcie.
+
+Checkboxy A–F potwierdzają implementację i testy usług/protokołów, nie deklarują
+działania realnego modelu. Zewnętrzny warunek akceptacji pozostaje niespełniony.
+Szczegóły i procedura wznowienia: [TEXT_AI.md](TEXT_AI.md), [ENGINES.md](ENGINES.md).
+Nie rozpoczynać Etapu 3 w ramach tego zadania.
 
 ### Cele
 

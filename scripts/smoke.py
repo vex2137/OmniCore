@@ -60,7 +60,7 @@ def backend(data_dir: str):
                 process.wait(timeout=5)
 
 
-def request(url: str, payload: dict | None = None):
+def request(url: str, payload: dict | None = None, method: str | None = None):
     # Only our loopback server is contacted. Do not send these requests to the egress proxy.
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     data = json.dumps(payload).encode() if payload is not None else None
@@ -68,7 +68,7 @@ def request(url: str, payload: dict | None = None):
         url,
         data=data,
         headers={"Content-Type": "application/json"},
-        method="PUT" if data is not None else "GET",
+        method=method or ("PUT" if data is not None else "GET"),
     )
     with opener.open(req, timeout=2) as response:
         return json.load(response)
@@ -78,8 +78,17 @@ def main():
     expected = {"schema_version": 1, "locale": "pl-PL", "theme": "dark", "mode": "advanced"}
     with tempfile.TemporaryDirectory(prefix="omnicore-smoke-") as data_dir:
         with backend(data_dir) as (url, port):
-            assert request(url + "/api/v1/backends") == []
+            backends = request(url + "/api/v1/backends")
+            assert isinstance(backends, list) and all(item["available"] for item in backends)
             assert request(url + "/api/v1/locales/pl-PL")["messages"]["nav.chat"] == "Czat"
+            assert request(url + "/api/v1/text/status")["generation_concurrency"] == 1
+            conversation = request(url + "/api/v1/text/conversations", {"title": "Smoke"}, "POST")
+            conversation_id = conversation["id"]
+            request(
+                url + f"/api/v1/text/conversations/{conversation_id}/messages",
+                {"role": "user", "content": "Cześć"},
+                "POST",
+            )
             with connect(f"ws://127.0.0.1:{port}/api/v1/events", proxy=None) as websocket:
                 assert json.loads(websocket.recv(timeout=3))["type"] == "hello"
                 websocket.send('{"type":"ping"}')
@@ -90,9 +99,9 @@ def main():
                 assert event["settings"] == expected
         with backend(data_dir) as (url, _):
             assert request(url + "/api/v1/settings") == expected
-    print(
-        "PASS: CLI startup, live HTTP/WS, PL catalog, settings event and persistence after restart"
-    )
+            exported = request(url + f"/api/v1/text/conversations/{conversation_id}/export")
+            assert exported["messages"][0]["content"] == "Cześć"
+    print("PASS: CLI, HTTP/WS, PL, settings and conversation persistence after restart")
 
 
 if __name__ == "__main__":

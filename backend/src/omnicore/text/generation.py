@@ -82,6 +82,7 @@ class GenerationManager:
         return any(
             (model_id is None or self.record(job_id).model_id == model_id)
             and (conversation_id is None or self.record(job_id).conversation_id == conversation_id)
+            and self.record(job_id).state not in TERMINAL
             for job_id in list(self.tasks)
         )
 
@@ -217,7 +218,8 @@ class GenerationManager:
                 model = await asyncio.to_thread(self.store.model, record.model_id)
                 unload_name = model.location if model.backend == "ollama" else None
                 engine = self.engines.get(model.backend)
-                if engine is None or not (await engine.probe()).available:
+                engine_info = await engine.probe() if engine else None
+                if engine_info is None or not engine_info.available:
                     raise TextError("engine_unavailable", 503)
                 history = await asyncio.to_thread(self.history.messages, record.conversation_id)
                 messages = [
@@ -241,17 +243,24 @@ class GenerationManager:
                         await self._consume(engine, str(path), messages, record)
                 else:
                     await self._consume(engine, model.location, messages, record)
+                if record.content.strip():
+                    model.compatibility = "tested"
+                    model.capabilities = list(
+                        dict.fromkeys([*model.capabilities, "text-generation"])
+                    )
+                    model.tested_backends = list(
+                        dict.fromkeys([*model.tested_backends, model.backend])
+                    )
+                    model.metadata["last_inference"] = {
+                        "at": timestamp(),
+                        "engine_version": engine_info.version,
+                        "device": record.parameters.device
+                        if model.backend == "llama.cpp"
+                        else "engine-managed",
+                    }
+                    await asyncio.to_thread(self.store.update_model, model)
                 record.state = "completed"
                 await self._persist(record)
-                model.compatibility = "tested"
-                model.capabilities = list(dict.fromkeys([*model.capabilities, "text-generation"]))
-                model.tested_backends = list(dict.fromkeys([*model.tested_backends, model.backend]))
-                model.metadata["last_inference"] = {
-                    "at": timestamp(),
-                    "engine_version": (await engine.probe()).version,
-                    "device": record.parameters.device,
-                }
-                await asyncio.to_thread(self.store.update_model, model)
         except asyncio.CancelledError:
             record.state, record.error_code = "cancelled", None
             await self._persist(record)

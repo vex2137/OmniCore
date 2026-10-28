@@ -1,6 +1,7 @@
 """Functional foundation API; no generation routes until real adapters exist."""
 
 import asyncio
+import json
 import sqlite3
 from contextlib import asynccontextmanager
 
@@ -32,6 +33,8 @@ from omnicore.schemas import (
     ServerEvent,
 )
 from omnicore.security import SecurityBoundary, error_response
+from omnicore.text.api import GenerationWatch, TextService, routes
+from omnicore.text.types import TextError
 
 
 def create_app(config: RuntimeConfig | None = None) -> FastAPI:
@@ -40,17 +43,25 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
     hub = EventHub()
     registry = AdapterRegistry()
     settings_lock = asyncio.Lock()
+    text = TextService(db, config, hub)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await run_in_threadpool(db.initialize)
-        yield
+        try:
+            await run_in_threadpool(text.initialize)
+            yield
+        finally:
+            await text.close()
 
-    errors = {code: {"model": ErrorResponse} for code in [401, 403, 404, 405, 413, 422, 500, 503]}
+    errors = {
+        code: {"model": ErrorResponse}
+        for code in [401, 403, 404, 405, 409, 413, 422, 429, 500, 502, 503, 504]
+    }
     app = FastAPI(
         title="OmniCore",
         version=__version__,
-        description="Stage 1 foundation. Inference engines and clients are not implemented yet.",
+        description="Local Text AI backend with optional llama.cpp and Ollama. No GUI or Image AI.",
         lifespan=lifespan,
         responses=errors,
         docs_url=None,
@@ -59,6 +70,8 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
     app.state.db = db
     app.state.registry = registry
     app.state.hub = hub
+    app.state.text = text
+    app.include_router(routes(text))
 
     def openapi():
         if app.openapi_schema is None:
@@ -82,7 +95,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(config.allowed_origins),
-        allow_methods=["GET", "PUT", "OPTIONS"],
+        allow_methods=["GET", "PUT", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Accept-Language"],
     )
     app.add_middleware(SecurityBoundary, config=config)
@@ -91,6 +104,10 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
     async def invalid_request(request: Request, exc: RequestValidationError):
         # Do not echo inputs: future requests may contain sensitive user data.
         return error_response("validation_error", 422, request.headers.get("accept-language"))
+
+    @app.exception_handler(TextError)
+    async def text_error(request: Request, exc: TextError):
+        return error_response(exc.code, exc.status, request.headers.get("accept-language"))
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException):
@@ -130,12 +147,18 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
 
     @app.get("/api/v1/backends", response_model=list[BackendInfo], operation_id="listBackends")
     async def list_backends():
-        return await registry.discover()
+        records = await registry.discover()
+        for engine in text.engines.values():
+            info = await engine.probe()
+            if info.available:
+                records.append(info)
+        return records
 
     @app.websocket("/api/v1/events")
     async def events(websocket: WebSocket):
         subprotocol = "omnicore.v1" if "omnicore.v1" in websocket.scope["subprotocols"] else None
         await websocket.accept(subprotocol=subprotocol)
+        watched: set[str] = set()
 
         async def sender(queue):
             while True:
@@ -155,8 +178,25 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
                     await websocket.close(code=1009)
                     return
                 try:
-                    ClientEvent.model_validate_json(text)
-                except ValidationError:
+                    data = json.loads(text)
+                    if isinstance(data, dict) and data.get("type") == "generation.watch":
+                        watch = GenerationWatch.model_validate(data)
+                        record = await run_in_threadpool(
+                            app.state.text.generations.record, watch.job_id
+                        )
+                        if watch.cancel_on_disconnect:
+                            watched.add(watch.job_id)
+                        else:
+                            watched.discard(watch.job_id)
+                        hub.enqueue(
+                            queue,
+                            ServerEvent(
+                                type="generation.updated", task=record.model_dump(mode="json")
+                            ),
+                        )
+                        continue
+                    ClientEvent.model_validate(data)
+                except (ValidationError, TextError, json.JSONDecodeError):
                     hub.enqueue(
                         queue,
                         ServerEvent(
@@ -179,7 +219,13 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
                     while not queue.empty():
                         queue.get_nowait()
                     preferences = await run_in_threadpool(db.preferences)
-                    hub.enqueue(queue, ServerEvent(type="hello", settings=preferences))
+                    # Generation events can arrive while SQLite is read; send the greeting
+                    # directly before starting the queue sender so it is always first.
+                    await websocket.send_text(
+                        ServerEvent(type="hello", settings=preferences).model_dump_json(
+                            exclude_none=True
+                        )
+                    )
             except sqlite3.Error:
                 await websocket.send_text(
                     ServerEvent(
@@ -194,22 +240,27 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
                 )
                 await websocket.close(code=1011)
                 return
-            async with anyio.create_task_group() as group:
+            try:
+                async with anyio.create_task_group() as group:
 
-                async def send_events():
+                    async def send_events():
+                        try:
+                            await sender(queue)
+                        except WebSocketDisconnect:
+                            pass
+                        finally:
+                            group.cancel_scope.cancel()
+
+                    group.start_soon(send_events)
                     try:
-                        await sender(queue)
+                        await receiver(queue)
                     except WebSocketDisconnect:
                         pass
                     finally:
                         group.cancel_scope.cancel()
-
-                group.start_soon(send_events)
-                try:
-                    await receiver(queue)
-                except WebSocketDisconnect:
-                    pass
-                finally:
-                    group.cancel_scope.cancel()
+            finally:
+                with anyio.CancelScope(shield=True):
+                    for job_id in watched:
+                        await app.state.text.generations.cancel(job_id)
 
     return app

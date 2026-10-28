@@ -26,12 +26,21 @@ class RuntimeConfig:
     allowed_origins: tuple[str, ...] = ()
     allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "::1")
     max_body_bytes: int = 65_536
+    llama_server: Path | None = None
+    llama_chat_template: str | None = None
+    model_roots: tuple[Path, ...] = ()
+    ollama_url: str = "http://127.0.0.1:11434"
+    ollama_enabled: bool = True
+    hf_token: str | None = field(default=None, repr=False)
+    generation_timeout: float = 300
 
     def __post_init__(self) -> None:
         if not 1 <= self.port <= 65535:
             raise ValueError("Port must be in range 1..65535")
         if self.max_body_bytes < 1024:
             raise ValueError("Request body limit must be at least 1024 bytes")
+        if not 1 <= self.generation_timeout <= 3600:
+            raise ValueError("Generation timeout must be in range 1..3600 seconds")
         if not is_loopback(self.host) and not self.allow_remote:
             raise ValueError("Non-loopback binding requires OMNICORE_ALLOW_REMOTE=1")
         if self.allow_remote and (not self.api_token or len(self.api_token) < 32):
@@ -76,4 +85,18 @@ class RuntimeConfig:
                 ).split(",")
                 if host.strip()
             ),
+            llama_server=Path(os.environ["OMNICORE_LLAMA_SERVER"])
+            if os.environ.get("OMNICORE_LLAMA_SERVER")
+            else None,
+            llama_chat_template=os.environ.get("OMNICORE_LLAMA_CHAT_TEMPLATE"),
+            model_roots=tuple(
+                Path(path)
+                for path in os.environ.get("OMNICORE_MODEL_ROOTS", "").split(os.pathsep)
+                if path
+            ),
+            ollama_url=os.environ.get("OMNICORE_OLLAMA_URL", "http://127.0.0.1:11434"),
+            ollama_enabled=os.environ.get("OMNICORE_OLLAMA_ENABLED", "1") != "0",
+            hf_token=os.environ.get("HF_TOKEN"),
+            generation_timeout=float(os.environ.get("OMNICORE_GENERATION_TIMEOUT", "300")),
+            max_body_bytes=int(os.environ.get("OMNICORE_MAX_BODY_BYTES", "65536")),
         )

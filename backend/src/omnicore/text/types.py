@@ -32,8 +32,8 @@ class TextMessage(WireModel):
 
 class TextChunk(WireModel):
     content: str = ""
-    output_tokens: int | None = None
-    tokens_per_second: float | None = None
+    output_tokens: int | None = Field(default=None, ge=0)
+    tokens_per_second: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
 class EngineModel(WireModel):

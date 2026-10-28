@@ -9,6 +9,12 @@ from omnicore.app import create_app
 from omnicore.config import RuntimeConfig
 from omnicore.localization import catalog
 from omnicore.schemas import ClientEvent, Locale, ModelMetadata, Preferences, ServerEvent
+from omnicore.text.api import GenerationWatch
+from omnicore.text.conversations import ConversationExport
+from omnicore.text.downloads import DownloadRecord, RemoteFile
+from omnicore.text.generation import GenerationRecord, GenerationRequest
+from omnicore.text.store import ModelRecord
+from omnicore.text.types import GenerationParameters
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -16,7 +22,22 @@ ROOT = Path(__file__).resolve().parents[1]
 def snapshots() -> dict[str, dict]:
     app = create_app(RuntimeConfig(data_dir=Path("unused-contract-export")))
     result = {"openapi.json": app.openapi()}
-    for model in [Preferences, ModelMetadata, ServerEvent, ClientEvent, TaskRequest, TaskProgress]:
+    for model in [
+        Preferences,
+        ModelMetadata,
+        ServerEvent,
+        ClientEvent,
+        TaskRequest,
+        TaskProgress,
+        GenerationParameters,
+        GenerationRecord,
+        GenerationRequest,
+        GenerationWatch,
+        ConversationExport,
+        DownloadRecord,
+        RemoteFile,
+        ModelRecord,
+    ]:
         result[f"{model.__name__}.schema.json"] = model.model_json_schema()
     for locale in Locale:
         result[f"locales/{locale.value}.json"] = catalog(locale)

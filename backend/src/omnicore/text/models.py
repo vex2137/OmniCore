@@ -51,8 +51,9 @@ class ModelManager:
                     size_bytes=model.size_bytes,
                     format="Ollama",
                     quantization=model.quantization,
-                    license=model.license,
-                    capabilities=await engine.capabilities(model.name),
+                    license=model.license[:256] if model.license else None,
+                    metadata={"license_text": model.license} if model.license else {},
+                    capabilities=model.capabilities or await engine.capabilities(model.name),
                 )
             )
         return records

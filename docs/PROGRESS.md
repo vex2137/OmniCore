@@ -2,211 +2,159 @@
 
 ## Project Status
 
-- **Current version:** 0.1.0 Alpha (`0.1.0a0`), fundament; bez wydania produktu.
-- **Current milestone:** Etap 2 A–F — backend Text AI; część A zaimplementowana i przetestowana.
+- **Current version:** 0.1.0 Alpha (`0.1.0a0`), backend headless; bez wydania produktu.
+- **Current milestone:** Etap 2 A–F zaimplementowany i przetestowany bez modeli.
+  **Akceptacja rzeczywistego GGUF pozostaje zablokowana**; nie oznaczamy całego Etapu 2 jako ukończonego.
 - **Current development branch:** `feature/0.1.0-alpha`.
-- **Last verified commit:** `59dd09f87b793a86dd3059dd64b7d7823311744c`
-  (fundament Etapu 1; lokalny HEAD, zdalny ref i ponownie pobrany commit są zgodne).
+- **Last verified commit:** `1a2826b55efa419629f462233e1e56f29d10fa79` — zdalny punkt wejścia bieżącego zadania.
 - **Last update:** 2026-10-28 (Europe/Warsaw).
 
 ## Completed
 
-### Etap 2 E — generowanie i anulowanie
+Zachowano fundament Etapu 1: FastAPI, SQLite, ustawienia PL/EN i motywów,
+REST/WebSocket, zabezpieczenia i wszystkie 65 oryginalnych testów. Zachowano
+projekt opcjonalnego Rust; nie wdrożono żadnego własnego komponentu natywnego Rust.
 
-- Trwała kolejka z jedną generacją, request_key z kontrolą fingerprintu, jawne
-  stany, limity czasu, atomowe snapshoty odpowiedzi i historii, zachowanie częściowego tekstu.
-- Integracja obu transportów, wykrywanie OOM/braku silnika, bezpieczny deskryptor
-  modelu przekazany do procesu, anulowanie i odtwarzanie przerwanych zadań po restarcie.
-- Regresja: 104 PASS; testy generowania korzystają z kontrolowanego adaptera,
-  więc nie potwierdzają rzeczywistej inferencji. API części F w realizacji.
+| Część | Zaimplementowane i sprawdzone komponenty | Commit |
+| --- | --- | --- |
+| A | HTTP/SSE llama.cpp, NDJSON Ollamy, wersja/detekcja, parametry, własny proces loopback, stop, naprawa zamykania WS | `917372c` |
+| B | Referencje GGUF, ograniczony parser v2/v3, metadane i katalog SQLite, kontrola ścieżek/symlinków, potwierdzane usunięcie pliku | `eba274f` |
+| C | HF search/pliki, przypięty commit, rozmiar/licencja/checksum, potwierdzany download, postęp, resume i cancel, atomowy zapis | `0e166f6` |
+| D | Rozmowy/model/parametry, role i czas, trwała historia, wyszukiwanie, import/eksport JSON i idempotentny zapis asystenta | `9518e77` |
+| E | Kolejka, request_key/fingerprint, snapshoty, streaming, timeout/OOM/cancel, częściowa odpowiedź, odzyskiwanie po restarcie | `01fdfc8` |
+| F | API `/api/v1/text`, stary WS plus generation.updated/watch, SSE, kontrakty, lokalizacja, security, osobne scenariusze realne | commit końcowy zadania |
 
-### Etap 2 D — rozmowy i historia
+Checkboxy i tabela A–F dotyczą kodu i testów komponentów. Kontrolowany adapter,
+syntetyczny GGUF i odpowiedzi HTTP nie są testem działania realnego modelu.
 
-- Rozmowy, model/parametry, role, znaczniki czasu, Unicode search, zmiana nazwy,
-  usuwanie kaskadowe i zachowanie historii po zmianie modelu oraz restarcie.
-- JSON import/eksport waliduje role/czas/pola, zachowuje treść i tworzy nowe ID;
-  zapis odpowiedzi po generation_id jest idempotentny i zachowuje częściowy tekst.
-- Regresja: 97 PASS, Ruff PASS. GUI i inferencja nie są częścią tych testów.
+Dodatkowo zweryfikowano:
 
-### Etap 2 C — pobieranie Hugging Face
-
-- Wyszukiwanie repozytoriów i GGUF, przypięcie rewizji, rozmiar/licencja i checksum.
-- Jawne potwierdzenie rozmiaru, prywatne pliki częściowe, resume Range/If-Range,
-  checksum, walidacja GGUF, atomowy zapis, anulowanie i stan trwały po restarcie.
-- Brak uruchamiania kodu modeli; kontrola redirectów nie przekazuje tokenu innym hostom.
-- Regresja: 92 PASS; transport HF sprawdzony kontrolowanymi odpowiedziami HTTP.
-- Zbudowany llama-server: 0.8.0-dev, c3df4b7e22a1ac38da663552d19e649dd97ca936,
-  CPU-only; --version i --list-devices uruchomione. Rzeczywista inferencja jeszcze niewykonana.
-
-### Etap 2 A — adaptery i procesy (2026-10-28)
-
-- Dodano transporty llama.cpp SSE i Ollama NDJSON, wykrywanie wersji i możliwości,
-  parametry, anulowanie, diagnostykę zasobów, własny proces loopback i bezpieczny stop.
-- Naprawiono błąd zamykania WebSocket przez ustrukturyzowaną grupę zadań AnyIO.
-- Regresja: 75 PASS, w tym wszystkie 65 dotychczasowych testów; Ruff PASS.
-- Testy protokołów i procesu używają kontrolowanych fixture — nie są dowodem inferencji.
-- Build CPU llama.cpp z oficjalnego źródła w toku; HF pozostaje zablokowany (403).
-
-### Zachowany fundament i wcześniejsze prace
-
-### Etap 2 B — katalog modeli i GGUF
-
-- Import przez referencję, parser GGUF v2/v3 z limitami i walidacją struktury,
-  metadane/licencja/kwantyzacja oraz katalog SQLite z wyszukiwaniem i filtrami.
-- Kontrola katalogów, traversal, symlinków i zmiany tożsamości pliku; domyślne
-  usunięcie dotyczy wpisu, usunięcie wag wymaga potwierdzenia nazwy.
-- Wersjonowana migracja modułu tekstowego zachowuje bazę i kontrakt fundamentu.
-- Regresja: 85 PASS; sztuczne GGUF są fixture, nie testowanymi modelami inferencji.
-
-### Historia fundamentu
-
-- Zachowano wcześniejszą dokumentację, test dostępu GitHub i historię repozytorium.
-- Odczytano wszystkie istniejące pliki i historię, wybrano zgodny z wymaganiami
-  stos oraz zapisano plan i ryzyka w [ARCHITECTURE.md](ARCHITECTURE.md).
-- Backend headless FastAPI z CLI, wersjonowanym REST i sprawdzaniem SQLite przez health.
-- Trwałe ustawienia: PL/EN, system/light/dark, simple/advanced; zapis i odczyt po restarcie.
-- SQLite: prywatny katalog i plik, transakcyjne migracje, rollback, zachowanie danych
-  przy ponownym starcie i odmowa downgrade nowszej bazy.
-- Schematy konfiguracji preferencji, metadanych modeli, adapterów i zdarzeń;
-  snapshoty OpenAPI/JSON Schema oraz kontrola ich zgodności z kodem.
-- Katalogi PL/EN z równymi kluczami, API tłumaczeń i wybór języka komunikatów błędów.
-- WebSocket: powitanie z aktualnym stanem, ping/pong, rozsyłanie zmian ustawień,
-  ograniczony bufor i sprzątanie po odłączeniu.
-- Fundament bezpieczeństwa: domyślny loopback, jawny opt-in zdalnego dostępu,
-  token, CORS, kontrola Origin/Host, limity żądań, brak sekretów w odpowiedziach.
-- Interfejs adaptera i rejestr. Lista silników jest celowo pusta; nie ma atrap inferencji.
-- Przypięte zależności uv.lock, instrukcje uruchamiania, workflow CI bez GPU,
-  testy i działający smoke test prawdziwego procesu.
-- Zbudowano sdist i wheel; wheel zainstalowano do osobnego środowiska bez narzędzi
-  deweloperskich i uruchomiono jego HTTP/WS oraz test trwałości po restarcie.
-- Uruchomiono także udokumentowane polecenie startu z katalogiem `.local-data`;
-  działający proces odpowiedział poprawnie na health i żądanie katalogu PL.
-- Zapisano w szkicu konfiguracji środowiska `install_script` i `start_skill`.
-  Skrypt instalacji sprawdzono ponownie; zapis szkicu nie publikuje środowiska.
-- Zapisano audyt/architekturę w `cbd36fc`, a fundament w
-  `59dd09f87b793a86dd3059dd64b7d7823311744c`. Push gałęzi funkcjonalnej powiódł się;
-  ponownie pobrano ref i porównano SHA oraz kluczowe pliki źródłowe i kontrakty.
-- Rozszerzono [ARCHITECTURE.md](ARCHITECTURE.md#opcjonalna-warstwa-rust--decyzja-architektoniczna)
-  i ROADMAP.md o podział Python/Rust, PyO3/maturin oraz osobny proces API,
-  priorytety, koszty budowania i utrzymania oraz plan warunkowego wdrożenia.
-- Określono bramkę: profilowanie rzeczywistego workloadu, porównanie z bibliotekami
-  natywnymi i poolami Pythona, cel ustalony przed prototypem oraz testowany fallback.
-  Przykładowe 20% poprawy p95 lub peak RSS jest propozycją celu, nie wynikiem pomiaru.
-- Ponownie uruchomiono wszystkie 65 dotychczasowych testów, lint/format,
-  kontrolę kontraktów, smoke testy procesu i istniejącego pakietu oraz build.
-  Wszystkie sprawdzenia przeszły; kod, zależności i snapshoty API pozostają bez zmian.
+- Rzeczywisty build CPU oficjalnego llama.cpp z commita
+  `c3df4b7e22a1ac38da663552d19e649dd97ca936`; `llama-server --version`:
+  `0.8.0-dev`, GNU 14.2.0, Linux x86_64; `--list-devices`: brak GPU.
+- SHA-256 zbudowanej lokalnie binarki:
+  `6f0d350146a6ad171347918ca86fbd5b40957bb3651eb8701bfbf89bbb2f4f83`.
+  To identyfikator własnego builda, nie uniwersalna checksum wersji upstream.
+- Sprawdzono detekcję tej binarki z backendu oraz z pakietu wheel.
+- Dodano Linux parent-death guard; test dowodzi zakończenia własnego dziecka
+  po śmierci rodzica. Normalny stop kończy tylko własny proces i jego grupę.
+- API health, text/status i diagnostyka prawdziwego silnika działają w chmurze.
+  Katalog realnych modeli pozostaje pusty; nie publikowano fałszywej zgodności.
+- Zbudowano sdist/wheel, zainstalowano wheel w oddzielnym środowisku tylko runtime
+  z zależnościami/hashes z locka; smoke sprawdził HTTP, WS i rozmowę po restarcie.
+- Zapisano szkic środowiska: install_script, aktualny start_skill,
+  OMNICORE_LLAMA_SERVER oraz domeny HF. Nie opublikowano snapshotu środowiska.
 
 ## In Progress
 
-- Etap 2: A zakończone na poziomie transportów/procesów; B–F w kolejności docs/TEXT_AI.md.
-- Rzeczywisty scenariusz GGUF bez Ollamy wymaga binarki i modelu; nie jest jeszcze PASS.
+- Zapis końcowej części F i potwierdzenie pushu/SHA.
+- Akceptacja rzeczywistej inferencji bez Ollamy jest otwarta; nie ma aktywnego
+  generowania i nie pobierano wag. Etapu 3 nie rozpoczęto.
 
 ## Planned Next
 
-1. Przejrzeć rezultat Etapu 1 na gałęzi funkcjonalnej; nie rozpoczynać Etapu 2 w tej sesji.
-2. W następnym zadaniu: adaptery Ollama/llama.cpp, menedżer modeli, czat,
-   streaming, historia i import/eksport rozmów wraz z testami rzeczywistej inferencji.
-3. Dopiero w Etapie 3: ComfyUI i sprawdzone workflowy, kolejka, obrazy, LoRA.
-4. Dopiero w Etapie 4: natywne Linux/Android i Web; renderowanie oraz testy motywów.
-5. Profilować duże pliki dopiero po powstaniu rzeczywistego importu. Rozważyć
-   opcjonalny Rust tylko po zapisaniu konkretnej potrzeby i mierzalnego celu;
-   kolejka, zasoby i współbieżność mają niższy priorytet analizy. Rust nie blokuje Alpha.
+1. Zastosować zapisane domeny HF w ustawieniach środowiska; aktualny runtime nadal
+   raportuje politykę rewizji 1 bez tych domen (CONNECT do HF zwraca 403).
+2. Udostępnić istniejący zgodny GGUF lub pobrać mały model po otwarciu sieci,
+   z weryfikacją checksum/licencji. Pobranie wielogigabajtowe wymaga potwierdzenia.
+3. Uruchomić `integration/test_llama_real.py`: bez Ollamy, import/load realnego
+   GGUF, odpowiedź, trwała historia oraz unload. Dopiero wynik tego scenariusza
+   może zamknąć kryterium akceptacji.
+4. Oddzielnie uruchomić test rzeczywistej Ollamy z już zainstalowanym modelem.
+5. Zweryfikować docelowy CachyOS/RTX 4060, GPU/VRAM, OOM i anulowanie na sprzęcie.
+   Nie rozpoczynać Image AI ani klientów w ramach bieżącego zadania.
 
 ## Known Issues
 
-- To fundament, nie kompletna Alpha. Brak inferencji, czatu, pobierania/importu
-  modeli, ComfyUI, generowania obrazów, galerii i aplikacji klienckich.
-- Nie potwierdzono zgodności żadnego modelu ani sprzętu GPU. CachyOS/RTX 4060,
-  NVIDIA/AMD/Intel, OOM i anulowanie generowania wymagają późniejszych testów.
-- Testy motywów w Etapie 1 dotyczą trwałych preferencji; nie testują wyglądu UI.
-- Test rejestru używa test double tylko do probe; nie jest testem integracji silnika.
-- Jeden proces backendu: bufor zdarzeń nie jest współdzielony między workerami.
-  Wolny klient otrzymuje ostatnie snapshoty; nie jest to trwała historia zdarzeń.
-- Zdalne użycie wymaga TLS w zaufanym reverse proxy; backend sam nie kończy TLS.
-  Magazyny tokenów klientów będą wdrożone przy klientach; token procesu nie jest zapisywany do DB.
-- Etap 1 nie ma uploadów ani endpointów operujących na ścieżkach. Izolacja plików,
-  bezpieczne pobieranie i limity zadań muszą powstać przed tymi funkcjami.
-- Workflow CI został dodany; wyniki uruchomienia na GitHub Actions nie są jeszcze znane.
-- Szkic konfiguracji środowiska wymaga przeglądu, zapisania i publikacji w ustawieniach;
-  nie weryfikowano przywrócenia snapshotu w nowym zadaniu.
-- Nie ma własnych komponentów Rust, ich benchmarków ani testów kompilacji.
-  Projekt architektury nie potwierdza przyspieszenia, izolacji ani zgodności platformowej.
+- **Bloker środowiska:** HF jest niedostępny przez egzekwowaną politykę proxy.
+  Zapis szkicu nie zastosował zmian do runtime. Publiczny model nie wymaga
+  dopisywania fikcyjnego tokenu. Brak dostępnych wag uniemożliwia realny test GGUF.
+- **Nieweryfikowane integracje:** nie uruchomiono rzeczywistej inferencji llama.cpp,
+  transferu z publicznego HF ani rzeczywistej Ollamy; nie są oznaczone jako PASS.
+- Testy fixture potwierdzają protokoły, stan i błędy, nie zgodność modelu.
+  GGUF ma status unverified po imporcie; load_verified i tested wymagają
+  odpowiednio udanego load i zakończonej generacji rzeczywistej treści.
+- Parser sprawdza ograniczoną strukturę i zakresy GGUF, nie każdą kwantyzację
+  ani obsługę architektury. O zgodności rozstrzyga też wersja i konfiguracja silnika.
+- Jeden proces API; jedna generacja, kolejka maksymalnie 16. Model może pozostać
+  załadowany po poprawnej odpowiedzi do jawnego unload. Nie obiecujemy zdalnego
+  zabicia obcej Ollamy przy awarii sieci.
+- Vision/embeddings/tools/structured-output są opisem możliwości wykrytych w silniku
+  lub przygotowaniem kontraktu; brak działających endpointów tych funkcji.
+- JSON import podlega limitowi żądania (domyślnie 64 KiB). Import tworzy nowe ID;
+  binding modelu może wymagać ponownego wybrania po przeniesieniu na inną instalację.
+- TLS zdalnego dostępu nadal wymaga reverse proxy. Tokeny procesu nie są zapisywane
+  do DB. Brak GUI, Image AI i pomiarów CachyOS/RTX 4060.
+- Wynik GitHub Actions oraz przywrócenie nowego snapshotu w osobnym zadaniu niepotwierdzone.
 
 ## Test Results
 
-Weryfikacja 2026-10-28: zarządzany Linux, Python 3.12.14, uv 0.12.23,
-FastAPI 0.162.0, Pydantic 2.14.1, SQLite ze standardowej biblioteki Pythona;
-bez modeli, silników inferencji i wymaganego GPU.
+Środowisko: zarządzany Linux, Python 3.12.14, uv 0.12.23, FastAPI 0.162.0,
+Pydantic 2.14.1, HTTPX 0.28.1 i SQLite z biblioteki standardowej. Bez wag modeli.
 
 | Sprawdzenie | Wynik |
 | --- | --- |
-| `uv sync --frozen` | PASS — zależności z uv.lock |
-| `uv run --frozen pytest -q` | PASS — 65 zaliczonych, 0 niezaliczonych, 0 pominiętych, bez ostrzeżeń |
-| Migracje | Świeża baza, ponowna inicjalizacja, upgrade zachowujący dane, rollback DDL/danych/wersji, nowsza i uszkodzona baza, symlinki |
-| API i kontrakty | Health, ustawienia po restarcie, walidacja, błędy, OpenAPI/JSON Schema, brak deklaracji silników |
-| Lokalizacja i motywy | Identyczne klucze PL/EN, wybór języka bez restartu, zapis trzech preferencji motywu |
-| WebSocket | Hello, ping/pong, fan-out, błędy, limity, rozłączenie, błąd DB, ograniczony bufor |
-| Bezpieczeństwo | Odmowa zdalnego bindu bez opt-in/tokena, autoryzacja HTTP/WS, Origin, Host, CORS i limit rzeczywistego ciała żądania |
-| `ruff check .` i `ruff format --check .` | PASS |
-| `python scripts/export_contracts.py --check` | PASS |
-| `python scripts/smoke.py` | PASS — proces CLI, HTTP/WS, PL, zapis, restart, trwałość |
-| `uv build` | PASS — sdist i wheel |
-| Instalacja wheel do `.venv-package` z zależnościami runtime z locka i hashami | PASS |
-| `.venv-package/bin/python -I scripts/smoke.py` | PASS — bez importowania pakietu z checkoutu |
-| GPU / silniki / anulowanie generowania / GUI | Niewykonane — moduły powstaną w kolejnych etapach |
-| GitHub Actions | Nie potwierdzono wykonania workflow; lokalne polecenia CI wykonano |
-| Push `feature/0.1.0-alpha` i niezależny odczyt SHA | PASS — `59dd09f87b793a86dd3059dd64b7d7823311744c` |
+| Bazowy audyt przed zmianą | 64 PASS i 1 błąd teardown WS; naprawiony w A, bez usuwania testu |
+| Regresja po A / B / C / D / E | 75 / 85 / 92 / 97 / 104 PASS |
+| Końcowe `uv run --frozen pytest -q` | **115 PASS**, 0 FAIL, 0 skipped, bez ostrzeżeń |
+| Wszystkie oryginalne pliki 65 testów | Bez zmian względem `1a2826b` |
+| Ścieżki i modele | Traversal, symlinki/rodzice/FIFO, zmiana inode, usuwanie tylko po potwierdzeniu, niepoprawny/truncated GGUF |
+| Silniki | Brak llama/Ollama/GPU, SSE/NDJSON, parametry, wersja, OOM, proces load/switch/stop (kontrolowany serwer) |
+| Pobieranie | Potwierdzenie, checksum, Range/resume i restart bez Range, cancel, redirect, ponowienie uszkodzonego partial |
+| SQLite i rozmowy | Migracje z zachowaniem danych, rollback, nowszy schemat, historia/restart, role/czas, Unicode search, JSON round-trip |
+| Generowanie | Idempotencja, kolejka, częściowy tekst, timeout, OOM/błędy, restart i anulowanie |
+| Rozłączenie | WS watch oraz SSE z rzeczywistym połączeniem HTTP; anulowanie i zdrowy backend |
+| Lifecycle procesu | Linux parent-death guard: własne dziecko nie pozostaje aktywne po śmierci rodzica |
+| Security | Stare auth/Host/Origin/CORS/limity plus nowe trasy, brak ekspozycji HF/API tokenu, brak shell |
+| Kontrakty | Snapshoty zgodne; stare REST paths/operation IDs/responses i bazowe schematy zachowane; WS rozszerzony addytywnie |
+| Ruff / format / git diff --check | PASS |
+| `python scripts/smoke.py` | PASS — prawdziwy CLI, HTTP/WS, PL, preferencje i rozmowa po restarcie |
+| `uv build`, izolowana instalacja wheel i jego smoke | PASS |
+| Detekcja prawdziwego llama-server z wheel i API | PASS — wersja c3df4b7, CPU, brak modeli |
+| Realny GGUF bez Ollamy | **NIEWYKONANY / BLOKADA ŚRODOWISKA**, nie PASS |
+| Realny HF / Ollama / GPU | Niewykonane; nie zastąpiono ich mockami jako dowodem |
 
-Regresja po analizie Rust, 2026-10-28, to samo środowisko Python 3.12.14:
-`pytest -q`: **65 passed**, bez pominięć i ostrzeżeń; Ruff, format, eksport kontraktów
-w trybie `--check`, `scripts/smoke.py`, `uv build` oraz smoke test z `.venv-package`
-zakończyły się powodzeniem. Sprawdzono lokalne odnośniki i `git diff --check`.
-Zmiany obejmują tylko ARCHITECTURE.md, ROADMAP.md i PROGRESS.md; brak zmian kodu,
-testów, migracji, manifestów, lockfile i kontraktów. Nie uruchamiano benchmarków
-ani testów Rust, ponieważ nie wdrożono komponentu natywnego.
+Testy realne są poza domyślnym zestawem w `integration/`. Nie mają fallbacku
+ani automatycznego pobierania modeli; brak warunku wstępnego powoduje błąd testu.
 
 ## GitHub Status
 
 - **Branch:** `feature/0.1.0-alpha`.
-- **Local commit SHA:** `59dd09f87b793a86dd3059dd64b7d7823311744c` — punkt kontrolny fundamentu.
-- **Remote commit SHA:** `59dd09f87b793a86dd3059dd64b7d7823311744c` — potwierdzony przez `git ls-remote` i fetch.
-- **Push status:** sukces; porównano zdalny commit z lokalnym i obecność kluczowych plików.
+- **Local commit SHA / Remote commit SHA:** ostatni potwierdzony zdalnie punkt wejścia
+  `1a2826b55efa419629f462233e1e56f29d10fa79`; nowe commity A–F wymagają końcowego pushu.
+- **Push status:** przed końcowym zapisem części F; wynik aktualizowany po weryfikacji refa.
 - **Pull request status:** nie utworzono w tej sesji.
-- **Main:** podczas audytu `0f91a3e9a7ba28cac3324238248e1fda75fdb174`, nie zmieniano.
-- **Access test:** historyczny push potwierdzony na `test/omnicore-github-access`,
-  SHA `53cd9ed0cb1fa17e4c81b4ffe860c934978ae43d`.
+- **Main:** `0f91a3e9a7ba28cac3324238248e1fda75fdb174`, nie zmieniano.
+- **Wydanie/tag Alpha:** nie opublikowano.
 
-SHA w tym dokumencie są zweryfikowanymi punktami kontrolnymi. Commit zapisujący
-wynik weryfikacji może być późniejszy; nie próbować wpisywać hasha commita do niego samego.
+SHA są punktami kontrolnymi; commit zapisujący raport może być późniejszy.
+Bieżący HEAD i ref zdalny zawsze sprawdzać poleceniami Git.
 
 ## Session Handoff
 
-Najpierw przeczytać AGENTS.md, ROADMAP.md, PROGRESS.md i ARCHITECTURE.md.
-Fundament jest zaimplementowany, przetestowany i opublikowany na gałęzi funkcjonalnej.
-Następnie dopisano projekt opcjonalnej warstwy Rust i ponownie zweryfikowano
-regresję. Nie dodawać crate'ów ani zależności bez potrzeby potwierdzonej pomiarami.
-Priorytetem kolejnego zadania funkcjonalnego pozostają adaptery tekstowe w Pythonie.
-Ten dokument zapisuje wynik weryfikacji wcześniejszego commita; aktualny HEAD
-raportu sprawdzić poniższymi poleceniami i porównać ze zdalnym refem.
-Nie rozpoczynać Etapu 2 w tym zadaniu. W nowym zadaniu porównać dokumentację
-z rzeczywistym kodem i stanem Git; nie zakładać stałości gałęzi lub zdalnego HEAD.
+Przeczytać AGENTS.md, ARCHITECTURE.md, ROADMAP.md, PROGRESS.md, TEXT_AI.md i ENGINES.md.
+Backend A–F jest zaimplementowany i ma 115 testów bez GPU. Najważniejszym otwartym
+warunkiem jest rzeczywisty scenariusz GGUF bez Ollamy po zastosowaniu polityki HF
+lub udostępnieniu istniejącego modelu. Nie deklarować pełnej akceptacji Etapu 2.
 
 ```sh
 cd /workspace/OmniCore
 git status --short --branch
-git log -3 --oneline
+git log -7 --oneline
 git rev-parse HEAD
 git ls-remote --exit-code origin refs/heads/feature/0.1.0-alpha
 uv sync --frozen
 uv run --frozen ruff check .
 uv run --frozen ruff format --check .
 uv run --frozen python scripts/export_contracts.py --check
-uv run --frozen pytest
+uv run --frozen pytest -q
 uv run --frozen python scripts/smoke.py
 uv run --frozen omnicore --data-dir .local-data
 ```
 
-Baza `.local-data` i środowiska `.venv*` są lokalnymi, ignorowanymi wynikami setupu;
-nie commitować danych użytkownika, tokenów ani wag. Backend domyślnie jest lokalny.
-Nie tworzyć dodatkowego worktree; zachować cudze zmiany i używać istniejącej autoryzacji.
-Publiczne wydanie pozostaje nieautoryzowane.
+Silnik cloud: `/workspace/omnicore-engines/llama.cpp/build/bin/llama-server`.
+Do importu plików spoza `.local-data/models` wymagane OMNICORE_MODEL_ROOTS.
+Szkic środowiska zawiera aktualne install_script/start_skill, ścieżkę silnika i domeny HF;
+przejrzeć, zapisać i opublikować w ustawieniach. Sam zapis szkicu nie stosuje sieci.
+Przed inferencją sprawdzić rzeczywisty runtime, wersję silnika i checksum/licencję modelu.
+Zachować cudze zmiany, istniejący checkout, brak sekretów/wag w Git i brak force push.

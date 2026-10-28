@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path, PurePosixPath
@@ -199,6 +200,9 @@ class DownloadManager:
         record = self.record(job_id)
         if record.state not in {"cancelled", "failed", "interrupted"}:
             raise TextError("invalid_task_state", 409)
+        if record.error_code == "download_integrity_error":
+            (self.directory / f"{record.id}.part").unlink(missing_ok=True)
+            record.received_bytes, record.percent, record.etag = 0, 0, None
         record.state, record.error_code = "queued", None
         self.save(record)
         self.tasks[job_id] = asyncio.create_task(self._run(job_id))
@@ -259,13 +263,25 @@ class DownloadManager:
 
                 def verify():
                     with FilePolicy((self.directory,)).open(part) as stream:
-                        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+                        hasher = hashlib.sha256()
+                        while chunk := stream.read(1024 * 1024):
+                            if cancel_verification.is_set():
+                                return
+                            hasher.update(chunk)
+                        digest = hasher.hexdigest()
                         if record.source.sha256 and digest.lower() != record.source.sha256.lower():
                             raise TextError("download_integrity_error", 422)
                         stream.seek(0)
                         read_gguf(stream)
 
-                await asyncio.to_thread(verify)
+                cancel_verification = threading.Event()
+                verification = asyncio.create_task(asyncio.to_thread(verify))
+                try:
+                    await asyncio.shield(verification)
+                except asyncio.CancelledError:
+                    cancel_verification.set()
+                    await asyncio.gather(verification, return_exceptions=True)
+                    raise
                 os.replace(part, final)
                 record.state = "completed"
                 record.path = str(final)

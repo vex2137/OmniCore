@@ -2,6 +2,8 @@
 
 Decyzja projektowa: 2026-10-28. Wersja robocza nazwy: OmniCore.
 Zakres bieżącej implementacji: **Etap 1 — Fundament**. Nie jest to kompletna Alpha.
+Aktualizacja: backend Etapu 2 A–F jest zaimplementowany; rzeczywista akceptacja
+GGUF wymaga jeszcze modelu i pozostaje zablokowana dostępem do HF.
 Rozszerzenie decyzji z 2026-10-28: docelowo Python oraz opcjonalne komponenty Rust.
 Poniższy projekt warstwy natywnej nie zmienia implementacji ukończonego Etapu 1.
 
@@ -90,6 +92,32 @@ Pydantic waliduje wejścia i odrzuca nieznane pola. Konfiguracja procesu
 Token nie jest polem modelu ustawień, odpowiedzi API ani metadanych.
 Kontrakty zawierają jawne wersje i stabilne kody błędów; komunikat błędu pochodzi
 z katalogu wybranego przez `Accept-Language` (domyślnie `en-US`).
+
+## Etap 2 — zaimplementowany backend Text AI
+
+Moduł `backend/src/omnicore/text` realizuje transporty SSE llama.cpp i NDJSON
+Ollamy, zarządzanie własnym procesem, ograniczony parser GGUF, katalog modeli,
+potwierdzone pobieranie HF, rozmowy i trwałe zadania. Nowe trasy pod
+`/api/v1/text` uzupełniają istniejące API, a `generation.updated` rozszerza stary WS.
+Szczegóły kontraktów, stanów, konfiguracji i granic: [TEXT_AI.md](TEXT_AI.md).
+Instalacja i weryfikacja silników: [ENGINES.md](ENGINES.md).
+
+W tej samej SQLite zachowujemy rdzeniowy `PRAGMA user_version=1`; `text_schema`
+wersjonuje osobno transakcyjne migracje modułu. Nowe tabele przechowują metadane,
+rozmowy, wiadomości, klucze idempotencji i zadania, nigdy wagi/tokeny.
+Zapis snapshotu zadania i odpowiedzi jest atomowy; po awarii zachowujemy treść
+i oznaczamy przerwane zadanie bez automatycznego retry. Domyślnie jedna generacja.
+
+Proces native dostaje zweryfikowany deskryptor pliku i argumenty bez powłoki.
+Linux bootstrap ustawia sygnał śmierci rodzica; zamknięcie modelu zatrzymuje tylko
+własny proces. API nie zarządza ścieżką binarki ani listą dozwolonych katalogów.
+Ollama pozostaje opcjonalna i jest traktowana jako zewnętrzny serwer.
+
+To implementacja transportu i usług, nie deklaracja zgodności konkretnych modeli.
+Build CPU llama.cpp z `c3df4b7e22a1ac38da663552d19e649dd97ca936` oraz diagnostykę
+uruchomiono, ale brak dostępnych wag i blokada HF uniemożliwiły wymagany scenariusz
+inferencji bez Ollamy. Oddzielne testy rzeczywiste są w `integration/` i nie mają
+fallbacku do mocka. Nie oznaczamy Etapu 2 jako w pełni zaakceptowanego.
 
 ## Adaptery i wykonywanie modeli — kolejne etapy
 

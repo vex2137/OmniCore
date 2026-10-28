@@ -152,6 +152,29 @@ def test_bad_checksum_fails_without_final_file(tmp_path):
     asyncio.run(exercise())
 
 
+def test_resume_after_integrity_failure_restarts_corrupt_partial(tmp_path):
+    attempts = 0
+
+    def handler(request):
+        nonlocal attempts
+        attempts += 1
+        payload = synthetic_gguf()
+        return httpx.Response(200, content=payload[:-1] + b"x" if attempts == 1 else payload)
+
+    manager, source, payload = setup_downloads(tmp_path, handler)
+
+    async def exercise():
+        record = await manager.start(source, confirmed=True, expected_size=len(payload))
+        await manager.tasks[record.id]
+        assert manager.record(record.id).error_code == "download_integrity_error"
+        await manager.resume(record.id)
+        await manager.tasks[record.id]
+        assert manager.record(record.id).state == "completed" and attempts == 2
+        await manager.close()
+
+    asyncio.run(exercise())
+
+
 def test_redirect_cannot_exfiltrate_token_or_access_local_network():
     urls = []
 

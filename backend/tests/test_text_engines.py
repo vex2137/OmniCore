@@ -178,7 +178,7 @@ HTTPServer(('127.0.0.1',a.port),Handler).serve_forever()
         await engine.load(tmp_path / "one.gguf", GenerationParameters())
         first = engine.process
         assert first.returncode is None
-        assert await engine.capabilities(str(tmp_path / "one.gguf")) == ["text-generation"]
+        assert await engine.capabilities(str(tmp_path / "one.gguf")) == []
         await engine.load(tmp_path / "two.gguf", GenerationParameters())
         assert first.returncode is not None
         second = engine.process

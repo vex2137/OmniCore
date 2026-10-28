@@ -1,0 +1,174 @@
+{
+  "$defs": {
+    "GenerationParameters": {
+      "additionalProperties": false,
+      "properties": {
+        "context_size": {
+          "default": 2048,
+          "maximum": 131072,
+          "minimum": 128,
+          "title": "Context Size",
+          "type": "integer"
+        },
+        "device": {
+          "default": "cpu",
+          "pattern": "^(cpu|auto|[A-Za-z0-9][A-Za-z0-9_.:-]{0,63})$",
+          "title": "Device",
+          "type": "string"
+        },
+        "gpu_layers": {
+          "default": 0,
+          "maximum": 999,
+          "minimum": 0,
+          "title": "Gpu Layers",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "default": 256,
+          "maximum": 32768,
+          "minimum": 1,
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "repeat_penalty": {
+          "default": 1.1,
+          "exclusiveMinimum": 0,
+          "maximum": 3,
+          "title": "Repeat Penalty",
+          "type": "number"
+        },
+        "seed": {
+          "default": 0,
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "system_prompt": {
+          "default": "",
+          "maxLength": 16384,
+          "title": "System Prompt",
+          "type": "string"
+        },
+        "temperature": {
+          "default": 0.7,
+          "maximum": 2,
+          "minimum": 0,
+          "title": "Temperature",
+          "type": "number"
+        },
+        "top_k": {
+          "default": 40,
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Top K",
+          "type": "integer"
+        },
+        "top_p": {
+          "default": 0.9,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Top P",
+          "type": "number"
+        }
+      },
+      "title": "GenerationParameters",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "content": {
+      "default": "",
+      "title": "Content",
+      "type": "string"
+    },
+    "conversation_id": {
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Code"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "model_id": {
+      "title": "Model Id",
+      "type": "string"
+    },
+    "output_tokens": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Output Tokens"
+    },
+    "parameters": {
+      "$ref": "#/$defs/GenerationParameters"
+    },
+    "sequence": {
+      "default": 0,
+      "title": "Sequence",
+      "type": "integer"
+    },
+    "state": {
+      "default": "queued",
+      "enum": [
+        "queued",
+        "running",
+        "completed",
+        "cancelled",
+        "failed",
+        "interrupted"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "tokens_per_second": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tokens Per Second"
+    },
+    "updated_at": {
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "conversation_id",
+    "model_id",
+    "parameters",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "GenerationRecord",
+  "type": "object"
+}

@@ -6,6 +6,7 @@ import os
 import shutil
 import signal
 import socket
+import sys
 import tempfile
 from collections.abc import AsyncIterator
 from contextlib import suppress
@@ -67,8 +68,8 @@ class TextEngine(Protocol):
 class OllamaEngine:
     id = "ollama"
 
-    def __init__(self, url: str = "http://127.0.0.1:11434", *, client=None):
-        self.client = client or client_for(url)
+    def __init__(self, url: str = "http://127.0.0.1:11434", *, client=None, timeout=300):
+        self.client = client or client_for(url, timeout=timeout)
         self._streams: set[httpx.Response] = set()
 
     async def probe(self) -> BackendInfo:
@@ -86,7 +87,7 @@ class OllamaEngine:
 
     async def capabilities(self, model: str) -> list[str]:
         try:
-            response = await self.client.post("/api/show", json={"model": model})
+            response = await self.client.post("/api/show", json={"model": model}, timeout=5)
             response.raise_for_status()
             known = {
                 "completion": "text-generation",
@@ -102,16 +103,31 @@ class OllamaEngine:
 
     async def models(self) -> list[EngineModel]:
         try:
-            response = await self.client.get("/api/tags")
+            response = await self.client.get("/api/tags", timeout=5)
             response.raise_for_status()
-            return [
-                EngineModel(
-                    name=item["name"],
-                    size_bytes=item.get("size", 0),
-                    quantization=item.get("details", {}).get("quantization_level"),
+            records = []
+            for item in response.json().get("models", []):
+                license = None
+                capabilities = await self.capabilities(item["name"])
+                try:
+                    details = await self.client.post(
+                        "/api/show", json={"model": item["name"]}, timeout=5
+                    )
+                    details.raise_for_status()
+                    raw_license = details.json().get("license")
+                    license = raw_license[:16384] if isinstance(raw_license, str) else None
+                except (httpx.HTTPError, ValueError):
+                    pass
+                records.append(
+                    EngineModel(
+                        name=item["name"],
+                        size_bytes=item.get("size", 0),
+                        quantization=item.get("details", {}).get("quantization_level"),
+                        license=license,
+                        capabilities=capabilities,
+                    )
                 )
-                for item in response.json().get("models", [])
-            ]
+            return records
         except (httpx.HTTPError, ValueError, KeyError) as exc:
             raise engine_error(exc) from None
 
@@ -216,11 +232,13 @@ class LlamaEngine:
         *,
         startup_timeout: float = 120,
         chat_template: str | None = None,
+        request_timeout: float = 300,
     ):
         found = str(executable) if executable else shutil.which("llama-server")
         self.executable = Path(found).absolute() if found else None
         self.startup_timeout = startup_timeout
         self.chat_template = chat_template
+        self.request_timeout = request_timeout
         self.process: asyncio.subprocess.Process | None = None
         self.client: httpx.AsyncClient | None = None
         self.model: str | None = None
@@ -230,6 +248,17 @@ class LlamaEngine:
         self._lock = asyncio.Lock()
         self._generation_task: asyncio.Task | None = None
         self._log = None
+        self._verified_text_models: set[str] = set()
+
+    def _guarded_command(self, *arguments):
+        return [
+            sys.executable,
+            "-m",
+            "omnicore.text.process_guard",
+            str(os.getpid()),
+            str(self.executable),
+            *arguments,
+        ]
 
     async def _command(self, *arguments: str) -> str:
         if (
@@ -240,8 +269,7 @@ class LlamaEngine:
             raise TextError("engine_unavailable", 503)
         try:
             process = await asyncio.create_subprocess_exec(
-                str(self.executable),
-                *arguments,
+                *self._guarded_command(*arguments),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 start_new_session=True,
@@ -279,12 +307,18 @@ class LlamaEngine:
 
     async def models(self) -> list[EngineModel]:
         return (
-            [EngineModel(name=self.model, capabilities=["text-generation"])] if self.model else []
+            [EngineModel(name=self.model, capabilities=await self.capabilities(self.model))]
+            if self.model
+            else []
         )
 
     async def capabilities(self, model: str) -> list[str]:
-        # Only the successfully loaded model is advertised. Vision is not inferred from GGUF alone.
-        return ["text-generation"] if self.model == model else []
+        # Loading a model is not proof it can generate text (e.g. embedding-only architectures).
+        return (
+            ["text-generation"]
+            if self.model == model and model in self._verified_text_models
+            else []
+        )
 
     async def load(
         self, path: Path, parameters: GenerationParameters, file_descriptor: int | None = None
@@ -301,6 +335,8 @@ class LlamaEngine:
                 raise TextError("gpu_unavailable", 422)
             if parameters.device not in {"cpu", "auto", *self.devices}:
                 raise TextError("gpu_unavailable", 422)
+            if parameters.device == "cpu" and parameters.gpu_layers:
+                raise TextError("unsupported_parameter", 422)
             await self.unload()
             with socket.socket() as sock:
                 sock.bind(("127.0.0.1", 0))
@@ -333,13 +369,13 @@ class LlamaEngine:
             try:
                 self._log = tempfile.TemporaryFile()
                 self.process = await asyncio.create_subprocess_exec(
-                    *arguments,
+                    *self._guarded_command(*arguments[1:]),
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=self._log,
                     start_new_session=True,
                     pass_fds=(file_descriptor,) if file_descriptor is not None else (),
                 )
-                self.client = client_for(f"http://127.0.0.1:{port}")
+                self.client = client_for(f"http://127.0.0.1:{port}", timeout=self.request_timeout)
                 async with asyncio.timeout(self.startup_timeout):
                     while self.process.returncode is None:
                         try:
@@ -392,11 +428,14 @@ class LlamaEngine:
                     await response.aread()
                     response.raise_for_status()
                 finished = False
+                seen_text = False
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
                         continue
                     data = line[5:].strip()
                     if data == "[DONE]":
+                        if seen_text:
+                            self._verified_text_models.add(model)
                         return
                     item = json.loads(data)
                     if item.get("error"):
@@ -405,6 +444,7 @@ class LlamaEngine:
                     text = "".join(
                         choice.get("delta", {}).get("content") or "" for choice in choices
                     )
+                    seen_text |= bool(text)
                     finished |= any(choice.get("finish_reason") for choice in choices)
                     yield TextChunk(
                         content=text,
@@ -413,6 +453,8 @@ class LlamaEngine:
                     )
                 if not finished:
                     raise TextError("engine_stream_interrupted", 502)
+                if seen_text:
+                    self._verified_text_models.add(model)
         except (httpx.HTTPError, ValueError, KeyError) as exc:
             raise engine_error(exc) from None
         finally:
@@ -447,6 +489,7 @@ class LlamaEngine:
                     os.killpg(process.pid, signal.SIGKILL)
                 await process.wait()
         self.model, self.parameters = None, None
+        self._verified_text_models.clear()
         if self._log:
             self._log.close()
             self._log = None

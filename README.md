@@ -1,18 +1,24 @@
 # OmniCore
 OmniCore is an open-source platform for running and managing AI models locally. It provides a modern, unified interface for text generation, image creation, and future AI capabilities, with a focus on privacy, performance, and ease of use.
 
-## Stan: 0.1.0 Alpha — Etap 1
+## Stan: 0.1.0 Alpha — backend Text AI (Etap 2)
 
 Projekt ma działający fundament backendu headless: FastAPI, SQLite z migracjami,
 trwałe ustawienia, katalogi PL/EN, REST, WebSocket oraz wersjonowane kontrakty.
-Inferencja, czat, generowanie obrazów, menedżer modeli i aplikacje klienckie
-nie są jeszcze zaimplementowane. To nie jest kompletna wersja Alpha.
+Dodano adaptery llama.cpp/Ollama, katalog GGUF, potwierdzone pobieranie z Hugging
+Face, trwałe rozmowy oraz zadania z generowaniem strumieniowym i anulowaniem.
+Kod przechodzi testy komponentów/API bez modeli. Rzeczywisty scenariusz inferencji
+GGUF pozostaje do wykonania: środowisko blokuje dostęp do Hugging Face i nie ma wag.
+Nie deklarujemy zgodności żadnego modelu. To nie jest kompletna wersja Alpha.
+Generowanie obrazów i aplikacje klienckie pozostają poza bieżącym etapem.
 
 - [Architektura, audyt, plan i ryzyka](docs/ARCHITECTURE.md)
 - [Roadmapa](docs/ROADMAP.md)
 - [Postęp i przekazanie kolejnej sesji](docs/PROGRESS.md)
 - [Zasady pracy](AGENTS.md)
 - [Kontrakty API](contracts/openapi.json)
+- [Text AI: plan A–F, API i ograniczenia](docs/TEXT_AI.md)
+- [Instalacja i konfiguracja llama.cpp / Ollamy](docs/ENGINES.md)
 
 ## Uruchomienie backendu na Linux
 
@@ -45,9 +51,9 @@ Nie potwierdza dostępności silników AI.
 | `PUT /api/v1/settings` | Zastąpienie preferencji i zdarzenie dla podłączonych klientów |
 | `GET /api/v1/locales` | Lista `en-US`, `pl-PL` |
 | `GET /api/v1/locales/{locale}` | Katalog tekstów interfejsu i błędów |
-| `GET /api/v1/backends` | Rzeczywiście zarejestrowane silniki; na tym etapie `[]` |
+| `GET /api/v1/backends` | Wykryte dostępne silniki; `[]`, gdy żaden nie jest dostępny |
 | `GET /openapi.json` | Kontrakt REST, bez zewnętrznego CDN |
-| `WS /api/v1/events` | `hello`, `settings.updated`, `pong`, `error` |
+| `WS /api/v1/events` | `hello`, `settings.updated`, `generation.updated`, `pong`, `error` |
 
 ```sh
 curl --fail -X PUT http://127.0.0.1:8000/api/v1/settings \
@@ -98,8 +104,10 @@ Kontrola nagłówka Host chroni przed DNS rebinding. Przy bindzie `0.0.0.0` lub 
 dodaj adres/nazwę używaną przez klientów do `OMNICORE_ALLOWED_HOSTS`. Konkretna
 nazwa lub IP ustawione jako host nasłuchu są dopuszczane automatycznie.
 
-Limit żądań i komunikatów WS wynosi 64 KiB. Etap 1 nie udostępnia uploadów,
-operacji na ścieżkach użytkownika ani wykonywania poleceń. Nie uruchamiaj wielu
+Limit żądań i komunikatów WS domyślnie wynosi 64 KiB
+(`OMNICORE_MAX_BODY_BYTES`). Import GGUF używa ścieżki ograniczonej do katalogów
+administratora; nie przesyła wag w JSON. Nie ma endpointu uruchamiania dowolnych poleceń.
+Nie uruchamiaj wielu
 workerów: ustawienia zdarzeń są rozsyłane w obrębie jednego procesu.
 Nie edytuj SQLite ręcznie podczas działania; wykonuj kopię bazy przed migracjami.
 Nowszy nieobsługiwany schemat bazy jest odrzucany bez automatycznego downgrade.
@@ -126,7 +134,9 @@ snapshoty z kodem. Katalogi źródłowe są w `backend/src/omnicore/locales`,
 kopie dla klientów w `contracts/locales`. Protokół WS ma osobne schematy JSON,
 ponieważ OpenAPI opisuje tylko HTTP.
 
-CI uruchamia testy bez GPU. Nie deklaruje weryfikacji CachyOS/RTX 4060,
-inferencji, anulowania generowania ani interfejsów Linux/Web/Android — te testy
-powstaną wraz z rzeczywistymi modułami w kolejnych etapach. Publiczne wydanie
+CI uruchamia testy bez GPU, w tym protokoły silników i stan generowania na
+kontrolowanych fixture. Rzeczywiste testy w `integration/` uruchamia się osobno
+z własnym modelem; nie pobierają wag i nie zastępują silnika mockiem.
+Nie deklarujemy weryfikacji CachyOS/RTX 4060, realnej inferencji ani interfejsów
+Linux/Web/Android w tym środowisku. Publiczne wydanie
 wymaga osobnej zgody właściciela.
