@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=OmniCore
+Comment=Local AI conversations and GGUF models
+Comment[pl]=Lokalny czat AI i modele GGUF
+Exec=OmniCore
+Icon=io.github.vex2137.OmniCore
+Terminal=false
+Categories=Utility;Science;
+StartupWMClass=OmniCore

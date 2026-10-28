@@ -631,7 +631,9 @@ class MainWindow(QMainWindow):
     def refresh_conversations(self, select=None):
         def received(records):
             self.conversations = records
-            self._fill_conversations(select)
+            self._fill_conversations(
+                select or (records[0]["id"] if records and not self.current_id else None)
+            )
             self._loaded("conversations")
 
         self.api.request("GET", TEXT + "/conversations", success=received)
@@ -882,6 +884,11 @@ class MainWindow(QMainWindow):
     def refresh_models(self):
         def received(records):
             selected = self.model_combo.currentData()
+            if not selected:
+                conversation = next(
+                    (r for r in self.conversations if r["id"] == self.current_id), None
+                )
+                selected = conversation["model_id"] if conversation else None
             self.models = records
             self.model_combo.blockSignals(True)
             self.model_combo.clear()

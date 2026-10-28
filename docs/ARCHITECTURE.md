@@ -1,11 +1,43 @@
 # OmniCore 0.1.0 Alpha — architektura i plan
 
 Decyzja projektowa: 2026-10-28. Wersja robocza nazwy: OmniCore.
-Zakres bieżącej implementacji: **Etap 1 — Fundament**. Nie jest to kompletna Alpha.
-Aktualizacja: backend Etapu 2 A–F jest zaimplementowany; rzeczywista akceptacja
-GGUF wymaga jeszcze modelu i pozostaje zablokowana dostępem do HF.
+Bieżący zakres: zachowany fundament, backend Text AI oraz natywny Linux desktop.
+Rzeczywisty GGUF/llama.cpp na CPU i HF zostały zweryfikowane; cała Alpha
+ze wszystkimi docelowymi platformami i Image AI pozostaje nieukończona.
 Rozszerzenie decyzji z 2026-10-28: docelowo Python oraz opcjonalne komponenty Rust.
 Poniższy projekt warstwy natywnej nie zmienia implementacji ukończonego Etapu 1.
+
+## Aktualizacja: Linux desktop i AppImage
+
+Natywny Linux został przesunięty przed Image AI. Klient w
+`backend/src/omnicore/desktop` jest osobnym entry pointem/procesem PySide6 6.8.3,
+z opcjonalną zależnością `desktop`; backend headless nie importuje Qt. QtNetwork
+obsługuje REST i SSE bez blokowania wątku GUI. SQLite, GGUF, pobieranie, kolejka
+i inferencja pozostają w istniejących usługach backendu. Nie przepisano Etapu 1.
+
+Backend jest wykrywany przez health; przy braku usługi QProcess uruchamia prywatny
+proces loopback z losowym tokenem w środowisku. Klient nie przejmuje cudzych
+procesów. Parent-death guard oraz asynchroniczny SIGTERM/kill deadline chronią
+własne dzieci. Istniejące API/auth/CORS/limity zachowano, dodając tylko read-only
+`/api/v1/text/diagnostics` (CPU/RAM/dysk oraz stany/kody zadań bez treści).
+Tokeny nie są w preferencjach, argv, logach ani manifestach paczki.
+
+Lokalny desktop.json przechowuje wyłącznie niesekretne ustawienia GUI i procesu.
+Rozszerzenie katalogów modeli wymaga jawnego dialogu i restartu własnego backendu;
+publiczne API nie może rozszerzać rootów ani uruchamiać dowolnych poleceń.
+Motywy i PL/EN są przełączane w Qt, teksty pochodzą z katalogów JSON.
+Szczegóły lifecycle, skrótów i danych: [LINUX_DESKTOP.md](LINUX_DESKTOP.md).
+
+AppImage używa PyInstaller onedir (Python/Qt/backend), zweryfikowanego runtime
+AppImage i SquashFS; opcjonalny silnik CPU ma względny RPATH. Zapis danych jest
+poza AppDir, a procesy potomne używają tego samego bundlowanego dispatchera.
+[APPIMAGE.md](APPIMAGE.md) opisuje rzeczywiście sprawdzony tryb extract-and-run,
+ABI hosta budowania, licencje, testy i workflow. Nie deklarujemy CUDA/Wayland.
+
+Przygotowano znaczącą granicę `native/README.md` zamiast pustego Cargo workspace.
+Pomiary realnego GGUF i syntetycznego pliku 4 GiB są w `benchmarks/`; nie wykazano
+obecnie potrzeby FFI/IPC. Import nie kopiuje wag, hashing już używa natywnej
+biblioteki. Rust pozostaje opcjonalny z fallback Python i bramkami opisanymi niżej.
 
 ## Audyt wejściowy
 
@@ -26,7 +58,7 @@ Poniższy projekt warstwy natywnej nie zmienia implementacji ukończonego Etapu 
 | --- | --- | --- |
 | Backend | Python 3.12+, FastAPI, Pydantic 2, Uvicorn | Headless; OpenAPI 3.1 i JSON Schema; bez zależności od Qt, CUDA i silników modeli |
 | Dane | SQLite ze standardowej biblioteki, jawne migracje SQL | Lokalna baza, transakcje, brak serwera DB; jeden proces backendu w Alpha |
-| Linux | Qt 6 / PySide6, Etap 4 | Natywne okna i dialogi; dobrać wersję do Python 3.12; sprawdzić pakowanie, Wayland i obowiązki licencyjne Qt |
+| Linux | Qt 6 / PySide6, przesunięty przed Image AI | Natywne okna i dialogi; dobrać wersję do Python 3.12; sprawdzić pakowanie, Wayland i obowiązki licencyjne Qt |
 | Web | React + TypeScript, Etap 4 | Samodzielny klient REST/WS; Node.js 24 dostępny, zależności klienta będą przypięte przy implementacji |
 | Android | Kotlin + Jetpack Compose, Etap 4 | Natywny klient zdalnego backendu; JDK/Gradle/SDK dobrać razem; brak inferencji na telefonie w Alpha |
 | Kontrakty | Generowane OpenAPI i JSON Schema | Jedno źródło modeli w Pydantic, snapshoty w repozytorium sprawdzane w CI |

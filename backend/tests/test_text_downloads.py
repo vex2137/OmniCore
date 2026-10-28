@@ -196,3 +196,26 @@ def test_redirect_cannot_exfiltrate_token_or_access_local_network():
         await hub.close()
 
     asyncio.run(exercise())
+
+
+def test_official_hf_cdn_is_allowed_without_forwarding_hf_token():
+    def handler(request):
+        if request.url.host == "huggingface.co":
+            assert request.headers["authorization"] == "Bearer test-only-token"
+            return httpx.Response(302, headers={"Location": "https://us.aws.cdn.hf.co/model.gguf"})
+        assert request.url.host == "us.aws.cdn.hf.co"
+        assert "authorization" not in request.headers
+        return httpx.Response(200, content=b"controlled fixture")
+
+    async def exercise():
+        hub = HuggingFace(
+            "test-only-token", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        )
+        source = RemoteFile(
+            repository="test/model", revision="a" * 40, filename="model.gguf", size_bytes=18
+        )
+        async with hub.stream(source, {}) as response:
+            assert await response.aread() == b"controlled fixture"
+        await hub.close()
+
+    asyncio.run(exercise())

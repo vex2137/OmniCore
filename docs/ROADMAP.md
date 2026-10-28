@@ -6,8 +6,8 @@ Ostatnia aktualizacja: **2026-10-28**.
 ## Status i sposób realizacji
 
 Repozytorium zawiera fundament Etapu 1 oraz implementację backendu Text AI Etapu 2
-z testami bez GPU. Rzeczywista inferencja GGUF pozostaje niezweryfikowana z powodu
-braku modelu i blokady sieci HF. Klienci i Image AI pozostają planowane.
+z testami bez GPU. Rzeczywista inferencja GGUF na CPU i transfer HF zostały zweryfikowane.
+Klient Linux jest wdrożony przed Image AI; Web i Android pozostają planowane.
 Puste pola `[ ]` są zadaniami do wykonania, a nie potwierdzeniem funkcji.
 Zakończenie funkcji wymaga kodu, właściwych testów i udokumentowanej weryfikacji
 w [PROGRESS.md](PROGRESS.md). Zasady sesji: [AGENTS.md](../AGENTS.md).
@@ -37,7 +37,7 @@ zgodność oraz bramki opisuje
 - [x] Opisać podział Python/Rust, warianty integracji, priorytety i warunki decyzji.
 - [ ] P0: rozwijać integracje tekstowe i obrazowe według istniejących etapów,
   zachowując testy oraz publiczne kontrakty; nie przepisywać fundamentu.
-- [ ] P1: po wdrożeniu importu dużych plików wykonać profilowanie rzeczywistego
+- [x] P1: po wdrożeniu importu dużych plików wykonać profilowanie rzeczywistego
   przepływu i porównać go z najlepszą rozsądną ścieżką Python/bibliotek natywnych.
 - [ ] Ustalić mierzalny cel przed prototypem: np. minimum 20% poprawy p95 operacji
   lub peak RSS, bez regresji poprawności i budżetu API; to cel, nie zmierzony wynik.
@@ -89,8 +89,8 @@ ani klientów. Przed Etapem 2 wymagany jest raport Etapu 1 zgodnie z zakresem za
 - [x] D: SQLite, trwałe rozmowy, model/parametry, historia i import/eksport JSON.
 - [x] E: mechanizm kolejki, streamingu, idempotencji, timeoutów i anulowania.
 - [x] F: nowe API/WS, kontrakty, lokalizacja, zabezpieczenia i regresja komponentów.
-- [ ] Wykonać rzeczywisty HF transfer po zastosowaniu polityki sieciowej.
-- [ ] Wykonać wymagany scenariusz: brak Ollamy, realny GGUF i llama.cpp, odpowiedź,
+- [x] Wykonać rzeczywisty HF transfer: cancel/resume, checksum i import.
+- [x] Wykonać wymagany scenariusz: brak Ollamy, realny GGUF i llama.cpp, odpowiedź,
   historia oraz unload. Build silnika i fixture nie spełniają tego warunku.
 - [ ] Zweryfikować opcjonalną integrację rzeczywistej Ollamy z istniejącym modelem.
 - [ ] Zweryfikować CachyOS/RTX 4060, dostępny backend GPU, VRAM/OOM i anulowanie na sprzęcie.

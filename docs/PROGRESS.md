@@ -206,3 +206,26 @@ Pierwszy lokalny AppImage (jeszcze przed końcowymi poprawkami) przeszedł uruch
 z własnym backendem i realną inferencją przez dołączony CPU llama.cpp. Sprawdzono
 też jego start przez X11 bez dodatkowego LD_LIBRARY_PATH. Końcowy plik będzie
 zbudowany ponownie z poprawkami; jego suma zostanie podana w późniejszym raporcie.
+
+## Linux GUI — moduł 3: pakowanie i decyzja Rust (2026-10-28)
+
+Dodano powtarzalny build AppImage (PyInstaller, przypięty i zweryfikowany runtime,
+SquashFS, względny RPATH silnika CPU, manifest, licencje, .desktop, ikona i SHA-256),
+workflow Linux oraz test dwukrotnego uruchomienia rzeczywistego pliku.
+Naprawiono trwałość konfiguracji silnika: zmienna ścieżka mount/ekstrakcji AppImage
+nie jest zapisywana jako stała ścieżka llama-server. Jest osobny test remount.
+Pierwszy AppImage uruchomiono przez X11 i offscreen z realną generacją; końcowy
+build po tych poprawkach i jego suma pozostają do raportu walidacyjnego.
+
+Pomiary Python zapisano w benchmarks/linux-cpu-baseline.json; metoda i surowe
+próbki są jawne. Dla realnego GGUF 105454432 B mediany: parser 199.6 ms,
+import referencji 299.1 ms, SHA-256 114.8 ms, 10000 operacji kolejki 14.5 ms,
+proxy startu interpretera 26.8 ms. Syntetyczny plik 4 GiB (to samo metadata,
+sparse padding; nie wagi do inferencji): parser 211.1 ms i SHA-256 4649.0 ms.
+Bez wykazanej korzyści end-to-end nie wdrażamy Rust. Granica projektu, PyO3/maturin,
+izolowany worker, fallback, koszty ABI/Linux/Android/Web i bramki akceptacji
+są w native/README.md. Nie utworzono pustych crate'ów.
+
+Test zmian remount/CDN i GUI: 20 PASS. Dokumentacja Linux/AppImage, README,
+architektura i roadmapa zaktualizowane. Kolejny krok: pełny zestaw, końcowy obraz,
+ruch GitHub/PR, CI, integracja main dopiero po weryfikacji oraz szkic wydania.

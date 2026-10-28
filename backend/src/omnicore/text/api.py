@@ -146,7 +146,7 @@ def routes(service: TextService):
         def records():
             return [
                 TaskDiagnostic(**{k: record[k] for k in ("id", "model_id", "state", "error_code")})
-                for record in service.store.jobs("generation")[-100:]
+                for record in service.store.jobs("generation")[:100]
             ]
 
         return TextDiagnostic(hardware=hardware, generations=await run_in_threadpool(records))

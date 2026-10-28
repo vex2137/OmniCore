@@ -1,16 +1,28 @@
 # OmniCore
 OmniCore is an open-source platform for running and managing AI models locally. It provides a modern, unified interface for text generation, image creation, and future AI capabilities, with a focus on privacy, performance, and ease of use.
 
-## Stan: 0.1.0 Alpha — backend Text AI (Etap 2)
+## Stan: 0.1.0 Alpha — natywna aplikacja Linux
 
-Projekt ma działający fundament backendu headless: FastAPI, SQLite z migracjami,
-trwałe ustawienia, katalogi PL/EN, REST, WebSocket oraz wersjonowane kontrakty.
-Dodano adaptery llama.cpp/Ollama, katalog GGUF, potwierdzone pobieranie z Hugging
-Face, trwałe rozmowy oraz zadania z generowaniem strumieniowym i anulowaniem.
-Kod przechodzi testy komponentów/API bez modeli. Rzeczywisty scenariusz inferencji
-GGUF pozostaje do wykonania: środowisko blokuje dostęp do Hugging Face i nie ma wag.
-Nie deklarujemy zgodności żadnego modelu. To nie jest kompletna wersja Alpha.
-Generowanie obrazów i aplikacje klienckie pozostają poza bieżącym etapem.
+OmniCore ma działające GUI Qt6/PySide6: czat ze streamingiem i historią, menedżer
+GGUF/Hugging Face, ustawienia PL/EN i motywów oraz diagnostykę. GUI Linux zostało
+przesunięte przed Image AI. GGUF działa przez llama.cpp **bez Ollamy**; rzeczywisty
+przepływ import/load/generowanie/anulowanie/historia przeszedł test na CPU ze
+SmolLM2-135M-Instruct Q4_K_M. Nie oznacza to zgodności wszystkich modeli lub GPU.
+
+```sh
+uv sync --frozen --extra desktop --group gui-test --group packaging
+uv run --frozen omnicore-desktop
+```
+
+Dostępny jest proces budowania samowystarczalnego AppImage z Pythonem, Qt,
+backendem i opcjonalnym silnikiem CPU. Dane są przechowywane poza paczką.
+[Linux — uruchomienie i obsługa](docs/LINUX_DESKTOP.md) ·
+[AppImage — uruchomienie, budowanie i wymagania](docs/APPIMAGE.md).
+
+Backend FastAPI/SQLite i dotychczasowe API pozostają zachowane. Rust jest
+przygotowaną możliwością architektoniczną; [pomiary i decyzja](native/README.md)
+nie uzasadniają teraz nowej implementacji. Image AI, Web i Android pozostają
+planowane. To rozwojowa Alpha; publiczny release wymaga osobnego potwierdzenia.
 
 - [Architektura, audyt, plan i ryzyka](docs/ARCHITECTURE.md)
 - [Roadmapa](docs/ROADMAP.md)
@@ -63,7 +75,7 @@ curl --fail -X PUT http://127.0.0.1:8000/api/v1/settings \
 
 PUT zastępuje całe ustawienia; pominięte pola przyjmują wartości domyślne.
 Motywy: `system/light/dark`; tryby: `simple/advanced`. Są to trwałe preferencje;
-ich renderowanie w klientach będzie testowane w Etapie 4.
+ich renderowanie jest już dostępne w kliencie Linux.
 
 Klient WS otrzymuje aktualne ustawienia w `hello`. Może wysłać `{"type":"ping"}`
 i otrzyma `pong`; zapis przez REST rozsyła `settings.updated`. Zdarzenia zawierają

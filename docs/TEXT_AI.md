@@ -1,3 +1,9 @@
+> Aktualizacja Linux GUI (2026-10-28): realny GGUF SmolLM2-135M-Instruct Q4_K_M,
+> llama.cpp CPU, streaming/anulowanie/historia w GUI i rzeczywisty HF download
+> zostały sprawdzone. Poprzednie opisy blokady poniżej są historycznym raportem
+> Etapu 2. Bieżące instrukcje: [LINUX_DESKTOP.md](LINUX_DESKTOP.md),
+> [APPIMAGE.md](APPIMAGE.md). Oficjalny CDN `us.aws.cdn.hf.co` jest również obsługiwany.
+
 # Etap 2 — Text AI: plan, integracje i weryfikacja
 
 Gałąź: `feature/0.1.0-alpha`. Punkt wejścia: `1a2826b55efa419629f462233e1e56f29d10fa79`.

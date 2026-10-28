@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+OMNICORE_APPDIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$OMNICORE_APPDIR/usr/bin/OmniCore" "$@"

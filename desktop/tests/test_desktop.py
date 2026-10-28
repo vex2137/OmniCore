@@ -253,3 +253,22 @@ def test_huggingface_controls_require_confirmation_and_send_explicit_payload(des
     assert calls[-1][0][:2] == ("POST", "/api/v1/text/downloads/download1/cancel")
     w.resume_download()
     assert calls[-1][0][:2] == ("POST", "/api/v1/text/downloads/download1/resume")
+
+
+def test_appimage_engine_path_is_rediscovered_after_remount(tmp_path, monkeypatch):
+    import sys
+    from pathlib import Path
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    for name in ("mount1", "mount2"):
+        directory = tmp_path / name
+        (directory / "engines").mkdir(parents=True)
+        (directory / "engines/llama-server").write_text("test fixture; not an engine")
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "mount1/OmniCore"))
+    config = DesktopConfig.load()
+    assert Path(config.llama_server).parent.parent.name == "mount1"
+    config.save()
+    assert json.loads(config_path().read_text())["llama_server"] == ""
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "mount2/OmniCore"))
+    assert Path(DesktopConfig.load().llama_server).parent.parent.name == "mount2"

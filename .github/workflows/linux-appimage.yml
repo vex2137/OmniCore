@@ -1,0 +1,55 @@
+name: Linux desktop and AppImage
+
+on:
+  push:
+    branches: [main, feature/0.1.0-alpha]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-appimage:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    env:
+      QT_QPA_PLATFORM: xcb
+      LLAMA_COMMIT: c3df4b7e22a1ac38da663552d19e649dd97ca936
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake patchelf squashfs-tools xvfb libegl1 libopengl0 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0
+          python -m pip install uv==0.12.23
+      - run: uv sync --frozen --extra desktop --group gui-test --group packaging
+      - run: uv run --frozen ruff check .
+      - run: uv run --frozen ruff format --check .
+      - run: uv run --frozen python scripts/export_contracts.py --check
+      - name: Backend and native GUI tests (no GPU or weights)
+        run: xvfb-run -a uv run --frozen pytest backend/tests desktop/tests -q
+      - name: Build pinned CPU engine
+        run: |
+          git clone https://github.com/ggml-org/llama.cpp.git "$RUNNER_TEMP/llama.cpp"
+          git -C "$RUNNER_TEMP/llama.cpp" checkout --detach "$LLAMA_COMMIT"
+          cmake -S "$RUNNER_TEMP/llama.cpp" -B "$RUNNER_TEMP/llama.cpp/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON
+          cmake --build "$RUNNER_TEMP/llama.cpp/build" --target llama-server -j 2
+      - name: Build AppImage
+        run: uv run --frozen python scripts/build_appimage.py --llama-server "$RUNNER_TEMP/llama.cpp/build/bin/llama-server"
+      - name: Run actual AppImage twice and verify persistence and process cleanup
+        run: xvfb-run -a uv run --frozen python scripts/test_appimage.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OmniCore-0.1.0-alpha-x86_64
+          path: |
+            dist/*.AppImage
+            dist/*.sha256
+            dist/build-manifest.json
+            dist/appimage-test.json
+            dist/appimage-test.png
+          if-no-files-found: error
+          retention-days: 30

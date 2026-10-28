@@ -52,6 +52,10 @@ class DesktopConfig:
         path = path or config_path()
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         temporary = path.with_suffix(".tmp")
+        payload = asdict(self)
+        if getattr(sys, "frozen", False) and self.llama_server == bundled_engine():
+            # AppImage mount/extraction paths change every launch. Persist auto-discovery.
+            payload["llama_server"] = ""
         with open(temporary, "w", encoding="utf-8", opener=lambda p, f: os.open(p, f, 0o600)) as f:
-            json.dump(asdict(self), f, ensure_ascii=False, indent=2)
+            json.dump(payload, f, ensure_ascii=False, indent=2)
         temporary.replace(path)

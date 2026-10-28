@@ -1,3 +1,9 @@
+> Aktualizacja Linux GUI (2026-10-28): realny GGUF SmolLM2-135M-Instruct Q4_K_M,
+> llama.cpp CPU, streaming/anulowanie/historia w GUI i rzeczywisty HF download
+> zostały sprawdzone. Poprzednie opisy blokady poniżej są historycznym raportem
+> Etapu 2. Bieżące instrukcje: [LINUX_DESKTOP.md](LINUX_DESKTOP.md),
+> [APPIMAGE.md](APPIMAGE.md). Oficjalny CDN `us.aws.cdn.hf.co` jest również obsługiwany.
+
 # Silniki tekstowe — instalacja i konfiguracja
 
 OmniCore działa bez zainstalowanego silnika. GGUF wymaga `llama-server` z
