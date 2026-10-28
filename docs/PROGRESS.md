@@ -22,6 +22,17 @@
 
 ### Zachowany fundament i wcześniejsze prace
 
+### Etap 2 B — katalog modeli i GGUF
+
+- Import przez referencję, parser GGUF v2/v3 z limitami i walidacją struktury,
+  metadane/licencja/kwantyzacja oraz katalog SQLite z wyszukiwaniem i filtrami.
+- Kontrola katalogów, traversal, symlinków i zmiany tożsamości pliku; domyślne
+  usunięcie dotyczy wpisu, usunięcie wag wymaga potwierdzenia nazwy.
+- Wersjonowana migracja modułu tekstowego zachowuje bazę i kontrakt fundamentu.
+- Regresja: 85 PASS; sztuczne GGUF są fixture, nie testowanymi modelami inferencji.
+
+### Historia fundamentu
+
 - Zachowano wcześniejszą dokumentację, test dostępu GitHub i historię repozytorium.
 - Odczytano wszystkie istniejące pliki i historię, wybrano zgodny z wymaganiami
   stos oraz zapisano plan i ryzyka w [ARCHITECTURE.md](ARCHITECTURE.md).
