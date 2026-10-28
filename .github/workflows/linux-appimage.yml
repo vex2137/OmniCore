@@ -24,12 +24,14 @@ jobs:
       - name: Native dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build cmake patchelf squashfs-tools xvfb libegl1 libopengl0 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0
+          sudo apt-get install -y ninja-build cmake patchelf squashfs-tools xvfb libegl1 libopengl0 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-shape0 libxcb-xfixes0 libxcb-randr0 libxcb-sync1 libxcb-xinput0 libxcb-glx0
           python -m pip install uv==0.12.23
       - run: uv sync --frozen --extra desktop --group gui-test --group packaging
       - run: uv run --frozen ruff check .
       - run: uv run --frozen ruff format --check .
       - run: uv run --frozen python scripts/export_contracts.py --check
+      - name: Check native Qt platform before pytest capture
+        run: xvfb-run -a uv run --frozen python -c 'from PySide6.QtWidgets import QApplication; app = QApplication([]); print("Qt platform:", app.platformName())'
       - name: Backend and native GUI tests (no GPU or weights)
         run: xvfb-run -a uv run --frozen pytest backend/tests desktop/tests -q
       - name: Build pinned CPU engine

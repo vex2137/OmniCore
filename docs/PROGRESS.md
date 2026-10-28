@@ -2,13 +2,23 @@
 
 ## Project Status
 
-- **Current version:** 0.1.0 Alpha (`0.1.0a0`), backend headless; bez wydania produktu.
-- **Current milestone:** Etap 2 A–F zaimplementowany i przetestowany bez modeli.
-  **Akceptacja rzeczywistego GGUF pozostaje zablokowana**; nie oznaczamy całego Etapu 2 jako ukończonego.
+- **Current version:** 0.1.0 Alpha, native Linux GUI + FastAPI/SQLite Text AI.
+  Wersja komponentu backendu `0.1.0a0` pozostaje zgodna z wcześniejszymi kontraktami;
+  paczka kandyduje do `v0.1.0-alpha.1`, bez publicznego wydania.
+- **Current milestone:** GUI i lokalny AppImage działają z rzeczywistym GGUF na CPU.
+  Image AI, Web, Android, CUDA i fizyczny CachyOS pozostają niewykonane.
 - **Current development branch:** `feature/0.1.0-alpha`.
-- **Last verified commit:** `4622eb35369c3373a63d2ba7ac60d765c1e0bc64` — implementacja Text AI;
-  lokalny HEAD, ref GitHub i ponownie pobrany commit są zgodne.
+- **Last verified implementation:** `8ee0fe442a5f215adc832651ef7eafe1451c2710`.
+- **Validation:** 130 PASS (117 backend, 11 GUI, 2 realne GGUF/GUI); osobno 1 PASS HF.
+  Smoke CLI/HTTP/WS i build wheel/sdist PASS. Końcowy AppImage dwukrotnie uruchomiony
+  przez X11 z prawdziwym GGUF, historią, preferencjami i zamknięciem procesów.
+- **GitHub:** dostęp API/uploads/push działa; istniejący PR #3 jest aktualizowany.
+  Main nadal `0f91a3e9a7ba28cac3324238248e1fda75fdb174` w tym punkcie kontrolnym.
+  Backend CI przeszedł; Linux CI wymaga poprawki zależności XCB (abort inicjalizacji
+  QApplication na Ubuntu 22.04). Nie integrować przed ponowną pozytywną weryfikacją.
 - **Last update:** 2026-10-28 (Europe/Warsaw).
+
+Poniższe raporty Etapu 2 są historyczne. Aktualne wyniki GUI są na końcu dokumentu.
 
 ## Completed
 
