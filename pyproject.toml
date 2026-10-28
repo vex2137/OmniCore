@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "omnicore"
 version = "0.1.0a0"
-description = "Local AI platform — headless foundation"
+description = "Local AI platform with a native Linux desktop client"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
@@ -19,6 +19,10 @@ dependencies = [
 
 [project.scripts]
 omnicore = "omnicore.cli:main"
+omnicore-desktop = "omnicore.desktop.main:main"
+
+[project.optional-dependencies]
+desktop = ["PySide6-Essentials==6.8.3"]
 
 [dependency-groups]
 dev = [
@@ -28,6 +32,8 @@ dev = [
   "pytest>=8.3,<10",
   "ruff>=0.11,<1",
 ]
+gui-test = ["pytest-qt>=4.4,<5", "PySide6-Essentials==6.8.3"]
+packaging = ["pyinstaller>=6.13,<7"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["backend/src/omnicore"]

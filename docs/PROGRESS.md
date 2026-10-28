@@ -160,3 +160,28 @@ Szkic środowiska zawiera aktualne install_script/start_skill, ścieżkę silnik
 przejrzeć, zapisać i opublikować w ustawieniach. Sam zapis szkicu nie stosuje sieci.
 Przed inferencją sprawdzić rzeczywisty runtime, wersję silnika i checksum/licencję modelu.
 Zachować cudze zmiany, istniejący checkout, brak sekretów/wag w Git i brak force push.
+
+## Linux GUI — moduł 1 (2026-10-28)
+
+GUI Linux przesunięto przed Image AI na polecenie właściciela. Zachowano checkout,
+backend i dotychczasowe kontrakty. Dodano natywnego klienta Qt6/PySide6 6.8.3:
+czat, katalog GGUF/HF, ustawienia PL/EN i motywów, diagnostykę oraz asynchroniczny
+transport REST/SSE. Własny backend otrzymuje losowy token w środowisku, słucha
+loopback i jest zamykany asynchronicznie; parent-death guard chroni także awarię GUI.
+Istniejący serwer jest używany przez API bez przejmowania jego procesu.
+
+Weryfikacja: 6 testów GUI PASS (rzeczywisty backend HTTP, auth, import strukturalnego
+fixture GGUF, rozmowy/historia, preferencje, restart, zamykanie). Fixture nie stanowi
+dowodu inferencji. Osobno wykonano **rzeczywisty test GGUF bez Ollamy: 1 PASS**
+(`integration/test_llama_real.py`) i pełny smoke natywnego GUI: import, load, nowa
+rozmowa, odpowiedź SSE, historia i zamknięcie. Model:
+`bartowski/SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct-Q4_K_M.gguf`,
+105454432 B, Apache-2.0, SHA-256
+`2e8040ceae7815abe0dcb3540b9995eaa1fa0d2ca9e797d0a635ae4433c68c2d`.
+Silnik CPU: llama.cpp `c3df4b7e22a1ac38da663552d19e649dd97ca936`.
+GUI otrzymało 48 tokenów, około 7.29 tok/s; to pojedyncza obserwacja chmury,
+nie benchmark sprzętu użytkownika. Bez testu CUDA/Ollamy/CachyOS/Wayland.
+
+AppImage, dodatkowe testy GUI, benchmarki Rust i integracja main pozostają następnymi
+modułami. API GitHub oraz uploads.github.com stały się dostępne po zmianie runtime.
+Nie utworzono jeszcze release ani nie zmieniono main.

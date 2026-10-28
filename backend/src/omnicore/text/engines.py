@@ -251,10 +251,13 @@ class LlamaEngine:
         self._verified_text_models: set[str] = set()
 
     def _guarded_command(self, *arguments):
+        bootstrap = (
+            [sys.executable, "--engine-guard"]
+            if getattr(sys, "frozen", False)
+            else [sys.executable, "-m", "omnicore.text.process_guard"]
+        )
         return [
-            sys.executable,
-            "-m",
-            "omnicore.text.process_guard",
+            *bootstrap,
             str(os.getpid()),
             str(self.executable),
             *arguments,

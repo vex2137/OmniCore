@@ -16,6 +16,13 @@ Wybrany stos, granice modułów, plan etapów i ryzyka opisuje
 [ARCHITECTURE.md](ARCHITECTURE.md). Nie ustalono terminów ani potwierdzonej
 macierzy sprzętowej. Testy fundamentu nie potwierdzają zgodności modeli.
 
+## Zmiana priorytetu — Linux desktop przed Image AI
+
+Na polecenie właściciela realizujemy teraz natywny klient PySide6/Qt6 i AppImage.
+Pierwszy przepływ GGUF/llama.cpp bez Ollamy przeszedł rzeczywisty test backendu
+i GUI na CPU. Pozostają testy rozszerzone, pakowanie, stabilizacja oraz weryfikacja
+integracji main i szkicu wydania. Image AI, Web i Android nie są teraz wdrażane.
+
 ## Przekrojowo — Python i opcjonalny Rust
 
 **Status:** projekt architektury opisany; własne komponenty Rust nie są wdrożone.

@@ -45,7 +45,8 @@
 - Przed raportowaniem sprawdź status Git.
 - Po push zweryfikuj zdalny commit, np. przez `git ls-remote`, i porównaj SHA.
 - Jeśli push nie działa, zgłoś problem zamiast twierdzić, że zmiany opublikowano.
-  Nie kontynuuj implementacji po nieudanym wymaganym teście dostępu do GitHub.
+  W bieżącym zadaniu właściciel zezwala kontynuować lokalne GUI i commity
+  mimo niedostępności GitHuba; przed integracją ponowić test dostępu.
 
 ## Zakończenie większego zadania
 
@@ -71,10 +72,10 @@ zdalny sprawdzaj poleceniami Git; nie próbuj wpisać hasha commita do niego sam
 
 ## Bieżąca granica prac
 
-Bieżące zadanie realizuje Etap 2 wersji 0.1.0 Alpha: kompletny backend Text AI,
-GGUF przez llama.cpp niezależnie od Ollamy, opcjonalną Ollamę, modele, pobieranie,
-trwałe rozmowy, streaming i anulowanie. Zachowaj fundament Etapu 1.
-Plan A–F i wyniki opisują docs/TEXT_AI.md oraz docs/PROGRESS.md.
-Nie rozpoczynaj Etapu 3 (Image AI), klientów graficznych ani implementacji Rust.
+Bieżące zadanie przesuwa natywne GUI Linux przed Image AI: klient PySide6/Qt6,
+istniejący backend, AppImage, testy, integracja main po weryfikacji i szkic wydania.
+Nie publikuj publicznego release bez osobnego potwierdzenia. Nie omijaj ochrony gałęzi.
+Nie implementuj teraz Image AI, Android ani Web GUI. Rust wymaga pomiarów
+i mierzalnej potrzeby; bez pustych crate'ów lub przepisywania backendu.
 Nie deklaruj działania inferencji, klientów ani zgodności modeli na podstawie
 samych interfejsów adapterów lub testów bez rzeczywistego silnika.
