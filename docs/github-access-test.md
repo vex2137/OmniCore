@@ -10,5 +10,5 @@ Ten plik służy do sprawdzenia odczytu i zapisu repozytorium
 - Zapis: wymaga commita tego pliku, pushu gałęzi i porównania SHA lokalnego ze zdalnym.
 
 Samo istnienie tego pliku nie potwierdza uprawnień do zapisu. Wynik testu
-i zweryfikowany SHA zostaną zapisane w [PROGRESS.md](PROGRESS.md) po udanym pushu.
+i zweryfikowany SHA są zapisane w [PROGRESS.md](PROGRESS.md) po udanym pushu.
 Test nie wymaga zapisywania tokenów ani innych sekretów w repozytorium.

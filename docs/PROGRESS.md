@@ -3,10 +3,11 @@
 ## Project Status
 
 - **Current version:** 0.1.0 Alpha — docelowa wersja rozwojowa, bez wydania aplikacji.
-- **Current milestone:** przygotowanie repozytorium i trwałej dokumentacji projektu.
+- **Current milestone:** przygotowanie repozytorium i trwałej dokumentacji projektu — ukończone.
 - **Current development branch:** `docs/omnicore-project-foundation`.
-- **Last verified commit:** `53cd9ed0cb1fa17e4c81b4ffe860c934978ae43d`
-  na `test/omnicore-github-access`; odczytany ponownie z GitHub po pushu.
+- **Last verified commit:** `d090530304401ca425cae3935bc03c95633018c3`
+  na `docs/omnicore-project-foundation`; odczytany ponownie z GitHub po pushu.
+  Jest to punkt kontrolny dokumentacji sprzed commita zapisującego niniejszy wynik.
 - **Last update:** 2026-10-28 (Europe/Warsaw).
 
 ## Completed
@@ -18,19 +19,23 @@ Ukończone przygotowanie projektu:
 - Potwierdzono odczyt Git i zapis przez commit, push oraz porównanie zdalnego SHA
   gałęzi `test/omnicore-github-access`.
 - Dodano [zapis testu dostępu](github-access-test.md).
+- Utworzono [AGENTS.md](../AGENTS.md), [ROADMAP.md](ROADMAP.md) z pięcioma
+  wersjami oraz PROGRESS.md z mechanizmem przekazania pracy kolejnej sesji.
+- Sprawdzono wymagane sekcje, lokalne odnośniki, bloki kodu i `git diff --check`.
+- Opublikowano dokumentację na osobnej gałęzi, pobrano zdalny ref i porównano
+  zawartość wszystkich czterech nowych plików z lokalnymi plikami.
 
 **Ukończone funkcje aplikacji: brak.** Repozytorium bazowe zawierało wyłącznie
 README i licencję; żaden silnik AI, backend ani klient nie został zaimplementowany.
 
 ## In Progress
 
-- Utworzenie i walidacja [AGENTS.md](../AGENTS.md), [ROADMAP.md](ROADMAP.md)
-  oraz tego dokumentu, następnie commit, push i weryfikacja na osobnej gałęzi.
+- Brak aktywnych prac implementacyjnych. Konfiguracja repozytorium i dokumentacji
+  została zakończona; ten zapis utrwala zweryfikowany punkt kontrolny.
 
 ## Planned Next
 
-1. Zakończyć weryfikację i publikację dokumentacji; nie implementować aplikacji
-   w tym zadaniu.
+1. Przejrzeć gałąź dokumentacyjną przed ewentualnym włączeniem do `main`.
 2. W kolejnym zadaniu wybrać architekturę backendu, klientów i integracji inferencji;
    określić wymagania sprzętowe i macierz wspieranych platform.
 3. Uzgodnić pierwszy mały zakres 0.1.0, jego testy oraz narzędzia budowania.
@@ -57,25 +62,30 @@ Git 2.52.0, Python 3.12.14, Node.js 24.19.0, npm 11.9.0.
 | `git ls-remote --exit-code origin refs/heads/main` | PASS, zgodny z bazowym lokalnym HEAD |
 | Commit i push `test/omnicore-github-access` | PASS |
 | Porównanie lokalnego SHA z `git ls-remote` gałęzi testowej | PASS, `53cd9ed0cb1fa17e4c81b4ffe860c934978ae43d` |
-| Walidacja kompletnej dokumentacji i lokalnych odnośników | Oczekuje na wykonanie |
+| Walidacja kompletnej dokumentacji i lokalnych odnośników | PASS: 4 pliki, 5 wersji z wymaganymi sekcjami, 8 sekcji PROGRESS.md, brak oznaczonych ukończonych funkcji |
+| `git diff --check` i `git diff --cached --check` | PASS |
+| Push, ponowny odczyt SHA i pobranie refa dokumentacji | PASS, `d090530304401ca425cae3935bc03c95633018c3` |
+| Porównanie 4 plików z committem pobranym ze zdalnej gałęzi | PASS, zawartość zgodna z lokalnymi plikami |
 | Testy aplikacji / build / uruchomienie | Niewykonane: brak kodu i konfiguracji testów |
 
 ## GitHub Status
 
-Zweryfikowany punkt kontrolny testu dostępu:
+Zweryfikowany punkt kontrolny dokumentacji (sprzed commita zapisującego ten raport):
 
-- **Branch:** `test/omnicore-github-access`.
-- **Local commit SHA:** `53cd9ed0cb1fa17e4c81b4ffe860c934978ae43d`.
-- **Remote commit SHA:** `53cd9ed0cb1fa17e4c81b4ffe860c934978ae43d`.
+- **Branch:** `docs/omnicore-project-foundation`.
+- **Local commit SHA:** `d090530304401ca425cae3935bc03c95633018c3`.
+- **Remote commit SHA:** `d090530304401ca425cae3935bc03c95633018c3`.
 - **Push status:** sukces; SHA potwierdzony przez ponowny odczyt zdalnego refa.
-- **Documentation branch:** `docs/omnicore-project-foundation`, publikacja oczekuje.
+- **Access test branch:** `test/omnicore-github-access`, push potwierdzony,
+  SHA `53cd9ed0cb1fa17e4c81b4ffe860c934978ae43d`.
 - **Pull request status:** nie utworzono PR w tej sesji; nie wykonano merge ani wydania.
 
 ## Session Handoff
 
-Przeprowadzono test zapisu do GitHub; trwa przygotowanie dokumentacji.
-Zakończyć jej walidację, commit i push, a następnie zapisać faktyczny wynik.
-Nie rozpoczynać implementacji aplikacji w tym zadaniu.
+Przeprowadzono test zapisu do GitHub, przygotowano dokumentację i potwierdzono
+jej obecność na osobnej gałęzi. Nie rozpoczęto implementacji aplikacji.
+Powyższe SHA odnoszą się do faktycznie sprawdzonych commitów; końcowy commit
+zapisujący raport należy sprawdzić poniższymi poleceniami i porównać z GitHub.
 
 Na początku kolejnej sesji przeczytać AGENTS.md, ROADMAP.md i PROGRESS.md,
 sprawdzić stan kodu i Git, a następnie kontynuować od potwierdzonego etapu.
