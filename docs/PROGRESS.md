@@ -3,8 +3,8 @@
 ## Project Status
 
 - **Current version:** 0.1.0 Alpha (`0.1.0a0`), fundament; bez wydania produktu.
-- **Current milestone:** Etap 1 — Fundament ukończony, przetestowany i wysłany na GitHub.
-  Etapu 2 nie rozpoczęto; raport kończy bieżący zakres prac.
+- **Current milestone:** rozszerzenie architektury o opcjonalny Rust — analiza i dokumentacja.
+  Ukończony Etap 1 zachowano; Etapu 2 i implementacji komponentów Rust nie rozpoczęto.
 - **Current development branch:** `feature/0.1.0-alpha`.
 - **Last verified commit:** `59dd09f87b793a86dd3059dd64b7d7823311744c`
   (fundament Etapu 1; lokalny HEAD, zdalny ref i ponownie pobrany commit są zgodne).
@@ -38,10 +38,20 @@
 - Zapisano audyt/architekturę w `cbd36fc`, a fundament w
   `59dd09f87b793a86dd3059dd64b7d7823311744c`. Push gałęzi funkcjonalnej powiódł się;
   ponownie pobrano ref i porównano SHA oraz kluczowe pliki źródłowe i kontrakty.
+- Rozszerzono [ARCHITECTURE.md](ARCHITECTURE.md#opcjonalna-warstwa-rust--decyzja-architektoniczna)
+  i ROADMAP.md o podział Python/Rust, PyO3/maturin oraz osobny proces API,
+  priorytety, koszty budowania i utrzymania oraz plan warunkowego wdrożenia.
+- Określono bramkę: profilowanie rzeczywistego workloadu, porównanie z bibliotekami
+  natywnymi i poolami Pythona, cel ustalony przed prototypem oraz testowany fallback.
+  Przykładowe 20% poprawy p95 lub peak RSS jest propozycją celu, nie wynikiem pomiaru.
+- Ponownie uruchomiono wszystkie 65 dotychczasowych testów, lint/format,
+  kontrolę kontraktów, smoke testy procesu i istniejącego pakietu oraz build.
+  Wszystkie sprawdzenia przeszły; kod, zależności i snapshoty API pozostają bez zmian.
 
 ## In Progress
 
-- Brak aktywnego etapu implementacji. Etap 1 zakończony; Etap 2 wymaga kolejnego zadania.
+- Brak aktywnego etapu implementacji; bieżący zakres obejmuje wyłącznie dokumentację Rust.
+  Etap 1 pozostaje zakończony, a Etap 2 wymaga kolejnego zadania.
 
 ## Planned Next
 
@@ -50,6 +60,9 @@
    streaming, historia i import/eksport rozmów wraz z testami rzeczywistej inferencji.
 3. Dopiero w Etapie 3: ComfyUI i sprawdzone workflowy, kolejka, obrazy, LoRA.
 4. Dopiero w Etapie 4: natywne Linux/Android i Web; renderowanie oraz testy motywów.
+5. Profilować duże pliki dopiero po powstaniu rzeczywistego importu. Rozważyć
+   opcjonalny Rust tylko po zapisaniu konkretnej potrzeby i mierzalnego celu;
+   kolejka, zasoby i współbieżność mają niższy priorytet analizy. Rust nie blokuje Alpha.
 
 ## Known Issues
 
@@ -68,6 +81,8 @@
 - Workflow CI został dodany; wyniki uruchomienia na GitHub Actions nie są jeszcze znane.
 - Szkic konfiguracji środowiska wymaga przeglądu, zapisania i publikacji w ustawieniach;
   nie weryfikowano przywrócenia snapshotu w nowym zadaniu.
+- Nie ma własnych komponentów Rust, ich benchmarków ani testów kompilacji.
+  Projekt architektury nie potwierdza przyspieszenia, izolacji ani zgodności platformowej.
 
 ## Test Results
 
@@ -94,6 +109,14 @@ bez modeli, silników inferencji i wymaganego GPU.
 | GitHub Actions | Nie potwierdzono wykonania workflow; lokalne polecenia CI wykonano |
 | Push `feature/0.1.0-alpha` i niezależny odczyt SHA | PASS — `59dd09f87b793a86dd3059dd64b7d7823311744c` |
 
+Regresja po analizie Rust, 2026-10-28, to samo środowisko Python 3.12.14:
+`pytest -q`: **65 passed**, bez pominięć i ostrzeżeń; Ruff, format, eksport kontraktów
+w trybie `--check`, `scripts/smoke.py`, `uv build` oraz smoke test z `.venv-package`
+zakończyły się powodzeniem. Sprawdzono lokalne odnośniki i `git diff --check`.
+Zmiany obejmują tylko ARCHITECTURE.md, ROADMAP.md i PROGRESS.md; brak zmian kodu,
+testów, migracji, manifestów, lockfile i kontraktów. Nie uruchamiano benchmarków
+ani testów Rust, ponieważ nie wdrożono komponentu natywnego.
+
 ## GitHub Status
 
 - **Branch:** `feature/0.1.0-alpha`.
@@ -112,6 +135,9 @@ wynik weryfikacji może być późniejszy; nie próbować wpisywać hasha commit
 
 Najpierw przeczytać AGENTS.md, ROADMAP.md, PROGRESS.md i ARCHITECTURE.md.
 Fundament jest zaimplementowany, przetestowany i opublikowany na gałęzi funkcjonalnej.
+Następnie dopisano projekt opcjonalnej warstwy Rust i ponownie zweryfikowano
+regresję. Nie dodawać crate'ów ani zależności bez potrzeby potwierdzonej pomiarami.
+Priorytetem kolejnego zadania funkcjonalnego pozostają adaptery tekstowe w Pythonie.
 Ten dokument zapisuje wynik weryfikacji wcześniejszego commita; aktualny HEAD
 raportu sprawdzić poniższymi poleceniami i porównać ze zdalnym refem.
 Nie rozpoczynać Etapu 2 w tym zadaniu. W nowym zadaniu porównać dokumentację

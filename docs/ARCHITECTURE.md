@@ -2,6 +2,8 @@
 
 Decyzja projektowa: 2026-10-28. Wersja robocza nazwy: OmniCore.
 Zakres bieżącej implementacji: **Etap 1 — Fundament**. Nie jest to kompletna Alpha.
+Rozszerzenie decyzji z 2026-10-28: docelowo Python oraz opcjonalne komponenty Rust.
+Poniższy projekt warstwy natywnej nie zmienia implementacji ukończonego Etapu 1.
 
 ## Audyt wejściowy
 
@@ -27,6 +29,7 @@ Zakres bieżącej implementacji: **Etap 1 — Fundament**. Nie jest to kompletna
 | Android | Kotlin + Jetpack Compose, Etap 4 | Natywny klient zdalnego backendu; JDK/Gradle/SDK dobrać razem; brak inferencji na telefonie w Alpha |
 | Kontrakty | Generowane OpenAPI i JSON Schema | Jedno źródło modeli w Pydantic, snapshoty w repozytorium sprawdzane w CI |
 | Zależności Python | uv i uv.lock | Powtarzalna instalacja `uv sync --frozen`; backend i narzędzia testowe bez silników AI |
+| Opcjonalne komponenty natywne | Rust; PyO3/maturin lub osobny proces API | Wyłącznie po profilowaniu i wykazaniu korzyści; obecnie brak własnego kodu Rust i nowych wymagań budowania |
 
 Nie ma potrzeby zmiany preferowanego stosu. Qt i Android nie są instalowane ani
 testowane w Etapie 1. Kompatybilność tych klientów pozostaje do potwierdzenia
@@ -142,6 +145,146 @@ uruchamiać wielu workerów Uvicorn ze współdzieloną kolejką w pamięci.
 Wideo, muzyka, TTS/STT, agenci, automatyzacje, trenowanie LoRA i port Windows
 pozostają poza 0.1.0. Nie implementować ich jako pustych endpointów lub przycisków.
 
+## Opcjonalna warstwa Rust — decyzja architektoniczna
+
+**Status: zaprojektowana, bez implementacji i bez wyników benchmarków.**
+Python 3.12+/FastAPI pozostaje hostem aplikacji i publicznego API; SQLite,
+REST/WebSocket, formaty danych i działające funkcje Etapu 1 pozostają zachowane.
+Rust ma uzupełniać wybrane operacje, gdy pomiary uzasadnią koszt dodatkowej warstwy.
+Nie dodajemy teraz crate'ów, Cargo.toml, maturin, przełączników ani pustych modułów.
+Instalacja, testy i uruchamianie fundamentu nie wymagają własnego toolchainu Rust.
+
+### Podział odpowiedzialności i priorytety
+
+| Obszar | Odpowiedzialność Pythona | Potencjalny zakres Rust | Priorytet i warunek |
+| --- | --- | --- | --- |
+| API, bezpieczeństwo, dane, UI | FastAPI, walidacja Pydantic, autoryzacja, lokalizacja, repozytorium SQLite i migracje; klienci pozostają Qt/React/Kotlin | Brak planu przenoszenia tych elementów | P0: utrzymać zgodność i rozwijać funkcje Alpha |
+| Inferencja | Adaptery i sterowanie Ollama, llama.cpp, ComfyUI | Bez własnej implementacji inferencji ani obliczeń GPU | P0: najpierw rzeczywiste integracje i testy modeli |
+| Duże pliki | Uprawnienia, referencje plików, licencje, polityka pobierania i usuwania, zapis metadanych | Strumieniowe skanowanie/walidacja, indeksowanie, operacje na fragmentach i ewentualne checksumy | P1: pierwszy kandydat do profilowania po powstaniu importu modeli |
+| Kolejka zadań | Stany i trwałość zadania, priorytety, limity, decyzje o retry/anulowaniu, publiczne zdarzenia | Ograniczony wykonawca lub scheduler, jeśli zmierzony narzut kolejki ogranicza przepustowość | P2: po testach rzeczywistej kolejki; nie zastępuje EventHub ustawień |
+| Zarządzanie zasobami | Polityka budżetów RAM/VRAM, limity zadań i komunikaty dla użytkownika | Zbieranie/ agregacja liczników OS lub egzekwowanie limitów workera, gdy istnieją odpowiednie API systemowe | P2: tylko udokumentowane braki lub koszt istniejących narzędzi |
+| Współbieżność | Orkiestracja asyncio, timeouty, backpressure i bezpieczne mapowanie wyników | Ograniczony pool dla zmierzonych obliczeń CPU lub wielu niezależnych operacji | P2: po porównaniu z thread/process pool i bibliotekami natywnymi |
+
+Priorytety określają kolejność analizy, nie zobowiązanie do napisania każdego
+komponentu w Rust. I/O ograniczone przepustowością dysku nie przyspieszy od samej
+zmiany języka. `hashlib`, SQLite, Pydantic i biblioteki silników już korzystają
+z kodu natywnego; punktem odniesienia jest najlepsza rozsądna implementacja Python
+z tymi bibliotekami, nie sztucznie wolny odpowiednik. Odczyt VRAM czy użycie Rust
+nie zapewnia rezerwacji pamięci w obcym silniku ani usunięcia błędów GPU.
+
+### Dwa warianty integracji
+
+```mermaid
+flowchart LR
+    Clients[Qt / React / Kotlin] --> Public[Python FastAPI REST i WebSocket]
+    Public --> Domain[Python: logika, SQLite, polityki]
+    Domain --> Engines[Adaptery Ollama / llama.cpp / ComfyUI]
+    Domain -. opcjonalnie .-> Facade[Wewnętrzna fasada Python]
+    Facade -. krótka operacja CPU .-> Extension[Rust przez PyO3]
+    Facade -. izolowane zadanie .-> Worker[Proces Rust przez prywatne API]
+```
+
+Linie przerywane oznaczają projekt, nie dostępne komponenty. Publiczne żądania
+zawsze przechodzą przez Python; klient nie musi wiedzieć, jak wykonano operację.
+
+| Kryterium | Moduł PyO3, budowany maturin | Osobny proces Rust przez API |
+| --- | --- | --- |
+| Dobór zadań | Krótkie, ograniczone operacje CPU, mało danych na granicy FFI | Długie zadania, osobne limity i potrzeba restartu/izolacji awarii |
+| Koszt komunikacji | Wywołania i konwersje typów; drobne wywołania mogą zniwelować zysk | IPC, serializacja, uruchamianie i nadzór procesu; zwykle większy narzut |
+| Awaria | Wspólna przestrzeń pamięci; błąd natywny może zakończyć cały backend | Awaria workera może być odseparowana, lecz sam osobny proces nie jest sandboxem |
+| Anulowanie | Kooperacyjne punkty anulowania; brak bezpiecznego wymuszonego zabicia wątku | Sygnał anulowania, timeout i kontrolowane zakończenie własnego workera |
+| Dystrybucja | Wheel zależny od OS/architektury i wybranego ABI Pythona | Osobna binarka na OS/architekturę oraz zgodność prywatnego protokołu |
+
+**PyO3/maturin:** ewentualny moduł dostarczać w osobnym, opcjonalnym pakiecie
+natywnym; główny pakiet pozostaje budowany obecnym Hatchling. Nie zastępować
+istniejącego backendu systemu budowania maturin. Wersje Rust (stable/MSRV),
+PyO3 i maturin przypiąć dopiero dla konkretnego komponentu i przetestować z Python
+3.12+. `abi3` rozważyć jako sposób zmniejszenia liczby wariantów CPython, po
+sprawdzeniu ograniczeń używanych API; nie gwarantuje zgodności OS, CPU ani
+automatycznej zgodności wszystkich interpreterów i wariantów free-threaded.
+
+Przekazywać niewielkie struktury lub ograniczone bufory zamiast kopiowania całych
+wag przez FFI. Długa praca Rust nie może trzymać GIL, a odłączenie od interpretera
+nie zwalnia wątku pętli asyncio: blokujące wywołanie nadal wymaga thread pool
+z limitem. Nie używać obiektów Pythona w pracy odłączonej od interpretera.
+Mapować błędy na istniejące kody domenowe; panic i błędy natywne nie są mechanizmem
+odzyskiwania ani bezpieczną granicą izolacji.
+
+**Osobny proces:** preferować prywatne wersjonowane API lokalne (np. Unix socket
+na Linux; loopback HTTP tylko z uwierzytelnianiem). Handshake sprawdza wersję
+protokołu i możliwości. Przekazywać ID zadania, parametry i strumień/bezpieczny
+uchwyt zasobu zamiast wag w JSON. Worker ponownie weryfikuje dopuszczalne ścieżki
+i limity; sam dostęp do IPC nie nadaje prawa do dowolnego pliku lub polecenia.
+Wprowadzić timeouty, heartbeat, limit kolejki, backpressure i restart tylko
+własnych procesów. Po awarii uzgodnić stan z Pythonem przed retry; identyfikator
+idempotencji ma zapobiegać dublowaniu efektów, nie obiecywać wykonania exactly-once.
+Rzeczywista izolacja wymaga ograniczeń uprawnień i zasobów OS.
+
+Python pozostaje właścicielem schematu i repozytorium SQLite. Worker nie dostaje
+drugiej, niezależnej ścieżki zapisu do tej bazy. Granica procesu nie znosi obecnego
+ograniczenia jednego procesu API z rozsyłaniem zdarzeń w pamięci.
+
+### Zgodność i praca bez Rust
+
+- Publiczne REST, WebSocket, OpenAPI, schematy JSON, stany, błędy i semantyka
+  anulowania pozostają niezależne od języka wykonawcy. Ewentualny prywatny protokół
+  workera ma osobną wersję; nie staje się automatycznie publicznym API.
+- Rdzeń uruchamia się bez pakietu/binarki Rust. Przyszły komponent jest jawnie
+  włączany i sprawdzany przy starcie; brak lub niezgodność uruchamia sprawdzoną
+  ścieżkę Python albo jasny błąd niedostępnej opcjonalnej możliwości.
+- Fallback nie powtarza po cichu operacji z efektami ubocznymi. Po awarii najpierw
+  ustalić stan i bezpiecznie dokończyć lub odrzucić zadanie.
+- Używać obecnych adapterów silników. Rust nie przejmuje GPU, CUDA/ROCm,
+  zarządzania modelami w silniku ani nie stanowi dowodu zgodności modelu.
+
+### Koszty utrzymania, budowania i platformy
+
+| Platforma / obszar | Wpływ opcjonalnej warstwy i warunek wdrożenia |
+| --- | --- |
+| Linux backend i Qt | Osobne artefakty x86_64/aarch64 tylko tam, gdzie wsparcie jest deklarowane; kompatybilność glibc/manylinux lub musl/musllinux, bibliotek i CPU trzeba budować i testować. Build na CachyOS nie dowodzi przenośności wheel. Qt pozostaje klientem API |
+| Android | W Alpha Kotlin/Compose łączy się z backendem komputera, więc nie potrzebuje Rust ani Pythona na telefonie. Przyszły lokalny moduł wymaga osobnego projektu NDK/ABI, JNI/UniFFI i testów urządzeń; wheel PyO3 z Linux nie działa automatycznie na Androidzie |
+| Web | React/TypeScript nadal używa REST/WS; bez kompilatora Rust u użytkownika. WebAssembly jest osobną decyzją, poza tym rozszerzeniem i bez utożsamiania z PyO3 |
+| Budowanie i CI | Toolchain/MSRV, Cargo.lock i zgodność PyO3/maturin, cache, macierz wheel/binarek, instalacja gotowych artefaktów i testy obu ścieżek; obecne testy bez Rust muszą pozostać obowiązkowe |
+| Utrzymanie i bezpieczeństwo | Kompetencje w dwóch językach, diagnostyka FFI/IPC, przegląd zależności/licencji, aktualizacje podatności, kontrola `unsafe`, nakład na obsługę awarii i kompatybilność |
+| Dystrybucja | Zachować sumy kontrolne i weryfikację artefaktów; brak wheel nie może powodować nieoczekiwanej instalacji kompilatora lub obowiązkowego builda Rust przy zwykłym setupie |
+
+Na tym etapie nie potwierdzono kompilacji ani zgodności żadnego własnego komponentu
+Rust. Nie dodajemy toolchainu do standardowego setupu/CI. Dodatkowy job Rust,
+pakiet lub binarka powstają dopiero po przejściu bramki technicznej.
+
+### Plan stopniowy i mierzalna bramka wdrożenia
+
+1. **Teraz:** zachować działający Etap 1 i dopisać tę decyzję. Następnym zadaniem
+   funkcjonalnym nadal są integracje tekstowe Etapu 2; nie uzależniać ich od Rust.
+2. **Profilowanie:** po powstaniu rzeczywistego importu/kolejki zarejestrować
+   problem użytkownika i powtarzalny workload. Zmierzyć czas całej operacji,
+   medianę/p95, przepustowość, CPU, peak RSS, responsywność API i koszt kopiowania.
+   Zapisać sprzęt, rozmiar danych, cache zimny/ciepły, poziom współbieżności,
+   liczbę prób dobraną do wariancji i surowe wyniki. Bez automatycznego pobierania wag.
+3. **Decyzja przed prototypem:** porównać Python + biblioteki natywne i dostępne
+   thread/process pool. Wybrać jedną operację i PyO3 albo proces według potrzeby
+   izolacji. Zapisać budżet zasobów, cel i koszt utrzymania w decyzji technicznej.
+   Przykładowa bramka to co najmniej 20% poprawy p95 całego przepływu lub peak RSS
+   bez pogorszenia poprawności i uzgodnionych limitów API. To proponowany próg,
+   nie wynik pomiaru ani uniwersalna obietnica. Cel izolacji może zamiast tego
+   wymagać dowodu przeżycia awarii workera i dotrzymania budżetu narzutu.
+4. **Warunkowy prototyp:** dopiero z konkretnym uzasadnieniem utworzyć minimalny
+   komponent, testować w trybie release i porównać z tym samym baseline. Wliczyć
+   FFI/IPC, start procesu i dostęp do dysku. Jeśli cel nie został osiągnięty,
+   pozostawić Python i zapisać negatywny wynik; nie wdrażać Rust na siłę.
+5. **Wdrożenie opcjonalne:** po pozytywnym wyniku dodać osobny artefakt, testy
+   z Rust i bez niego, zgodność wyników, instalację wheel/binarki oraz próby błędów,
+   anulowania, timeoutów, OOM i restartu. Snapshoty publicznych kontraktów muszą
+   pozostać zgodne; każda zmiana API wymaga osobnej uzasadnionej decyzji.
+6. **Obserwacja i rollback:** ograniczyć współbieżność i zakres początkowego użycia,
+   porównywać metryki, zapewnić możliwość wyłączenia. Dopiero kolejne pomiary
+   mogą uzasadnić rozszerzenie na zasoby lub wykonawcę kolejki.
+
+Źródła techniczne sprawdzone 2026-10-28:
+[PyO3 — oficjalny README](https://github.com/PyO3/pyo3/blob/main/README.md)
+oraz [maturin — oficjalny README](https://github.com/PyO3/maturin/blob/main/README.md).
+Potwierdzają model rozszerzeń i koszty pakowania; nie są wynikami testów OmniCore.
+
 ## Ryzyka techniczne i sposób weryfikacji
 
 | Ryzyko | Plan ograniczenia / dowód |
@@ -155,3 +298,5 @@ pozostają poza 0.1.0. Nie implementować ich jako pustych endpointów lub przyc
 | Qt/Wayland i Android toolchain | Oddzielne buildy i testy GUI w Etapie 4, brak deklaracji ukończenia na podstawie kodu |
 | Brak GPU/urządzeń w CI | CI tylko bez GPU; testy sprzętowe osobno z wynikiem i środowiskiem, nie jako pozorne PASS |
 | Rozjazd dokumentacji i implementacji | Snapshot OpenAPI/JSON Schema, testy kontraktów, aktualizacja PROGRESS po etapie |
+| Narzut i utrzymanie Rust | Najpierw profilowanie i cel; oddzielne opcjonalne artefakty; porównanie z Pythonem uwzględnia FFI/IPC oraz dysk |
+| FFI, awaria workera i rozjazd stanu | Brak automatycznej izolacji przez PyO3; testy awarii/timeoutów, uzgodnienie stanu przed retry, jeden właściciel SQLite |

@@ -15,6 +15,44 @@ Wybrany stos, granice modułów, plan etapów i ryzyka opisuje
 [ARCHITECTURE.md](ARCHITECTURE.md). Nie ustalono terminów ani potwierdzonej
 macierzy sprzętowej. Testy fundamentu nie potwierdzają zgodności modeli.
 
+## Przekrojowo — Python i opcjonalny Rust
+
+**Status:** projekt architektury opisany; własne komponenty Rust nie są wdrożone.
+Ukończony Etap 1 pozostaje zachowany. Python/FastAPI, SQLite, REST/WebSocket,
+klienci Qt/React/Kotlin i integracje istniejących silników pozostają podstawą.
+Rust nie jest warunkiem ukończenia Alpha ani nową zależnością standardowego setupu.
+
+Szczegóły wariantów PyO3/maturin i osobnego procesu API, koszty platformowe,
+zgodność oraz bramki opisuje
+[architektura warstwy Rust](ARCHITECTURE.md#opcjonalna-warstwa-rust--decyzja-architektoniczna).
+
+- [x] Opisać podział Python/Rust, warianty integracji, priorytety i warunki decyzji.
+- [ ] P0: rozwijać integracje tekstowe i obrazowe według istniejących etapów,
+  zachowując testy oraz publiczne kontrakty; nie przepisywać fundamentu.
+- [ ] P1: po wdrożeniu importu dużych plików wykonać profilowanie rzeczywistego
+  przepływu i porównać go z najlepszą rozsądną ścieżką Python/bibliotek natywnych.
+- [ ] Ustalić mierzalny cel przed prototypem: np. minimum 20% poprawy p95 operacji
+  lub peak RSS, bez regresji poprawności i budżetu API; to cel, nie zmierzony wynik.
+  Dla izolacji wymagać testu przeżycia awarii workera i pomiaru narzutu.
+- [ ] Tylko po wykazaniu potrzeby wybrać jedną operację i przygotować prototyp
+  PyO3/maturin albo izolowanego workera; uwzględnić FFI/IPC i koszt budowania.
+- [ ] Tylko po spełnieniu celu udostępnić opcjonalny artefakt oraz przetestować
+  tryby z Rust i bez Rust, anulowanie, błędy, restart, instalację i zgodność kontraktów.
+- [ ] P2: ponownie ocenić scheduler/wykonawcę kolejki, pomiary zasobów i współbieżność
+  wyłącznie na podstawie nowych pomiarów. Polityki, trwałość i SQLite pozostają w Pythonie.
+
+**Zależności:** działające funkcje i workload do pomiaru, zapisany baseline,
+decyzja techniczna oraz dostęp do właściwej platformy testowej. PyO3 nie jest
+granicą izolacji; osobny proces wymaga nadzoru i ograniczeń OS. Linux wymaga
+testowanych wheel/binarek; Android w Alpha łączy się z backendem komputera;
+Web pozostaje klientem API. JNI/UniFFI i WebAssembly wymagają osobnych decyzji.
+
+**Kryteria wdrożenia:** udokumentowana potrzeba i osiągnięty cel, zgodność wyników
+i API, sprawdzona instalacja na deklarowanych platformach, limity zasobów,
+bezpieczny rollback i oszacowany koszt utrzymania. Bez spełnienia tych warunków
+pozostaje implementacja Python. Nie przenosić obliczeń GPU do Rust ani nie
+deklarować zgodności modeli na podstawie zmiany języka.
+
 ## OmniCore 0.1.0 — Text & Image
 
 **Status:** w realizacji — fundament Etapu 1 zaimplementowany i przetestowany;
