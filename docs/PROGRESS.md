@@ -1,6 +1,64 @@
 # OmniCore — PROGRESS
 
-## Aktualizacja — Android, część 2 (2026-10-29)
+## Alpha.2 — dostarczone i opublikowane (2026-10-29)
+
+[Publiczne wydanie v0.1.0-alpha.2](https://github.com/vex2137/OmniCore/releases/tag/v0.1.0-alpha.2)
+opublikowano na wyraźne polecenie właściciela o 12:02:58 UTC. GitHub potwierdził
+`draft=false`, `prerelease=true`, `published_at` oraz 5 faktycznie przesłanych assetów.
+Pobrano oba binaria ze szkicu przed publikacją i zweryfikowano sha256sum -c;
+po publikacji strona i oba pliki odpowiedziały HTTP 200 bez tokenu klienta.
+
+[PR #4](https://github.com/vex2137/OmniCore/pull/4) **MERGED**, commit wydania/tag/main
+w chwili scalenia: `a0593d06be295f3c7e3e2d8b17e8ea2afc51fc7b`. API i ls-remote
+potwierdziły main; tag v0.1.0-alpha.2 wskazuje ten sam commit. Commit raportu może
+być późniejszy. Gałąź feature/android-part-2 zachowana na
+`e9fd8547088ca8136fe6a4ae78277e3d183679ee` (źródło dostarczonego APK).
+Nie nadpisano historii ani publicznych assetów Alpha.1.
+
+Android: natywny Kotlin/Compose/Material 3, repozytorium/Flow/StateFlow, REST/SSE,
+Keystore, czat/history/CRUD/model/stream/stop/copy, HF GGUF download manager,
+parametry generowania, PL/EN/motywy, diagnostyka i poprawiona klawiatura/scroll.
+Tło/rozłączenie nie anuluje generacji serwera; jawny Stop wysyła cancel. Linux,
+backend produkcyjny i kontrakty zachowane. Brak WebView i inferencji telefonu.
+Rust pozostaje opcjonalny; Image AI/Web poza tym etapem.
+
+| Wykonana walidacja | Wynik |
+| --- | --- |
+| Android JVM + PL/EN | **34 PASS**, 0 fail/error/skip |
+| Lint/build/podpis/ZIP i ELF 16 KiB | **PASS** |
+| Natywny UI/HTTP-SSE/Keystore/tło/rekreacja/HF na emulatorach 30 i 36 | **1 PASS na każdy API**, 0 skipped |
+| Końcowe CI backend + Qt bez GPU | **128 PASS** (117 backend + 11 Qt) |
+| Rzeczywisty AppImage dwukrotnie, trwałość i zamykanie własnych procesów | **PASS** |
+| Wcześniejsza lokalna regresja Python/Qt + 2 realne GGUF | **130 PASS** |
+| Oddzielny realny klient Kotlin/FastAPI/llama.cpp/SmolLM2 CPU | **1 PASS**, bez fixture inferencji |
+| Fizyczny ARM64/POCO/Xiaomi/HyperOS | **NIEWYKONANE** |
+
+Końcowe CI źródła e9fd854: [APK push](https://github.com/vex2137/OmniCore/actions/runs/40868744901),
+[APK PR](https://github.com/vex2137/OmniCore/actions/runs/40868751105),
+[Linux](https://github.com/vex2137/OmniCore/actions/runs/40868751121),
+[backend push](https://github.com/vex2137/OmniCore/actions/runs/40868745078),
+[backend PR](https://github.com/vex2137/OmniCore/actions/runs/40868751232): wszystkie **SUCCESS**.
+[Upload APK](https://github.com/vex2137/OmniCore/actions/runs/40869838047): **SUCCESS**,
+weryfikacja źródła/runu/draft i SHA-256 przed wysłaniem przez GITHUB_TOKEN.
+
+| Asset publicznego wydania | Rozmiar B | SHA-256 |
+| --- | ---: | --- |
+| [APK ARM64](https://github.com/vex2137/OmniCore/releases/download/v0.1.0-alpha.2/OmniCore-0.1.0-alpha-android-arm64.apk) | 18160061 | `3700cfc24670d28a4ad42ad73a5d3f0268ed81c4b3cea35677dc23a9c2ad4b4a` |
+| [AppImage x86_64](https://github.com/vex2137/OmniCore/releases/download/v0.1.0-alpha.2/OmniCore-0.1.0-alpha-x86_64.AppImage) | 98650616 | `a2a9cd06e994f33f2fcbce82a43109a22d1a959d16ec7b83f552c9ec650648a7` |
+
+Dołączono oba pliki .sha256 i android-build.json. APK: minSdk 26, target/compile 36,
+versionCode 2, io.github.vex2137.omnicore, Android Debug/test key. AppImage identyczny
+z Alpha.1, zawiera CPU llama.cpp/Python/Qt, bez wag. Dane są poza paczką.
+Fizyczny telefon, CUDA, CachyOS/RTX 4060 i Wayland pozostają niezweryfikowane.
+Różne klucze debug mogą wymagać deinstalacji starego APK; historia zostaje w backendzie.
+
+Moduły zapisano w logicznych commitach: `2eafa86`, `da3a557`, `9f560d8`, `909bcf0`,
+`f9d33f3`, `73a1a0c`, `272256c`, `a2a1bed`, `523133f`, `e9fd854`; wszystkie zachowane
+na GitHubie i w merge commit. Następne zadanie: fizyczny ARM64/Android 16 i stały
+klucz podpisu. Kolejna publiczna publikacja wymaga nowej zgody właściciela.
+
+
+## Historia realizacji Androida, część 2 (2026-10-29)
 
 Audyt: czysty main `2e78daa0035ff0858c33fc387468b078100e3fd8`, PR #3 scalony,
 brak otwartych PR na starcie. GUI Linux i AppImage zachowane. Publiczna Alpha.1
@@ -17,7 +75,7 @@ integracje GGUF/GUI), 56.54 s. Android: **34 JVM PASS**, lint/build PASS; rzeczy
 CI emulatorów pozostaje w weryfikacji. Właściciel zezwolił na publiczną Alpha.2.
 Telefon fizyczny, POCO/Xiaomi i lokalna inferencja telefonu pozostają niezweryfikowane.
 
-## Project Status
+## Historyczny status Alpha.1
 
 - **Wersja:** `0.1.0-alpha.1`, natywny Linux + natywny Android jako klient API.
   Wersja komponentu backendu `0.1.0a0` pozostaje zgodna z dotychczasowym kontraktem.

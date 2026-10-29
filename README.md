@@ -31,10 +31,13 @@ na serwerze. Build Androida używa API 36 (Android 16) i sprawdza zgodność bib
 ze stronami 16 KiB. Nie ma WebView, usług Google Play ani inferencji telefonu.
 Fizyczne POCO/Xiaomi wymaga osobnego testu; wyniki emulatorów są w PROGRESS.
 
-Publiczna wersja [v0.1.0-alpha.1](https://github.com/vex2137/OmniCore/releases/tag/v0.1.0-alpha.1)
-została opublikowana za zgodą właściciela. Dalszy Android ma versionCode 2,
-wersję `0.1.0-alpha.2` i osobne artefakty Actions/szkic; nie podmieniamy plików
-publicznego wydania. Kolejna publiczna publikacja wymaga osobnej zgody.
+Publiczna [**OmniCore v0.1.0-alpha.2**](https://github.com/vex2137/OmniCore/releases/tag/v0.1.0-alpha.2)
+jest dostępna za zgodą właściciela: [APK ARM64](https://github.com/vex2137/OmniCore/releases/download/v0.1.0-alpha.2/OmniCore-0.1.0-alpha-android-arm64.apk)
+i [AppImage x86_64](https://github.com/vex2137/OmniCore/releases/download/v0.1.0-alpha.2/OmniCore-0.1.0-alpha-x86_64.AppImage),
+oba z plikami SHA-256. APK ma versionCode 2 i podpis testowy. Emulatory API 30/36
+przeszły testy; fizyczny POCO/Xiaomi pozostaje niezweryfikowany. AppImage jest
+identyczny jak w Alpha.1; starego wydania nie zmieniono. [Wyniki i sumy](docs/PROGRESS.md).
+Kolejne publiczne wydania wymagają osobnej zgody.
 
 - [Architektura, audyt, plan i ryzyka](docs/ARCHITECTURE.md)
 - [Roadmapa](docs/ROADMAP.md)

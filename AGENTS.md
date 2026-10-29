@@ -4,7 +4,7 @@
 
 - Nazwa: **OmniCore**.
 - Typ: **open-source local AI platform** — platforma lokalnej sztucznej inteligencji.
-- Aktualna wersja rozwojowa: **0.1.0 Alpha** (publiczna Alpha.1; Android Alpha.2 rozwijany oddzielnie).
+- Aktualna wersja rozwojowa: **0.1.0 Alpha** (publiczne Alpha.1 i Alpha.2; kolejne publikacje wymagają zgody właściciela).
 - Platformy: Linux, Web, Android. Przyszła platforma: Windows.
 - Języki interfejsu: polski i angielski (PL/EN).
 - Interfejs: jasny i ciemny motyw oraz automatyczne wykrywanie motywu systemowego.

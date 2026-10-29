@@ -159,8 +159,9 @@ implementacji tej granicy i osobnych testów, a nie przełącznika udającego dz
 ## Dystrybucja
 
 Opublikowane wcześniej `v0.1.0-alpha.1` pozostaje bez zmian. Nowy APK wersji
-`0.1.0-alpha.2` jest artefaktem Actions; szkic `v0.1.0-alpha.2` zostaje opublikowany po weryfikacji plików
-na wyraźne polecenie właściciela. Workflow `Attach tested Android APK to draft` wymaga udanego runu,
+`0.1.0-alpha.2` jest publicznie dostępny w [wydaniu Alpha.2](https://github.com/vex2137/OmniCore/releases/tag/v0.1.0-alpha.2)
+po weryfikacji plików i wyraźnym poleceniu właściciela. CI source `e9fd854`
+przeszło emulatory API 30/36; podpis jest testowy, telefon fizyczny nie był testowany. Workflow `Attach tested Android APK to draft` wymaga udanego runu,
 pełnego zgodnego SHA i draft=true; odrzuca publiczne wydanie. Nie wolno podmieniać
 starego publicznego pliku o tej samej nazwie. Podpis debug w różnych CI może być
 inny: przed deinstalacją starej aplikacji zapisz adres backendu, a token wprowadź

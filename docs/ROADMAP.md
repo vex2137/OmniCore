@@ -41,12 +41,13 @@ integracji main i szkicu wydania. Image AI i Web nie są teraz wdrażane. Natywn
 - [x] HF: search/pliki, potwierdzenie rozmiaru/licencji, download/progress/pause/resume/import.
 - [x] Parametry rozmowy bez utraty ustawień GPU, filtrowanie silników i diagnostyka wersji API/zadań.
 - [x] Target/compile Android 16/API 36; kontrola ZIP/ELF 16 KiB, wersja APK Alpha.2.
-- [ ] Potwierdzić nowy pełny zestaw JVM/lint/emulatory 30/36 i opublikować wyniki.
+- [x] Pełny zestaw JVM/lint/emulatory 30/36 PASS; wyniki, APK i SHA-256 opublikowane.
 - [ ] Fizyczny ARM64 POCO/Xiaomi Android 16: instalacja, IME, orientacja i tło/HyperOS.
-- [ ] Stały klucz podpisu i publiczna Alpha.2 wymagają odrębnej konfiguracji/zgody.
+- [x] Publiczna Alpha.2 opublikowana po zgodzie właściciela i weryfikacji paczek.
+- [ ] Stały produkcyjny klucz podpisu wymaga odrębnej konfiguracji sekretów.
 
-Publiczna Alpha.1 zachowuje swoje pliki i sumy. Nowe paczki trafiają do Actions
-oraz osobnego szkicu Alpha.2, bez automatycznej publicznej publikacji.
+Publiczna Alpha.1 zachowuje swoje pliki i sumy. Paczki Alpha.2 są w Actions i publicznym
+wydaniu po ręcznej zgodzie właściciela. Automatyczne workflow uploadują tylko do draft.
 
 ## Przekrojowo — Python i opcjonalny Rust
 
