@@ -21,6 +21,9 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -28,7 +31,10 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
       - name: Install pinned SDK packages
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
       - name: Unit tests, Android lint and signed test APKs

@@ -2,6 +2,7 @@ package io.github.vex2137.omnicore
 
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -217,6 +218,47 @@ class ClientTest {
                 fail()
             } catch (e: ApiFailure) {
                 assertEquals("response_too_large", e.code)
+            }
+        } finally {
+            api.close()
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun cancellingTheCoroutineClosesItsActualHttpCall() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.NO_RESPONSE)
+        )
+        server.start()
+        val api = OmniApi(server.url("/").toString().trimEnd('/'), "")
+        try {
+            val task = async(kotlinx.coroutines.Dispatchers.Default) { api.health() }
+            assertNotNull(server.takeRequest(3, TimeUnit.SECONDS))
+            kotlinx.coroutines.withTimeout(2000) {
+                task.cancel()
+                task.join()
+            }
+            assertTrue(task.isCancelled)
+        } finally {
+            api.close()
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun healthRejectsAnUnrelatedSuccessfulHttpServer() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("{\"status\":\"something_else\"}"))
+        server.start()
+        val api = OmniApi(server.url("/").toString().trimEnd('/'), "")
+        try {
+            try {
+                api.health()
+                fail()
+            } catch (e: ApiFailure) {
+                assertEquals("incompatible_backend", e.code)
             }
         } finally {
             api.close()

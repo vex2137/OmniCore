@@ -39,6 +39,28 @@ Pomiary realnego GGUF i syntetycznego pliku 4 GiB są w `benchmarks/`; nie wykaz
 obecnie potrzeby FFI/IPC. Import nie kopiuje wag, hashing już używa natywnej
 biblioteki. Rust pozostaje opcjonalny z fallback Python i bramkami opisanymi niżej.
 
+## Rozszerzenie: natywny klient Android
+
+Właściciel dopuścił Android po dostarczeniu Linux AppImage. Osobny projekt
+`apps/android` używa Kotlin 2.1.20, Compose/Material 3, AGP 8.9.2 i Gradle 8.11.1.
+OmniApi wywołuje to samo `/api/v1`, a OmniViewModel przechowuje projekcję stanu
+serwera. Backend pozostaje jedynym właścicielem SQLite, GGUF, pobierania i inferencji.
+Nie ma WebView, NDK do inferencji, własnego JNI/Rust ani lokalnych modeli telefonu.
+
+HTTP/SSE działa asynchronicznie przez OkHttp/coroutines, bez wykonywania sieci
+w wątku UI. Snapshoty zastępują tekst i porównują sekwencje w obrębie jednego ID.
+Unikalny request_key chroni ponowienie po utracie odpowiedzi. Rozłączenie i tło
+zachowują częściową historię w backendzie, bez automatycznego ponawiania promptu.
+Niesekretne preferencje są lokalne; token AES-GCM używa Android Keystore, backup
+wyłączono, redirecty nie przekazują auth. HTTP wymaga świadomego zaufanego LAN,
+publiczny adres wymaga HTTPS. Token nie jest ponownie używany dla innego origin.
+
+MinSdk 26, target/compile 35. ARM64 i x86_64 są osobnymi split APK; x86_64 służy
+emulatorowi CI. Sam build/podpis nie potwierdza instalacji na fizycznym ARM64.
+Zasoby UI PL/EN i Material 3 reagują na system/light/dark. Rust pozostaje opcjonalną
+warstwą backendu dopiero po pomiarach, bez kosztu toolchainu dla klienta Android.
+Instrukcje LAN, TLS, tokenu, budowania i granice testów: [ANDROID.md](ANDROID.md).
+
 ## Audyt wejściowy
 
 - Repozytorium: `github.com/vex2137/OmniCore`; czysty checkout dokumentacji

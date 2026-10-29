@@ -287,3 +287,23 @@ rzeczywiście sprawdzony na Linuxie. Instrukcja LAN/TLS/build: docs/ANDROID.md.
 AppImage i checksum są już załączone do szkicu wydania (ID 427506837), state=uploaded,
 draft=true, digest AppImage `07397174bcbc7cf6e9f14b8193881cb71b4b04ab5c30c3c908ce053cd3dab2c2`.
 Przesłanie przez Actions 40825408523 powiodło się po 401 bezpośredniego uploadu z cloud.
+
+## Android — moduł 2: odzyskiwanie połączenia i anulowanie
+
+Poprawiono lifecycle sieci: żądania OkHttp są asynchroniczne i anulowanie coroutine
+zamyka rzeczywiste połączenie; health sprawdza kontrakt, a reconnect zwalnia stary
+transport i odtwarza obserwację zadania. Zmiana serwera czyści projekcję danych,
+aby nie wykonywać operacji z poprzednim klientem/tokenem. Rozłączenie zachowuje
+historię w backendzie; opóźnione callbacki poprzedniej sesji są odrzucane.
+
+Lokalnie: **16 testów JVM PASS**, lint, ARM64/x86_64 APK i AndroidTest APK **PASS**.
+Dodatkowe testy sprawdzają rzeczywiste zamknięcie HTTP przy cancel coroutine oraz
+odrzucenie obcego serwera HTTP 200 bez prawidłowego health.
+
+CI dla wcześniejszego klienta przeszedł build/JVM/lint, ale jego helper pakujący
+uruchomiono domyślnym Pythonem Ubuntu 22.04 bez hashlib.file_digest. Dodano jawny
+Python 3.12 do workflow i poprawiono cache Gradle. Emulator nie był jeszcze
+uruchomiony w tym checkpointcie; nie deklarujemy jego testu jako PASS.
+
+Dodatkowa analiza ELF AppImage CI potwierdziła wymagane symbole do **GLIBC 2.35**.
+Wcześniejszy lokalny build Debian wymaga GLIBC 2.39; nie jest tym samym artefaktem.

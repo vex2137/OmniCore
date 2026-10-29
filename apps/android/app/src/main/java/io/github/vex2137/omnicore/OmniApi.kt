@@ -2,8 +2,6 @@ package io.github.vex2137.omnicore
 
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.jsonObject
@@ -34,40 +32,51 @@ class OmniApi(private val base: String, private val token: String) {
         }
 
     internal suspend fun exchange(method: String, path: String, json: String? = null): String =
-        withContext(Dispatchers.IO) {
+        kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
             val body =
                 if (method in setOf("POST", "PUT", "PATCH", "DELETE"))
                     (json ?: "{}").toRequestBody("application/json".toMediaType())
                 else null
             val call = client.newCall(request(path).method(method, body).build())
-            val context = kotlin.coroutines.coroutineContext
-            val completion =
-                context[kotlinx.coroutines.Job]?.invokeOnCompletion {
-                    if (it != null) call.cancel()
-                }
-            try {
-                call.execute().use { response ->
-                    if (!response.isSuccessful) throw ApiFailure(errorCode(response))
-                    val bytes = java.io.ByteArrayOutputStream()
-                    response.body?.byteStream()?.use { stream ->
-                        val buffer = ByteArray(8192)
-                        while (true) {
-                            val count = stream.read(buffer)
-                            if (count < 0) break
-                            if (bytes.size() + count > 2_000_000)
-                                throw ApiFailure("response_too_large")
-                            bytes.write(buffer, 0, count)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(
+                object : okhttp3.Callback {
+                    override fun onFailure(call: okhttp3.Call, e: IOException) {
+                        if (continuation.isActive)
+                            continuation.resumeWith(Result.failure(ApiFailure("connection_error")))
+                    }
+
+                    override fun onResponse(call: okhttp3.Call, response: Response) {
+                        try {
+                            val value =
+                                response.use {
+                                    if (!it.isSuccessful) throw ApiFailure(errorCode(it))
+                                    val bytes = java.io.ByteArrayOutputStream()
+                                    it.body?.byteStream()?.use { stream ->
+                                        val buffer = ByteArray(8192)
+                                        while (true) {
+                                            val count = stream.read(buffer)
+                                            if (count < 0) break
+                                            if (bytes.size() + count > 2_000_000)
+                                                throw ApiFailure("response_too_large")
+                                            bytes.write(buffer, 0, count)
+                                        }
+                                    }
+                                    bytes.toString("UTF-8")
+                                }
+                            if (continuation.isActive)
+                                continuation.resumeWith(Result.success(value))
+                        } catch (e: Exception) {
+                            if (continuation.isActive)
+                                continuation.resumeWith(
+                                    Result.failure(
+                                        if (e is ApiFailure) e else ApiFailure("connection_error")
+                                    )
+                                )
                         }
                     }
-                    bytes.toString("UTF-8")
                 }
-            } catch (e: ApiFailure) {
-                throw e
-            } catch (_: IOException) {
-                throw ApiFailure("connection_error")
-            } finally {
-                completion?.dispose()
-            }
+            )
         }
 
     private fun errorCode(response: Response): String {
@@ -88,7 +97,9 @@ class OmniApi(private val base: String, private val token: String) {
     }
 
     suspend fun health() {
-        exchange("GET", "/api/v1/health")
+        val health = WireJson.parseToJsonElement(exchange("GET", "/api/v1/health")).jsonObject
+        if (health["status"]?.jsonPrimitive?.content != "ok")
+            throw ApiFailure("incompatible_backend")
     }
 
     suspend fun conversations(): List<Conversation> =

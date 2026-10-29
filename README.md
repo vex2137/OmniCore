@@ -21,8 +21,8 @@ backendem i opcjonalnym silnikiem CPU. Dane są przechowywane poza paczką.
 
 Backend FastAPI/SQLite i dotychczasowe API pozostają zachowane. Rust jest
 przygotowaną możliwością architektoniczną; [pomiary i decyzja](native/README.md)
-nie uzasadniają teraz nowej implementacji. Image AI, Web i Android pozostają
-planowane. To rozwojowa Alpha; publiczny release wymaga osobnego potwierdzenia.
+nie uzasadniają teraz nowej implementacji. Android ma osobnego natywnego klienta Kotlin/Compose ([instrukcja](docs/ANDROID.md));
+Image AI i Web pozostają planowane. To rozwojowa Alpha; publiczny release wymaga osobnego potwierdzenia.
 
 - [Architektura, audyt, plan i ryzyka](docs/ARCHITECTURE.md)
 - [Roadmapa](docs/ROADMAP.md)
@@ -31,6 +31,7 @@ planowane. To rozwojowa Alpha; publiczny release wymaga osobnego potwierdzenia.
 - [Kontrakty API](contracts/openapi.json)
 - [Text AI: plan A–F, API i ograniczenia](docs/TEXT_AI.md)
 - [Instalacja i konfiguracja llama.cpp / Ollamy](docs/ENGINES.md)
+- [Android APK — połączenie LAN/HTTPS, Keystore i build](docs/ANDROID.md)
 
 ## Uruchomienie backendu na Linux
 

@@ -16,10 +16,11 @@ chmod +x OmniCore-0.1.0-alpha-x86_64.AppImage
 ```
 
 Wymagane Linux x86_64, glibc, serwer graficzny X11/Wayland, biblioteki systemowego
-stosowania okien/OpenGL oraz czcionki. Bieżący lokalny build Debian 13 ma symbole
-GLIBC do **2.39**; nie deklarujemy działania tej binarki na starszej glibc.
-Workflow buduje na Ubuntu 22.04, aby ograniczyć wymagania ABI kolejnych artefaktów;
-jego wyniku nie należy utożsamiać z lokalnym plikiem ani jego checksumą.
+stosowania okien/OpenGL oraz czcionki. Do szkicu wydania dołączono zweryfikowany artefakt CI Ubuntu 22.04; analiza jego
+ELF potwierdza wymagane symbole do **GLIBC 2.35**. Jego SHA-256 wynosi
+`07397174bcbc7cf6e9f14b8193881cb71b4b04ab5c30c3c908ce053cd3dab2c2`.
+Wcześniejszy lokalny build Debian 13 wymagał GLIBC 2.39 i ma inną checksumę;
+nie jest to plik dołączony do szkicu. Nie należy utożsamiać różnych buildów.
 Nie przetestowano fizycznego CachyOS, Wayland ani CUDA.
 
 Bez obsługi FUSE użyj wspieranego trybu ekstrakcji:

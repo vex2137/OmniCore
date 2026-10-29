@@ -95,25 +95,36 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun closeTransport() {
+        epoch++
+        events?.cancel()
+        events = null
+        api?.close()
+        api = null
+    }
+
     fun connect() {
         if (mutable.value.busy) return
-        mutable.update { it.copy(busy = true, error = null) }
+        closeTransport()
+        mutable.update { it.copy(busy = true, connected = false, error = null) }
         viewModelScope.launch {
+            var candidate: OmniApi? = null
             try {
                 val token = withContext(Dispatchers.IO) { settings.readToken() }
                 val base = ConnectionPolicy.validatedUrl(settings.url, settings.trustedLan)
                 val service = OmniApi(base, token)
+                candidate = service
                 service.health()
-                epoch++
-                events?.cancel()
-                events = null
-                api?.close()
                 api = service
+                candidate = null
                 mutable.update {
                     it.copy(url = base, hasToken = token.isNotEmpty(), connected = true)
                 }
                 refresh(service)
+                mutable.value.generation?.takeIf { !it.terminal }?.let { watch(service, it) }
             } catch (e: Exception) {
+                candidate?.close()
+                closeTransport()
                 mutable.update { it.copy(connected = false) }
                 error(e)
             } finally {
@@ -123,7 +134,7 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveConnection(raw: String, newToken: String, clearToken: Boolean, trustedLan: Boolean) {
-        if (mutable.value.generating || mutable.value.busy) return
+        if ((mutable.value.generating && mutable.value.connected) || mutable.value.busy) return
         mutable.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             try {
@@ -145,7 +156,18 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
                     settings.url = url
                     settings.trustedLan = trustedLan
                 }
-                mutable.update { it.copy(url = url, trustedLan = trustedLan, busy = false) }
+                if (url != mutable.value.url) {
+                    pending = null
+                    pendingConversation = null
+                    mutable.update {
+                        UiState(
+                            url = url,
+                            trustedLan = trustedLan,
+                            theme = it.theme,
+                            language = it.language,
+                        )
+                    }
+                } else mutable.update { it.copy(url = url, trustedLan = trustedLan, busy = false) }
                 connect()
             } catch (e: Exception) {
                 mutable.update { it.copy(busy = false) }
@@ -304,10 +326,15 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
                         if (epoch == current && mutable.value.generation?.terminal == false) {
                             mutable.update { it.copy(error = code) }
                             try {
-                                accept(service.generation(record.id))
-                                loadMessages(service, record.conversationId)
+                                val next = service.generation(record.id)
+                                if (epoch == current) accept(next)
+                                if (epoch == current && !next.terminal) {
+                                    kotlinx.coroutines.delay(500)
+                                    val final = service.generation(record.id)
+                                    if (epoch == current) accept(final)
+                                }
                             } catch (e: Exception) {
-                                error(e)
+                                if (epoch == current) error(e)
                             }
                         }
                     }
@@ -351,6 +378,9 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
     fun pause() {
         paused = true
         cancel()
+        epoch++
+        events?.cancel()
+        events = null
     }
 
     fun resume() {

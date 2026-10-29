@@ -334,7 +334,11 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
                 enabled = !s.generating && !s.busy,
             )
             if (s.generating)
-                IconButton(onClick = vm::cancel, modifier = Modifier.size(56.dp).testTag("stop")) {
+                IconButton(
+                    onClick = vm::cancel,
+                    enabled = s.connected,
+                    modifier = Modifier.size(56.dp).testTag("stop"),
+                ) {
                     Icon(Icons.Default.StopCircle, stringResource(R.string.stop))
                 }
             else
@@ -511,7 +515,7 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
                         }
                         IconButton(
                             onClick = { removing = model },
-                            enabled = !s.busy && !s.generating,
+                            enabled = !s.busy && (!s.generating || !s.connected),
                         ) {
                             Icon(Icons.Default.Delete, stringResource(R.string.remove_entry))
                         }
@@ -520,13 +524,13 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
                         if (model.backend == "llama.cpp")
                             TextButton(
                                 onClick = { vm.loadModel(model.id) },
-                                enabled = !s.busy && !s.generating,
+                                enabled = !s.busy && (!s.generating || !s.connected),
                             ) {
                                 Text(stringResource(R.string.load))
                             }
                         TextButton(
                             onClick = { vm.unloadModel(model.id) },
-                            enabled = !s.busy && !s.generating,
+                            enabled = !s.busy && (!s.generating || !s.connected),
                         ) {
                             Text(stringResource(R.string.unload))
                         }
@@ -623,7 +627,7 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
                 token = ""
                 clear = false
             },
-            enabled = !s.busy && !s.generating,
+            enabled = !s.busy && (!s.generating || !s.connected),
             modifier = Modifier.fillMaxWidth().testTag("connect"),
         ) {
             Text(stringResource(R.string.connect))

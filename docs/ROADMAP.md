@@ -7,7 +7,8 @@ Ostatnia aktualizacja: **2026-10-28**.
 
 Repozytorium zawiera fundament Etapu 1 oraz implementację backendu Text AI Etapu 2
 z testami bez GPU. Rzeczywista inferencja GGUF na CPU i transfer HF zostały zweryfikowane.
-Klient Linux jest wdrożony przed Image AI; Web i Android pozostają planowane.
+Klient Linux jest wdrożony przed Image AI. Android ma natywnego klienta API
+Kotlin/Compose; Web pozostaje planowany. Test fizycznego ARM64 jest osobnym zadaniem.
 Puste pola `[ ]` są zadaniami do wykonania, a nie potwierdzeniem funkcji.
 Zakończenie funkcji wymaga kodu, właściwych testów i udokumentowanej weryfikacji
 w [PROGRESS.md](PROGRESS.md). Zasady sesji: [AGENTS.md](../AGENTS.md).
@@ -22,6 +23,16 @@ Na polecenie właściciela realizujemy teraz natywny klient PySide6/Qt6 i AppIma
 Pierwszy przepływ GGUF/llama.cpp bez Ollamy przeszedł rzeczywisty test backendu
 i GUI na CPU. Pozostają testy rozszerzone, pakowanie, stabilizacja oraz weryfikacja
 integracji main i szkicu wydania. Image AI, Web i Android nie są teraz wdrażane.
+
+## Android — klient API po dostarczeniu AppImage
+
+- [x] Osobny Kotlin/Compose/Material 3, bez WebView i inferencji telefonu.
+- [x] Rozmowy/historia, modele, REST/SSE/cancel, ustawienia, PL/EN i motywy.
+- [x] Bezpieczna konfiguracja LAN/HTTPS, Keystore, brak tokenów w logach/backupie.
+- [x] Rzeczywisty debug-signed APK ARM64, wrapper i CI, testy JVM/zasobów oraz lint.
+- [ ] Zweryfikować test interfejsu w emulatorze CI i udokumentować wynik.
+- [ ] Osobno sprawdzić instalację i działanie na fizycznym ARM64.
+- [ ] Lokalna inferencja Android pozostaje przyszłym, odrębnym zakresem.
 
 ## Przekrojowo — Python i opcjonalny Rust
 
