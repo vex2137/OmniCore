@@ -112,7 +112,9 @@ data class GenerationRequest(
 @Serializable data class ModelDelete(@SerialName("delete_file") val deleteFile: Boolean = false)
 
 fun acceptSnapshot(previous: Generation?, next: Generation): Boolean =
-    previous == null || previous.id != next.id || next.sequence >= previous.sequence
+    previous == null ||
+        previous.id != next.id ||
+        (next.sequence >= previous.sequence && (!previous.terminal || next.terminal))
 
 @Serializable data class ParameterSelection(val parameters: Parameters)
 

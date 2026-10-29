@@ -127,4 +127,13 @@ Pobrać ten plik na komputer backendu?</string>
   <string name="parameters_defaults">Domyślne parametry nowych rozmów na tym telefonie.</string>
   <string name="reconnecting">Ponowne łączenie… Zadanie backendu trwa.</string>
   <string name="api_version">Backend %1$s · API /v1 · baza %2$d</string>
+  <string name="nav_home">Start</string>
+  <string name="nav_chat">Czat</string>
+  <string name="nav_models">Modele</string>
+  <string name="nav_settings">Opcje</string>
+  <string name="nav_diagnostics">Status</string>
+  <string name="auth_failed">Błąd tokenu</string>
+  <string name="retry_message">Wyślij ponownie</string>
+  <string name="setup_title">Połącz z komputerem</string>
+  <string name="setup_steps">1. Uruchom OmniCore na komputerze i świadomie włącz zdalny dostęp z tokenem.\n2. W ustawieniach podaj adres komputera i token API. Localhost telefonu oznacza telefon.\n3. Wybierz lub zaimportuj model na backendzie. AI działa na komputerze. Poza zaufanym LAN używaj HTTPS.</string>
 </resources>

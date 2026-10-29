@@ -367,4 +367,58 @@ class ViewModelTest {
         runCurrent()
         assertEquals("running", vm.state.value.downloads.single().state)
     }
+
+    @Test
+    fun lostNetworkReconnectsAndKeepsServerGeneration() = runVmTest {
+        runCurrent()
+        vm.draft("Hello")
+        vm.send()
+        runCurrent()
+        vm.networkLost()
+        runCurrent()
+        assertEquals(ConnectionStatus.Connecting, vm.state.value.connectionStatus)
+        assertEquals(0, repo.cancelled)
+        advanceTimeBy(3100)
+        runCurrent()
+        assertEquals(ConnectionStatus.Connected, vm.state.value.connectionStatus)
+        assertEquals(1, repo.sent)
+        assertTrue(repo.watched >= 2)
+    }
+
+    @Test
+    fun dismissingAuthenticationBannerDoesNotHideStatusOrAutoRetry() = runVmTest {
+        repo.rejected = true
+        runCurrent()
+        vm.dismissError()
+        vm.networkAvailable()
+        advanceTimeBy(10000)
+        runCurrent()
+        assertEquals(ConnectionStatus.Unauthorized, vm.state.value.connectionStatus)
+        assertFalse(vm.state.value.reconnecting)
+    }
+
+    @Test
+    fun explicitRetryOfPreviousMessageGetsNewIdempotencyKey() = runVmTest {
+        repo.history = listOf(Message(role = "user", content = "Repeat me"))
+        runCurrent()
+        vm.retryMessage()
+        runCurrent()
+        assertEquals(1, repo.sent)
+        vm.cancel()
+        runCurrent()
+        vm.retryMessage()
+        runCurrent()
+        assertEquals(2, repo.sent)
+        assertNotEquals(repo.keys[0], repo.keys[1])
+    }
+
+    @Test
+    fun manualRefreshSynchronizesAnotherClientsConversationWithoutSubmitting() = runVmTest {
+        runCurrent()
+        repo.chats = repo.chats + Conversation("shared", "Other client", modelId = "m2")
+        vm.refresh()
+        runCurrent()
+        assertTrue(vm.state.value.conversations.any { it.id == "shared" })
+        assertEquals(0, repo.sent)
+    }
 }

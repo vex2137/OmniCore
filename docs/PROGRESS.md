@@ -634,3 +634,19 @@ Test dwóch klientów obejmuje wspólną historię, detach SSE bez cancel, odrzu
 mutacji aktywnej rozmowy/modelu, cancel obserwowany przez drugi strumień i zapis
 częściowej historii. Kontrolowany silnik nie dowodzi inferencji.
 OpenAPI/JSON Schema snapshots: export_contracts.py --check PASS, bez zmian.
+
+### Alpha.3 — moduł Android UX/połączenie
+
+Pierwszy odczyt języka wybiera PL/EN z listy języków systemu i zapisuje wynik;
+ręczny wybór ma pierwszeństwo po restarcie. Nawigacja telefonu używa krótkich
+lokalizowanych nazw i dwóch linii bez ellipsis, zachowując pełne opisy dostępności.
+Dodano pierwszy ekran z rzeczywistą konfiguracją komputera, statusy connecting/
+connected/disconnected/auth, sticky auth po zamknięciu banera, obsługę onLost,
+reconnect po błędzie pollingu i ręczne odświeżanie rozmów/modeli. Wyślij ponownie
+używa ostatniej wiadomości; retry niepotwierdzonego POST zachowuje request_key,
+a jawny retry zakończonego żądania tworzy nowy. Terminalny snapshot nie wraca do running.
+
+Wykonano **42 JVM PASS**, 0 fail/skip (34 istniejące + 4 polityki języka/statusu
++ 4 ViewModel sieć/retry/synchronizacja). Lokalny lint i assembleDebugAndroidTest PASS.
+Dodano test instrumentacyjny pierwszego języka i trwałości ręcznego wyboru;
+nie był jeszcze uruchomiony na emulatorze w tym etapie. Fizyczny telefon nieobecny.

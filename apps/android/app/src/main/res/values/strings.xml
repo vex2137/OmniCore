@@ -127,4 +127,13 @@ Download this file onto the backend computer?</string>
   <string name="parameters_defaults">Default parameters for new conversations on this phone.</string>
   <string name="reconnecting">Reconnecting… The backend task continues.</string>
   <string name="api_version">Backend %1$s · API /v1 · database %2$d</string>
+  <string name="nav_home">Home</string>
+  <string name="nav_chat">Chat</string>
+  <string name="nav_models">Models</string>
+  <string name="nav_settings">Setup</string>
+  <string name="nav_diagnostics">Status</string>
+  <string name="auth_failed">Auth error</string>
+  <string name="retry_message">Send again</string>
+  <string name="setup_title">Connect to your computer</string>
+  <string name="setup_steps">1. Start OmniCore on your computer and enable authenticated remote access.\n2. Enter the computer address and API token in Settings. Phone localhost refers to the phone.\n3. Choose or import a model on the backend. AI runs on the computer. Use HTTPS outside a trusted LAN.</string>
 </resources>
