@@ -72,8 +72,12 @@ RC nie zmienia automatycznie zachowanego wcześniej kontekstu 100000.
 ## RC.2 — dostarczony kandydat do akceptacji
 
 PR #8: https://github.com/vex2137/OmniCore/pull/8 (do przeglądu, bez automatycznego merge).
-Szkic prywatny: https://github.com/vex2137/OmniCore/releases/tag/untagged-c26a14644299567d18a1
+Szkic RC.2 na liście wydań właściciela (wymaga logowania):
+https://github.com/vex2137/OmniCore/releases
 ID 428427155, tag_name v0.1.0-rc.2, draft=true, prerelease=true.
+GitHub zmienia adres `untagged-*` przy edycji szkicu, dlatego odnośnik prowadzi
+do listy wydań. Bezpośrednie, wersjonowane linki pobrania istnieją dopiero po publikacji;
+obecnie działają linki artefaktów Actions z README.
 Artefakty kodu 064005b pozostają kanoniczne; późniejszy commit dokumentacji nie zmienia
 ich źródła ani bajtów. RC.1 nie została zastąpiona. Main pozostaje po PR #6/#7.
 

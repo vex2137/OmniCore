@@ -972,7 +972,7 @@ Fontconfig w Arch ostrzega o nowych regułach hosta; testy GUI zakończone sukce
 To nie test natywnego CachyOS lub fizycznego urządzenia.
 
 Upload 40961298009 PASS. Szkic ID428427155 (draft=true, prerelease=true):
-https://github.com/vex2137/OmniCore/releases/tag/untagged-c26a14644299567d18a1
+https://github.com/vex2137/OmniCore/releases
 11 załączników istnieje na GitHubie, state=uploaded, niezerowe rozmiary i zgodne
 server digests. Obie paczki ponownie pobrano ze szkicu i zweryfikowano SHA-256:
 
