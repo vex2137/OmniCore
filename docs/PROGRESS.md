@@ -449,3 +449,16 @@ Nowy zestaw JVM: **33 PASS**, 0 FAIL/error/skip (17 dotychczasowych transportu,
 zadania, idempotency key, wybór modelu i brak utraty zaawansowanych parametrów.
 Toolchain zaktualizowany do API 36 / AGP 8.13.2 / Gradle 8.13 ze zweryfikowanym
 wrapperem i sumą dystrybucji. Lint, pakowanie i emulator pozostają w weryfikacji.
+
+### Android część 2 — GUI, narzędzia i APK
+
+Pełny lokalny build API 36: **BUILD SUCCESSFUL**, lint PASS, assembleDebug i
+assembleDebugAndroidTest PASS. Skrypt pakowania potwierdził application ID,
+versionCode 2/versionName Alpha.2, target 36, podpis debug, ARM64 oraz ZIP/ELF
+alignment >=16 KiB. Lokalny plik jest rzeczywistym APK, nie dowodem instalacji
+na telefonie. Dystrybucja końcowa będzie wskazywać osobny, zweryfikowany plik CI.
+
+GUI: działające HF search/files/confirmation/download/progress/pause/resume/import,
+edycja parametrów rozmowy, filtrowanie silników, diagnostyka API/zadań, systemowy
+Wstecz i animowana nawigacja. Dodano test UI powrotu z tła/rekreacji oraz transferu.
+Workflow CI obejmuje emulatory API 30 i 36; wyników jeszcze nie potwierdzono.

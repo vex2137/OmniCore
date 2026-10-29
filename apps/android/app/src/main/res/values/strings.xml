@@ -75,7 +75,7 @@
   <string name="max_tokens">Output tokens</string>
   <string name="context">Context size</string>
   <string name="system_prompt">System prompt</string>
-  <string name="about">OmniCore 0.1.0-alpha.1 · test build
+  <string name="about">OmniCore 0.1.0-alpha.2 · test build
 Kotlin / Compose / Material 3
 API client; no inference on the phone.</string>
   <string name="diagnostics_hint">Connection and engine diagnostics. Tokens and conversation content are never logged.</string>
@@ -101,4 +101,30 @@ API client; no inference on the phone.</string>
   <string name="error_parameters">Check the generation parameter ranges.</string>
   <string name="models_count">%1$d registered models</string>
   <string name="error_new_host">Enter a token for the new backend, or explicitly remove the stored token. Stored tokens are not reused for another host.</string>
+  <string name="huggingface">Hugging Face · GGUF</string>
+  <string name="hub_hint">Downloads run on your backend computer. No model code or weights are installed on your phone.</string>
+  <string name="hub_query">Search or owner/repository</string>
+  <string name="search">Search</string>
+  <string name="list_files">GGUF files</string>
+  <string name="download">Download…</string>
+  <string name="downloads">Backend downloads</string>
+  <string name="downloading">Downloading…</string>
+  <string name="cancel_download">Pause download</string>
+  <string name="resume_download">Resume download</string>
+  <string name="import_download">Import downloaded GGUF</string>
+  <string name="confirm_download">Confirm backend download</string>
+  <string name="download_consent">Repository: %1$s
+File: %2$s
+Size: %3$d B
+License: %4$s
+Download this file onto the backend computer?</string>
+  <string name="integrity_verified">SHA-256 verified by backend</string>
+  <string name="integrity_unavailable">Source did not provide a checksum; backend validated size and GGUF structure.</string>
+  <string name="all_engines">All engines</string>
+  <string name="top_p">Top-p</string>
+  <string name="save_parameters">Save generation parameters</string>
+  <string name="parameters_conversation">Applies to the selected conversation. Backend GPU and advanced parameters are preserved.</string>
+  <string name="parameters_defaults">Default parameters for new conversations on this phone.</string>
+  <string name="reconnecting">Reconnecting… The backend task continues.</string>
+  <string name="api_version">Backend %1$s · API /v1 · database %2$d</string>
 </resources>

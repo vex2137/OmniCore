@@ -2,7 +2,7 @@ name: Native Android APK
 
 on:
   push:
-    branches: [main, feature/0.1.0-alpha]
+    branches: [main, feature/0.1.0-alpha, feature/android-part-2]
     paths: ['apps/android/**', '.github/workflows/android.yml', 'scripts/package_android.py']
   pull_request:
     paths: ['apps/android/**', '.github/workflows/android.yml', 'scripts/package_android.py']
@@ -18,7 +18,11 @@ concurrency:
 jobs:
   android:
     runs-on: ubuntu-22.04
-    timeout-minutes: 35
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [30, 36]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -36,13 +40,14 @@ jobs:
         with:
           cache-read-only: false
       - name: Install pinned SDK packages
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - name: Unit tests, Android lint and signed test APKs
         working-directory: apps/android
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
       - name: Stage ARM64 test APK and checksum
         run: python3 scripts/package_android.py
       - uses: actions/upload-artifact@v4
+        if: matrix.api == 36
         with:
           name: OmniCore-0.1.0-alpha-android-arm64
           path: |
@@ -59,13 +64,14 @@ jobs:
       - name: Native UI, HTTP/SSE and Keystore tests on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 30
+          api-level: ${{ matrix.api }}
           target: google_apis
           arch: x86_64
           profile: pixel_6
           disable-animations: true
           working-directory: apps/android
           script: |
+            adb shell getconf PAGE_SIZE
             adb shell mkdir -p /sdcard/Download
             ./gradlew --no-daemon connectedDebugAndroidTest
             mkdir -p ../../dist/android-evidence
@@ -73,33 +79,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Android-test-reports
+          name: Android-test-reports-api-${{ matrix.api }}
           path: |
             apps/android/app/build/reports
             apps/android/app/build/outputs/androidTest-results
             dist/android-evidence
           retention-days: 14
-
-  attach-draft:
-    needs: android
-    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/0.1.0-alpha'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-      actions: read
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: OmniCore-0.1.0-alpha-android-arm64
-          path: package
-      - name: Attach tested APK only to existing draft
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          cd package
-          sha256sum -c OmniCore-0.1.0-alpha-android-arm64.apk.sha256
-          draft=$(gh api "repos/$GH_REPO/releases" --jq '.[] | select(.tag_name == "v0.1.0-alpha.1") | .draft')
-          test "$draft" = true
-          gh release upload v0.1.0-alpha.1 OmniCore-0.1.0-alpha-android-arm64.apk OmniCore-0.1.0-alpha-android-arm64.apk.sha256 --clobber

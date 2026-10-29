@@ -27,6 +27,12 @@ class NativeClientTest {
     @Volatile private var content = ""
     @Volatile private var generationNumber = 0
     @Volatile private var jobState = "running"
+    @Volatile private var cancelCalls = 0
+    @Volatile private var downloadState = "running"
+    @Volatile private var downloaded = false
+
+    private fun transfer() =
+        """{"id":"d","source":{"repository":"owner/repo","revision":"abc","filename":"model.gguf","size_bytes":123},"state":"$downloadState","received_bytes":60,"percent":48}"""
 
     private fun conversation() = """{"id":"c1","title":"$title","model_id":"$selectedModelId"}"""
 
@@ -48,10 +54,29 @@ class NativeClientTest {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     if (request.getHeader("Authorization") != "Bearer $token")
                         return json("{}").setResponseCode(401)
-                    val path = request.path.orEmpty()
+                    val path = request.requestUrl!!.encodedPath
                     return when {
                         path == "/api/v1/health" ->
                             json("""{"status":"ok","version":"test","database_version":1}""")
+                        path == "/api/v1/text/downloads" && request.method == "POST" -> {
+                            downloaded = true
+                            json(transfer())
+                        }
+                        path == "/api/v1/text/downloads/d/cancel" -> {
+                            downloadState = "cancelled"
+                            json(transfer())
+                        }
+                        path == "/api/v1/text/downloads/d/resume" -> {
+                            downloadState = "running"
+                            json(transfer())
+                        }
+                        path == "/api/v1/text/downloads" ->
+                            json(if (downloaded) "[${transfer()}]" else "[]")
+                        path == "/api/v1/text/diagnostics" -> json("""{"generations":[]}""")
+                        path == "/api/v1/text/huggingface/files" ->
+                            json(
+                                """[{"repository":"owner/repo","revision":"abc","filename":"model.gguf","size_bytes":123,"license":"test"}]"""
+                            )
                         path == "/api/v1/text/models" ->
                             json(
                                 """[{"id":"m1","name":"Fixture GGUF","backend":"llama.cpp","format":"GGUF","size_bytes":1000,"compatibility":"unverified"},{"id":"m2","name":"Second GGUF","backend":"llama.cpp","format":"GGUF","compatibility":"unverified"}]"""
@@ -95,10 +120,15 @@ class NativeClientTest {
                             json(job(answer = "", sequence = 0)).setResponseCode(202)
                         }
                         path.endsWith("/cancel") -> {
+                            cancelCalls++
                             jobState = "cancelled"
                             json(job("cancelled", 99))
                         }
                         path.endsWith("/stream") -> {
+                            assertEquals(
+                                "false",
+                                request.requestUrl!!.queryParameter("cancel_on_disconnect"),
+                            )
                             val stream =
                                 if (generationNumber == 1) {
                                     jobState = "completed"
@@ -157,6 +187,17 @@ class NativeClientTest {
             compose.waitUntil(10000) {
                 compose.onAllNodesWithTag("stop").fetchSemanticsNodes().isNotEmpty()
             }
+            compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+            assertEquals(0, cancelCalls)
+            assertEquals("running", jobState)
+            compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+            compose.activityRule.scenario.recreate()
+            compose.waitUntil(15000) {
+                compose
+                    .onAllNodes(hasTestTag("stop") and isEnabled())
+                    .fetchSemanticsNodes()
+                    .isNotEmpty()
+            }
             compose.onNodeWithTag("stop").performClick()
             compose.waitUntil(10000) {
                 compose.onAllNodesWithText("Cancelled").fetchSemanticsNodes().isNotEmpty()
@@ -177,7 +218,26 @@ class NativeClientTest {
                     .executeShellCommand("screencap -p /sdcard/Download/omnicore-android-chat.png")
             android.os.ParcelFileDescriptor.AutoCloseInputStream(capture).use { it.readBytes() }
             compose.onNodeWithTag("nav_2").performClick()
-            compose.onNodeWithText("Fixture GGUF").assertExists()
+            compose.onNodeWithTag("hub_toggle").performScrollTo().performClick()
+            compose.onNodeWithTag("hub_query").performScrollTo().performTextInput("owner/repo")
+            compose.onNodeWithTag("hub_files").performScrollTo().performClick()
+            compose.waitUntil(10000) {
+                compose.onAllNodesWithTag("download_file").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("download_file").performScrollTo().performClick()
+            compose.onNodeWithTag("download_confirm").performClick()
+            compose.waitUntil(10000) {
+                compose.onAllNodesWithTag("download_cancel").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("download_cancel").performScrollTo().performClick()
+            compose.waitUntil(10000) {
+                compose.onAllNodesWithTag("download_resume").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("download_resume").performScrollTo().performClick()
+            compose.waitUntil(10000) {
+                compose.onAllNodesWithTag("download_cancel").fetchSemanticsNodes().isNotEmpty()
+            }
+            assertEquals("running", downloadState)
             compose.onNodeWithTag("nav_4").performClick()
             compose
                 .onNodeWithText(
