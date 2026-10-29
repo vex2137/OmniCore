@@ -56,6 +56,21 @@ fun OmniCoreApp(vm: OmniViewModel, onLanguage: (String) -> Unit) {
                 R.string.settings,
                 R.string.diagnostics,
             )
+        val navigationLabels =
+            listOf(
+                R.string.nav_home,
+                R.string.nav_chat,
+                R.string.nav_models,
+                R.string.nav_settings,
+                R.string.nav_diagnostics,
+            )
+        val statusLabel =
+            when (state.connectionStatus) {
+                ConnectionStatus.Connected -> R.string.connected
+                ConnectionStatus.Connecting -> R.string.connecting
+                ConnectionStatus.Disconnected -> R.string.disconnected
+                ConnectionStatus.Unauthorized -> R.string.auth_failed
+            }
         val icons =
             listOf(
                 Icons.Default.Home,
@@ -96,15 +111,13 @@ fun OmniCoreApp(vm: OmniViewModel, onLanguage: (String) -> Unit) {
                             },
                             actions = {
                                 TextButton(
-                                    onClick = { if (state.connected) vm.refresh() else page = 3 },
+                                    onClick = {
+                                        if (state.connected) vm.refresh()
+                                        else if (state.url.isNotBlank()) vm.connect() else page = 3
+                                    },
                                     enabled = !state.busy,
                                 ) {
-                                    Text(
-                                        stringResource(
-                                            if (state.connected) R.string.connected
-                                            else R.string.disconnected
-                                        )
-                                    )
+                                    Text(stringResource(statusLabel))
                                 }
                             },
                         )
@@ -119,9 +132,10 @@ fun OmniCoreApp(vm: OmniViewModel, onLanguage: (String) -> Unit) {
                                         icon = { Icon(icons[i], stringResource(label)) },
                                         label = {
                                             Text(
-                                                stringResource(label),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
+                                                stringResource(navigationLabels[i]),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                maxLines = 2,
+                                                softWrap = true,
                                             )
                                         },
                                         modifier = Modifier.testTag("nav_$i"),
@@ -169,6 +183,13 @@ private fun ErrorBanner(code: String, dismiss: () -> Unit) {
             "invalid_parameters" -> R.string.error_parameters
             "model_required" -> R.string.error_model
             "conversation_required" -> R.string.error_conversation
+            "empty_response" -> R.string.error_empty_response
+            "reasoning_limit_reached" -> R.string.error_reasoning_limit
+            "context_limit_exceeded" -> R.string.error_context_limit
+            "gpu_unavailable",
+            "gpu_offload_unverified",
+            "cuda_runtime_unavailable",
+            "gpu_layers_required" -> R.string.error_gpu
             "out_of_memory" -> R.string.error_memory
             "engine_unavailable" -> R.string.error_engine
             "stream_disconnected" -> R.string.error_stream
@@ -200,12 +221,41 @@ private fun HomeScreen(s: UiState, vm: OmniViewModel, navigate: (Int) -> Unit) {
             Text(stringResource(R.string.headline), style = MaterialTheme.typography.headlineMedium)
         }
         item { Text(stringResource(R.string.home_hint)) }
+        if (s.url.isBlank())
+            item {
+                ElevatedCard(Modifier.fillMaxWidth().testTag("first_run")) {
+                    Column(
+                        Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            stringResource(R.string.setup_title),
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                        Text(stringResource(R.string.setup_steps))
+                        Button(onClick = { navigate(3) }) {
+                            Text(stringResource(R.string.configure))
+                        }
+                    }
+                }
+            }
+        if (s.connected && s.models.isEmpty())
+            item {
+                Text(stringResource(R.string.no_models))
+                OutlinedButton(onClick = { navigate(2) }) { Text(stringResource(R.string.models)) }
+            }
+
         item {
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         stringResource(
-                            if (s.connected) R.string.connected else R.string.disconnected
+                            when (s.connectionStatus) {
+                                ConnectionStatus.Connected -> R.string.connected
+                                ConnectionStatus.Connecting -> R.string.connecting
+                                ConnectionStatus.Unauthorized -> R.string.auth_failed
+                                ConnectionStatus.Disconnected -> R.string.disconnected
+                            }
                         ),
                         style = MaterialTheme.typography.titleLarge,
                     )
@@ -292,6 +342,28 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
             Modifier.fillMaxWidth(),
             !s.generating,
         )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            TextButton(
+                onClick = vm::refresh,
+                enabled = !s.busy,
+                modifier = Modifier.testTag("refresh_chat"),
+            ) {
+                Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
+                Text(stringResource(R.string.refresh))
+            }
+            if (
+                !s.generating &&
+                    (s.messages.any { it.role == "user" } ||
+                        (s.error != null && s.draft.isNotBlank()))
+            )
+                TextButton(
+                    onClick = vm::retryMessage,
+                    enabled = s.connected && !s.busy,
+                    modifier = Modifier.testTag("retry_message"),
+                ) {
+                    Text(stringResource(R.string.retry_message))
+                }
+        }
         if (s.models.isEmpty())
             Text(
                 stringResource(R.string.no_models),
@@ -313,8 +385,20 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 12.dp),
         ) {
-            items(messages) { MessageBubble(it.role, it.content) }
-            s.generation?.let { item { MessageBubble("assistant", it.content) } }
+            items(messages) {
+                MessageBubble(it.role, it.content, it.modelName, it.statistics, it.reasoningContent)
+            }
+            s.generation?.let { job ->
+                item {
+                    MessageBubble(
+                        "assistant",
+                        job.content,
+                        job.modelName,
+                        job.statistics(),
+                        job.reasoningContent,
+                    )
+                }
+            }
             if (s.selectedConversation == null)
                 item { Text(stringResource(R.string.no_conversations), Modifier.padding(16.dp)) }
         }
@@ -395,7 +479,13 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
 }
 
 @Composable
-private fun MessageBubble(role: String, content: String) {
+private fun MessageBubble(
+    role: String,
+    content: String,
+    modelName: String? = null,
+    statistics: GenerationStatistics? = null,
+    reasoningContent: String = "",
+) {
     val clipboard = LocalClipboardManager.current
     Surface(
         shape = MaterialTheme.shapes.large,
@@ -407,7 +497,8 @@ private fun MessageBubble(role: String, content: String) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    stringResource(if (role == "user") R.string.you else R.string.assistant),
+                    if (role == "user") stringResource(R.string.you)
+                    else modelName ?: stringResource(R.string.assistant),
                     Modifier.weight(1f),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
@@ -424,7 +515,18 @@ private fun MessageBubble(role: String, content: String) {
                         )
                     }
             }
+            if (reasoningContent.isNotBlank()) {
+                var expanded by remember { mutableStateOf(false) }
+                TextButton(onClick = { expanded = !expanded }) {
+                    Text(stringResource(R.string.reasoning))
+                }
+                if (expanded)
+                    SelectionContainer {
+                        Text(reasoningContent, style = MaterialTheme.typography.bodySmall)
+                    }
+            }
             SelectionContainer { Text(content, style = MaterialTheme.typography.bodyLarge) }
+            statistics?.let { GenerationDetails(it) }
         }
     }
 }
@@ -695,7 +797,10 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
             Modifier.fillMaxWidth(),
         )
         GenerationSettings(s, vm)
-        Text(stringResource(R.string.about), style = MaterialTheme.typography.bodySmall)
+        Text(
+            stringResource(R.string.about, BuildConfig.VERSION_NAME),
+            style = MaterialTheme.typography.bodySmall,
+        )
         Spacer(Modifier.height(30.dp))
     }
 }
@@ -715,7 +820,16 @@ private fun DiagnosticsScreen(s: UiState, vm: OmniViewModel) {
         item {
             Text(stringResource(R.string.diagnostics_hint))
             Text(s.url)
-            Text(stringResource(if (s.connected) R.string.connected else R.string.disconnected))
+            Text(
+                stringResource(
+                    when (s.connectionStatus) {
+                        ConnectionStatus.Connected -> R.string.connected
+                        ConnectionStatus.Connecting -> R.string.connecting
+                        ConnectionStatus.Unauthorized -> R.string.auth_failed
+                        ConnectionStatus.Disconnected -> R.string.disconnected
+                    }
+                )
+            )
         }
         item {
             Button(onClick = vm::connect, enabled = !s.busy) {

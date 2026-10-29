@@ -3,9 +3,9 @@ name: Native Android APK
 on:
   push:
     branches: [main, feature/0.1.0-alpha, feature/android-part-2]
-    paths: ['apps/android/**', '.github/workflows/android.yml', 'scripts/package_android.py', 'scripts/test_android_emulator.sh']
+    paths: ['backend/src/omnicore/distribution.json', 'apps/android/**', '.github/workflows/android.yml', 'scripts/package_android.py', 'scripts/test_android_emulator.sh']
   pull_request:
-    paths: ['apps/android/**', '.github/workflows/android.yml', 'scripts/package_android.py', 'scripts/test_android_emulator.sh']
+    paths: ['backend/src/omnicore/distribution.json', 'apps/android/**', '.github/workflows/android.yml', 'scripts/package_android.py', 'scripts/test_android_emulator.sh']
   workflow_dispatch:
 
 permissions:
@@ -25,6 +25,8 @@ jobs:
         api: [30, 36]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -49,10 +51,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: matrix.api == 36
         with:
-          name: OmniCore-0.1.0-alpha-android-arm64
+          name: OmniCore-android-arm64
           path: |
-            dist/*.apk
-            dist/*.apk.sha256
+            dist/OmniCore-*-android-arm64.apk
+            dist/OmniCore-*-android-arm64.apk.sha256
             dist/android-build.json
           if-no-files-found: error
           retention-days: 30

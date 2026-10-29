@@ -92,6 +92,8 @@ def test_llama_sse_transport_and_stream_termination():
     def handler(request):
         body = json.loads(request.content)
         assert body["stream"] and body["max_tokens"] == 4
+        assert body["chat_template_kwargs"] == {"enable_thinking": False}
+        assert body["reasoning_format"] == "deepseek"
         return httpx.Response(
             200,
             content='data: {"choices":[{"delta":{"content":"hello"}}]}\n\n'
@@ -115,6 +117,75 @@ def test_llama_sse_transport_and_stream_termination():
         ]
         assert chunks[0].content == "hello"
         assert chunks[-1].output_tokens == 1
+        await engine.stop()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("json_response", [False, True])
+def test_llama_reasoning_usage_and_json_fallback(json_response):
+    def handler(request):
+        assert json.loads(request.content)["chat_template_kwargs"]["enable_thinking"]
+        if json_response:
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {"content": "Answer", "reasoning_content": "Consider"},
+                            "finish_reason": "length",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 12, "completion_tokens": 8},
+                    "timings": {"predicted_per_second": 7.5},
+                },
+            )
+        return httpx.Response(
+            200,
+            content=(
+                'data: {"choices":[{"delta":{"reasoning_content":"Consider","content":null}}]}\n\n'
+                'data: {"choices":[{"delta":{"content":[{"type":"text","text":"Answer"}]}},'
+                '{"index":1,"delta":{"content":"ignore"}}]}\n\n'
+                'data: {"choices":[{"delta":{},"finish_reason":"length"}],'
+                '"usage":{"prompt_tokens":12,"completion_tokens":8},'
+                '"timings":{"predicted_per_second":7.5}}\n\ndata: [DONE]\n\n'
+            ),
+        )
+
+    async def exercise():
+        engine = LlamaEngine()
+        engine.client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), base_url="http://localhost"
+        )
+        engine.model = "test-model"
+        chunks = [
+            chunk
+            async for chunk in engine.stream("test-model", [], GenerationParameters(thinking=True))
+        ]
+        assert "".join(c.content for c in chunks) == "Answer"
+        assert "".join(c.reasoning_content for c in chunks) == "Consider"
+        assert chunks[-1].finish_reason == "length"
+        assert chunks[-1].input_tokens == 12 and chunks[-1].output_tokens == 8
+        assert chunks[-1].tokens_per_second == 7.5
+        await engine.stop()
+
+    asyncio.run(exercise())
+
+
+def test_context_rejection_is_not_an_empty_success():
+    async def exercise():
+        engine = LlamaEngine()
+        engine.client = httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    400, text="request exceeds the available context size"
+                )
+            ),
+            base_url="http://localhost",
+        )
+        engine.model = "test-model"
+        with pytest.raises(TextError, match="context_limit_exceeded"):
+            _ = [chunk async for chunk in engine.stream("test-model", [], GenerationParameters())]
         await engine.stop()
 
     asyncio.run(exercise())
@@ -174,7 +245,9 @@ HTTPServer(('127.0.0.1',a.port),Handler).serve_forever()
         assert (await engine.probe()).available
         assert engine.devices == []
         with pytest.raises(TextError, match="gpu_unavailable"):
-            await engine.load(tmp_path / "unused.gguf", GenerationParameters(gpu_layers=1))
+            await engine.load(
+                tmp_path / "unused.gguf", GenerationParameters(device="cuda", gpu_layers=1)
+            )
         await engine.load(tmp_path / "one.gguf", GenerationParameters())
         first = engine.process
         assert first.returncode is None
@@ -185,5 +258,66 @@ HTTPServer(('127.0.0.1',a.port),Handler).serve_forever()
         await engine.stop()
         assert second.returncode is not None
         assert engine.process is None and engine.client is None
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("missing_cuda", [False, True])
+def test_independent_cuda_selection_and_cpu_fallback(tmp_path, missing_cuda):
+    """Real subprocess selection/cleanup with controlled HTTP; NOT GPU inference."""
+    cpu, cuda = tmp_path / "cpu-server", tmp_path / "cuda-server"
+    for executable, devices in [
+        (cpu, "Available devices:"),
+        (cuda, "CUDA init log is not a device\n  CUDA0: controlled device"),
+    ]:
+        executable.write_text(
+            f"#!{sys.executable}\n"
+            + f"DEVICES={devices!r}\n"
+            + """
+import argparse, json, sys
+from pathlib import Path
+from http.server import BaseHTTPRequestHandler, HTTPServer
+if '--version' in sys.argv:
+ print('protocol-test-only'); sys.exit(0)
+if '--list-devices' in sys.argv:
+ print(DEVICES); sys.exit(0)
+p=argparse.ArgumentParser(); p.add_argument('--port', type=int)
+a,_=p.parse_known_args()
+Path(__file__+'.args').write_text(json.dumps(sys.argv))
+if 'CUDA0' in DEVICES: print('offloaded 20/30 layers to GPU', file=sys.stderr, flush=True)
+class Handler(BaseHTTPRequestHandler):
+ def do_GET(self):
+  self.send_response(200); self.end_headers(); self.wfile.write(b'{}')
+ def log_message(self,*args): pass
+HTTPServer(('127.0.0.1',a.port),Handler).serve_forever()
+"""
+        )
+        executable.chmod(0o700)
+    if missing_cuda:
+        cuda.unlink()
+
+    async def exercise():
+        engine = LlamaEngine(cpu, cuda_executable=cuda, startup_timeout=5)
+        assert (await engine.probe()).available
+        assert engine.devices == ([] if missing_cuda else ["CUDA0"])
+        await engine.load(
+            tmp_path / "model.gguf", GenerationParameters(device="auto", gpu_layers=20)
+        )
+        selected = cpu if missing_cuda else cuda
+        args = json.loads(Path(str(selected) + ".args").read_text())
+        assert args[args.index("--gpu-layers") + 1] == ("0" if missing_cuda else "20")
+        assert args[args.index("--device") + 1] == ("none" if missing_cuda else "CUDA0")
+        assert engine.execution_device == ("cpu" if missing_cuda else "CUDA0")
+        assert engine.fallback_reason == ("gpu_unavailable" if missing_cuda else None)
+        first = engine.process
+        await engine.load(tmp_path / "model.gguf", GenerationParameters())
+        assert first.returncode is not None or missing_cuda
+        assert engine.execution_device == "cpu" and engine.fallback_reason is None
+        await engine.stop()
+        if missing_cuda:
+            with pytest.raises(TextError, match="gpu_unavailable"):
+                await engine.load(
+                    tmp_path / "model.gguf", GenerationParameters(device="CUDA0", gpu_layers=20)
+                )
 
     asyncio.run(exercise())

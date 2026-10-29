@@ -18,17 +18,20 @@ class ApiClient(QObject):
         self.base_url = ""
         self._token = ""
         self._closed = False
+        self._epoch = 0
         self._requests = set()
         self._stream = None
         self._buffer = b""
 
     def configure(self, url: str, token: str = ""):
+        self.close()
         self._closed = False
         self.base_url, self._token = url.rstrip("/"), token
 
     def request(self, method, path, payload=None, success=None, failure=None, timeout=15000):
         if self._closed:
             return None
+        epoch = self._epoch
         request = QNetworkRequest(QUrl(self.base_url + path))
         request.setHeader(QNetworkRequest.ContentTypeHeader, "application/json")
         request.setTransferTimeout(timeout)
@@ -44,7 +47,7 @@ class ApiClient(QObject):
 
         def finished():
             self._requests.discard(reply)
-            if self._closed:
+            if self._closed or epoch != self._epoch:
                 reply.deleteLater()
                 return
             status = reply.attribute(QNetworkRequest.HttpStatusCodeAttribute)
@@ -74,7 +77,12 @@ class ApiClient(QObject):
     def watch(self, job_id):
         self.close_stream()
         self._buffer = b""
-        request = QNetworkRequest(QUrl(self.base_url + f"/api/v1/text/generations/{job_id}/stream"))
+        request = QNetworkRequest(
+            QUrl(
+                self.base_url
+                + f"/api/v1/text/generations/{job_id}/stream?cancel_on_disconnect=false"
+            )
+        )
         if self._token:
             request.setRawHeader(b"Authorization", f"Bearer {self._token}".encode())
         request.setAttribute(
@@ -84,7 +92,7 @@ class ApiClient(QObject):
         self._stream = reply
 
         def ready():
-            if not reply.isOpen():
+            if self._stream is not reply or not reply.isOpen():
                 return
             self._buffer += bytes(reply.readAll()).replace(b"\r\n", b"\n")
             if len(self._buffer) > 2_000_000:
@@ -123,6 +131,7 @@ class ApiClient(QObject):
 
     def close(self):
         self._closed = True
+        self._epoch += 1
         self.close_stream()
         for reply in tuple(self._requests):
             reply.abort()

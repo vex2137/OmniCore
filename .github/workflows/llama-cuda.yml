@@ -1,0 +1,38 @@
+name: Optional llama.cpp CUDA build
+on:
+  push:
+    branches: [feature/alpha-3-stability]
+    paths: ['scripts/build_llama.py', '.github/workflows/llama-cuda.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-cuda:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    container: nvidia/cuda:12.6.3-devel-ubuntu22.04
+    steps:
+      - name: Build dependencies
+        run: apt-get update && apt-get install -y git python3 cmake ninja-build g++ libssl-dev patchelf
+      - uses: actions/checkout@v4
+      - name: Build pinned CUDA engine for Ada (RTX 4060, SM 89)
+        run: python3 scripts/build_llama.py --backend cuda --source "$RUNNER_TEMP/llama.cpp" --jobs 2
+      - name: Stage independent optional engine (no GPU test claim)
+        shell: bash
+        run: |
+          mkdir -p dist/llama-cuda
+          cp "$RUNNER_TEMP/llama.cpp/build-cuda/bin/llama-server" dist/llama-cuda/
+          cp "$RUNNER_TEMP/llama.cpp/build-cuda/bin/"*.so* dist/llama-cuda/
+          cp "$RUNNER_TEMP/llama.cpp/LICENSE" dist/llama-cuda/
+          for binary in dist/llama-cuda/llama-server dist/llama-cuda/*.so*; do
+            patchelf --set-rpath '$ORIGIN:/usr/local/cuda/lib64' "$binary"
+          done
+          printf '%s\n' 'Requires NVIDIA driver and CUDA 12 runtime. SM 89 build. Compilation is not a GPU inference test.' > dist/llama-cuda/REQUIREMENTS.txt
+          tar -czf dist/OmniCore-llama-cuda-sm89.tar.gz -C dist llama-cuda
+          cd dist
+          sha256sum OmniCore-llama-cuda-sm89.tar.gz > OmniCore-llama-cuda-sm89.tar.gz.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OmniCore-optional-llama-cuda-sm89
+          path: dist/OmniCore-llama-cuda-sm89.tar.gz*
+          if-no-files-found: error

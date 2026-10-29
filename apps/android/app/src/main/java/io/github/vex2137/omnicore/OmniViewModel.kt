@@ -17,6 +17,8 @@ import kotlinx.coroutines.withContext
 // All durable chat/model data belongs to the backend. This is a transient API projection.
 data class UiState(
     val connected: Boolean = false,
+    val connecting: Boolean = false,
+    val authorizationFailed: Boolean = false,
     val busy: Boolean = false,
     val error: String? = null,
     val url: String = "",
@@ -40,6 +42,15 @@ data class UiState(
     val diagnostics: Diagnostics = Diagnostics(),
     val reconnecting: Boolean = false,
 ) {
+    val connectionStatus: ConnectionStatus
+        get() =
+            when {
+                authorizationFailed -> ConnectionStatus.Unauthorized
+                connecting || reconnecting -> ConnectionStatus.Connecting
+                connected -> ConnectionStatus.Connected
+                else -> ConnectionStatus.Disconnected
+            }
+
     val generating: Boolean
         get() = generation?.terminal == false
 }
@@ -80,6 +91,7 @@ class OmniViewModel(
         mutable.update {
             it.copy(
                 error = code,
+                authorizationFailed = it.authorizationFailed || code == "unauthorized",
                 connected = it.connected && code !in setOf("connection_error", "unauthorized"),
             )
         }
@@ -105,6 +117,7 @@ class OmniViewModel(
                 error(e)
             } finally {
                 mutable.update { it.copy(busy = false) }
+                if (!mutable.value.connected) scheduleReconnect()
             }
         }
     }
@@ -123,7 +136,14 @@ class OmniViewModel(
         if (mutable.value.busy) return
         closeTransport()
         mutable.update {
-            it.copy(busy = true, connected = false, error = null, reconnecting = false)
+            it.copy(
+                busy = true,
+                connecting = true,
+                authorizationFailed = false,
+                connected = false,
+                error = null,
+                reconnecting = false,
+            )
         }
         viewModelScope.launch {
             var candidate: OmniRepository? = null
@@ -157,6 +177,7 @@ class OmniViewModel(
                 error(e)
             } finally {
                 mutable.update { it.copy(busy = false) }
+                mutable.update { it.copy(connecting = false) }
                 if (!mutable.value.connected) scheduleReconnect()
             }
         }
@@ -166,7 +187,7 @@ class OmniViewModel(
         if (
             paused ||
                 settings.url.isBlank() ||
-                mutable.value.error == "unauthorized" ||
+                mutable.value.authorizationFailed ||
                 recovery?.isActive == true
         )
             return
@@ -179,8 +200,23 @@ class OmniViewModel(
             }
     }
 
+    fun networkLost() {
+        if (paused || settings.url.isBlank()) return
+        epoch++
+        events?.cancel()
+        events = null
+        mutable.update { it.copy(connected = false, reconnecting = !it.authorizationFailed) }
+        if (!mutable.value.busy) scheduleReconnect()
+    }
+
     fun networkAvailable() {
-        if (!paused && !mutable.value.connected && !mutable.value.busy && settings.url.isNotBlank())
+        if (
+            !paused &&
+                !mutable.value.authorizationFailed &&
+                !mutable.value.connected &&
+                !mutable.value.busy &&
+                settings.url.isNotBlank()
+        )
             connect()
     }
 
@@ -283,9 +319,15 @@ class OmniViewModel(
             }
     }
 
-    fun refresh() = action {
-        refresh(it)
-        recoverGeneration(it)
+    fun refresh() {
+        if (!mutable.value.connected) {
+            connect()
+            return
+        }
+        action {
+            refresh(it)
+            recoverGeneration(it)
+        }
     }
 
     private suspend fun refresh(service: OmniRepository) {
@@ -386,6 +428,16 @@ class OmniViewModel(
         refresh(service)
     }
 
+    fun retryMessage() {
+        val current = mutable.value
+        if (!current.connected || current.busy || current.generating) return
+        if (current.draft.isBlank()) {
+            val previous = current.messages.lastOrNull { it.role == "user" } ?: return
+            draft(previous.content)
+        }
+        send()
+    }
+
     fun send() {
         val state = mutable.value
         if (state.generating || state.busy || state.draft.isBlank()) return
@@ -428,6 +480,8 @@ class OmniViewModel(
         try {
             val record = service.generation(id)
             if (record.conversationId != mutable.value.selectedConversation) return
+            val previous = mutable.value.generation
+            if (previous?.id == record.id && !acceptSnapshot(previous, record)) return
             mutable.update { it.copy(generation = record) }
             settings.generationId = if (record.terminal) null else record.id
         } catch (e: ApiFailure) {
@@ -540,6 +594,9 @@ class OmniViewModel(
                         mutable.update { it.copy(downloads = records) }
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
+                        error(e)
+                        scheduleReconnect()
+                        return@launch
                     }
                 }
             }

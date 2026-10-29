@@ -1,6 +1,5 @@
 """Native widgets for the existing API. Network and inference never block Qt."""
 
-import html
 import os
 import uuid
 from datetime import datetime
@@ -38,13 +37,15 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
-    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
 
 from omnicore.desktop.config import data_path
 from omnicore.desktop.i18n import Translator
+from omnicore.desktop.report import diagnostic_report, save_report
+from omnicore.desktop.transcript import ChatTranscript
+from omnicore.release import distribution_version
 
 TEXT = "/api/v1/text"
 TERMINAL = {"completed", "failed", "cancelled", "interrupted"}
@@ -67,6 +68,10 @@ class MainWindow(QMainWindow):
     def __init__(self, api, session, config):
         super().__init__()
         self.api, self.session, self.config = api, session, config
+        self.config.parameters.setdefault("device", "auto")
+        self.config.parameters.setdefault(
+            "gpu_layers", 99 if self.config.parameters["device"] != "cpu" else 0
+        )
         self.tr = Translator(config.locale)
         self._texts = []
         self.conversations, self.models, self.messages = [], [], []
@@ -78,11 +83,12 @@ class MainWindow(QMainWindow):
         self.downloads, self.remote_files = [], []
         self.engines = []
         self.is_connected = False
+        self._connection_key = "connecting"
         self._closing = False
         self._allow_close = False
         self._pending_import = None
         self._health_pending = set()
-        self.setWindowTitle("OmniCore · 0.1.0 Alpha")
+        self.setWindowTitle(f"OmniCore · {distribution_version()}")
         self.resize(1280, 820)
         self.setMinimumSize(920, 640)
         self._build()
@@ -102,6 +108,7 @@ class MainWindow(QMainWindow):
         )
         for key, handler in (
             ("Ctrl+N", self.new_conversation),
+            ("Ctrl+F", lambda: self.history_search.setFocus()),
             ("Ctrl+Return", self.send_message),
             ("Escape", self.stop_generation),
             ("Ctrl+,", lambda: self.navigate(2)),
@@ -171,6 +178,8 @@ class MainWindow(QMainWindow):
         self.connection = self.label("connecting")
         self.connection.setObjectName("badge")
         header.addWidget(self.connection)
+        self.reconnect_button = self.button("reconnect", self.reconnect)
+        header.addWidget(self.reconnect_button)
         body.addLayout(header)
         self.notice = QLabel()
         self.notice.setWordWrap(True)
@@ -178,6 +187,24 @@ class MainWindow(QMainWindow):
         self.notice.setObjectName("notice")
         self.notice.hide()
         body.addWidget(self.notice)
+        self.onboarding = QFrame()
+        self.onboarding.setObjectName("notice")
+        intro = QVBoxLayout(self.onboarding)
+        intro.addWidget(self.label("welcome_title", title=True))
+        intro_text = self.label("welcome_steps")
+        intro_text.setWordWrap(True)
+        intro.addWidget(intro_text)
+        self.welcome_import = self.button("import_gguf", self.first_import, primary=True)
+        self.welcome_import.setEnabled(False)
+        intro.addLayout(
+            self.row(
+                self.welcome_import,
+                self.button("settings", lambda: self.navigate(2)),
+                self.button("dismiss_welcome", self.dismiss_welcome),
+            )
+        )
+        self.onboarding.setVisible(not self.config.onboarding_complete)
+        body.addWidget(self.onboarding)
         self.pages = QStackedWidget()
         body.addWidget(self.pages, 1)
         self._build_chat()
@@ -200,6 +227,15 @@ class MainWindow(QMainWindow):
         left.setContentsMargins(0, 0, 16, 0)
         self.new_button = self.button("new_chat", self.new_conversation, primary=True)
         left.addWidget(self.new_button)
+        left.addWidget(self.button("refresh", self.refresh_shared_history))
+        self.history_search = QLineEdit()
+        self.history_search.setMaxLength(256)
+        self.search_timer = QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(250)
+        self.search_timer.timeout.connect(self.refresh_conversations)
+        self.history_search.textChanged.connect(lambda _: self.search_timer.start())
+        left.addWidget(self.history_search)
         self.conversation_list = QListWidget()
         self.conversation_list.setObjectName("conversations")
         self.conversation_list.currentItemChanged.connect(self.select_conversation)
@@ -219,15 +255,13 @@ class MainWindow(QMainWindow):
         self.model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.model_combo.currentIndexChanged.connect(self.model_selected)
         chat.addLayout(self.row(self.model_combo, self.button("refresh", self.refresh_models)))
-        self.transcript = QTextBrowser()
-        self.transcript.setObjectName("transcript")
-        self.transcript.setOpenExternalLinks(False)
+        self.transcript = ChatTranscript()
         chat.addWidget(self.transcript, 1)
         self.generation_status = self.label("ready")
         chat.addWidget(self.generation_status)
         self.composer = QPlainTextEdit()
         self.composer.setObjectName("composer")
-        self.composer.setMaximumHeight(128)
+        self.composer.setMaximumHeight(180)
         self.composer.setMinimumHeight(94)
         chat.addWidget(self.composer)
         self.send_button = self.button("send", self.send_message, primary=True)
@@ -329,6 +363,26 @@ class MainWindow(QMainWindow):
         self.theme.setCurrentIndex(self.theme.findData(self.config.theme))
         self.theme.currentIndexChanged.connect(self.preview_theme)
         form.addRow(self.label("theme"), self.theme)
+        self.device = QComboBox()
+        for key in ("auto", "cpu", "cuda"):
+            self.device.addItem(self.tr("mode_" + key), key)
+        selected = self.config.parameters.get("device", "auto")
+        if selected not in {"auto", "cpu", "cuda"}:
+            self.device.addItem(selected, selected)
+        self.device.setCurrentIndex(self.device.findData(selected))
+        form.addRow(self.label("execution_mode"), self.device)
+        self.engine_summary = self.label("detecting_engines")
+        form.addRow(self.engine_summary)
+        form.addRow(self.button("detect_engines", self.refresh_diagnostics))
+        basic = form
+        self.advanced_settings = QWidget()
+        self.advanced_toggle = self.button("advanced_settings", lambda: None)
+        self.advanced_toggle.setCheckable(True)
+        self.advanced_toggle.toggled.connect(self.advanced_settings.setVisible)
+        basic.addRow(self.advanced_toggle)
+        basic.addRow(self.advanced_settings)
+        self.advanced_settings.hide()
+        form = QFormLayout(self.advanced_settings)
         self.roots = QListWidget()
         self.roots.setMaximumHeight(100)
         self.roots.addItems(self.config.model_roots)
@@ -341,6 +395,10 @@ class MainWindow(QMainWindow):
         )
         self.llama_path = QLineEdit(self.config.llama_server)
         form.addRow(self.label("llama_server"), self.llama_path)
+        self.llama_cuda_path = QLineEdit(self.config.llama_cuda_server)
+        form.addRow(self.label("llama_cuda_server"), self.llama_cuda_path)
+        form.addRow(self.button("choose_cuda", self.choose_llama_cuda))
+        form.addRow(self.label("cuda_hint"))
         form.addRow(self.button("browse", self.choose_llama))
         self.ollama_url = QLineEdit(self.config.ollama_url)
         form.addRow(self.label("ollama_url"), self.ollama_url)
@@ -358,7 +416,7 @@ class MainWindow(QMainWindow):
             "max_tokens": 256,
             "context_size": 2048,
             "seed": 0,
-            "gpu_layers": 0,
+            "gpu_layers": 99,
         }
         ranges = {
             "temperature": (0, 2),
@@ -376,19 +434,24 @@ class MainWindow(QMainWindow):
             if isinstance(default, float):
                 box.setSingleStep(0.05)
             box.setValue(self.config.parameters.get(key, default))
-            form.addRow(self.label(key), box)
+            (basic if key in {"max_tokens", "temperature", "top_p"} else form).addRow(
+                self.label(key), box
+            )
             self.parameter_inputs[key] = box
-        self.device = QLineEdit(self.config.parameters.get("device", "cpu"))
-        form.addRow(self.label("device"), self.device)
+        self.device.currentIndexChanged.connect(self.execution_mode_changed)
+        self.thinking = QCheckBox(self.tr("thinking"))
+        self.thinking.setChecked(self.config.parameters.get("thinking", False))
+        self._texts.append((self.thinking, "thinking"))
+        basic.addRow(self.thinking)
         self.system_prompt = QPlainTextEdit(self.config.parameters.get("system_prompt", ""))
         self.system_prompt.setMaximumHeight(100)
-        form.addRow(self.label("system_prompt"), self.system_prompt)
-        form.addRow(self.label("settings_hint"))
-        form.addRow(self.button("save", self.save_settings, primary=True))
+        basic.addRow(self.label("system_prompt"), self.system_prompt)
+        basic.addRow(self.label("settings_hint"))
+        basic.addRow(self.button("save", self.save_settings, primary=True))
         self.about = QLabel()
         self.about.setWordWrap(True)
         self.about.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        form.addRow(self.about)
+        basic.addRow(self.about)
         scroll.setWidget(page)
         self.pages.addWidget(scroll)
 
@@ -397,6 +460,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         layout.addWidget(self.label("diagnostics_hint"))
         layout.addWidget(self.button("refresh", self.refresh_diagnostics))
+        layout.addWidget(self.button("export_report", self.export_report))
         self.diagnostic_text = QPlainTextEdit()
         self.diagnostic_text.setReadOnly(True)
         layout.addWidget(self.diagnostic_text, 2)
@@ -430,12 +494,15 @@ class MainWindow(QMainWindow):
             self.tr(("chat", "models", "settings", "diagnostics")[self.pages.currentIndex()])
         )
         self.composer.setPlaceholderText(self.tr("composer"))
+        self.history_search.setPlaceholderText(self.tr("search_history"))
         self.hf_query.setPlaceholderText(self.tr("hf_query"))
         self.model_tabs.setTabText(0, self.tr("installed"))
         self.model_tabs.setTabText(1, self.tr("download"))
         for index, key in enumerate(("system", "light", "dark")):
             self.theme.setItemText(index, self.tr(key))
-        self.connection.setText(self.tr("connected" if self.is_connected else "connecting"))
+        for index, key in enumerate(("auto", "cpu", "cuda")):
+            self.device.setItemText(index, self.tr("mode_" + key))
+        self.connection.setText(self.tr(self._connection_key))
         self.about.setText(self.tr("about", path=data_path()))
         self.refresh_model_table()
         self.render_messages()
@@ -531,8 +598,14 @@ class MainWindow(QMainWindow):
             QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QPushButton:focus {{
                 border: 1px solid {accent};
                 }}
-            QTextBrowser#transcript {{ padding: 22px;
-                }}
+            QFrame#assistantBubble {{ background: {panel}; border: 1px solid {border};
+                border-radius: 14px; }}
+            QFrame#userBubble {{ background: {field}; border: 1px solid {border};
+                border-radius: 14px; }}
+            QTextBrowser#messageText {{ background: transparent; border: none; padding: 0; }}
+            QLabel#messageAuthor {{ color: {accent}; font-weight: 700; }}
+            QLabel#messageStats {{ color: {muted}; font-size: 11px; }}
+            QPlainTextEdit#codeBlock {{ font-family: monospace; background: {bg}; }}
             QListWidget::item {{ padding: 12px 8px;
                 border-radius: 6px;
                 }}
@@ -588,6 +661,8 @@ class MainWindow(QMainWindow):
         if self._closing:
             return
         self.is_connected = True
+        self._connection_key = "connected"
+        self.welcome_import.setEnabled(True)
         self.pages.setEnabled(True)
         self.connection.setText(self.tr("connected"))
         self.statusBar().showMessage(self.tr("ready"))
@@ -598,6 +673,15 @@ class MainWindow(QMainWindow):
         self.api.request("GET", "/api/v1/settings", success=self._preferences)
         self.refresh_diagnostics()
         self.refresh_downloads()
+        if self.active_job:
+            job = self.active_job
+
+            def resume(record):
+                self.generation_snapshot(record)
+                if self.active_job == job:
+                    self.api.watch(job)
+
+            self.api.request("GET", TEXT + f"/generations/{job}", success=resume)
         if self._pending_import:
             path, self._pending_import = self._pending_import, None
             self.import_gguf(path)
@@ -615,7 +699,7 @@ class MainWindow(QMainWindow):
             self.connected.emit()
 
     def log_event(self, code):
-        if code.replace("_", "").isalnum() and len(code) < 90:
+        if code in self.tr.catalog or code in {"backend_starting", "connected"}:
             self.logs.appendPlainText(f"{datetime.now().strftime('%H:%M:%S')}  {code}")
 
     def notify(self, text):
@@ -624,19 +708,29 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(text, 10000)
 
     def show_error(self, code):
-        self.log_event(code)
-        text = self.tr.catalog.get(code) or self.tr("operation_error", code=code)
+        safe_code = code if code in self.tr.catalog else "unknown_error"
+        self.log_event(safe_code)
+        if code in {"connection_error", "backend_exited", "backend_process_error", "unauthorized"}:
+            self.is_connected = False
+            self._connection_key = "unauthorized" if code == "unauthorized" else "disconnected"
+            self.connection.setText(self.tr(self._connection_key))
+        text = self.tr.catalog.get(safe_code) or self.tr("operation_error", code=safe_code)
         self.notify(text)
 
     def refresh_conversations(self, select=None):
+        search = self.history_search.text().strip()
+
         def received(records):
+            if search != self.history_search.text().strip():
+                return
             self.conversations = records
             self._fill_conversations(
                 select or (records[0]["id"] if records and not self.current_id else None)
             )
             self._loaded("conversations")
 
-        self.api.request("GET", TEXT + "/conversations", success=received)
+        query = urlencode({"query": search})
+        self.api.request("GET", TEXT + "/conversations?" + query, success=received)
 
     def _fill_conversations(self, select=None):
         current = select or self.current_id
@@ -649,8 +743,22 @@ class MainWindow(QMainWindow):
             if record["id"] == current:
                 self.conversation_list.setCurrentItem(item)
         self.conversation_list.blockSignals(False)
-        if select:
+        if (
+            current
+            and not self.history_search.text().strip()
+            and not any(record["id"] == current for record in self.conversations)
+        ):
+            self.current_id = None
+            self.messages = []
+            self.last_job = None
+            self.render_messages()
+        elif select:
             self.open_conversation(select)
+
+    def refresh_shared_history(self):
+        self.refresh_conversations()
+        if self.current_id:
+            self.refresh_messages()
 
     def new_conversation(self):
         if not self.is_connected:
@@ -664,7 +772,7 @@ class MainWindow(QMainWindow):
             {
                 "title": self.tr("untitled"),
                 "model_id": self.model_combo.currentData(),
-                "parameters": self.config.parameters,
+                "parameters": self.request_parameters(),
             },
             success=lambda record: self.refresh_conversations(record["id"]),
         )
@@ -696,6 +804,29 @@ class MainWindow(QMainWindow):
             if self.current_id == conversation_id:
                 self.messages = messages
                 self.render_messages()
+                live = next(
+                    (
+                        m
+                        for m in reversed(messages)
+                        if m.get("generation_id") and m.get("status") in {"queued", "running"}
+                    ),
+                    None,
+                )
+                if live and not self.active_job:
+                    job = live["generation_id"]
+                    self.active_job = job
+                    self.stop_button.setEnabled(True)
+                    self.send_button.setEnabled(False)
+                    self.conversation_list.setEnabled(False)
+                    self.new_button.setEnabled(False)
+                    self.model_combo.setEnabled(False)
+
+                    def observe(record):
+                        self.generation_snapshot(record)
+                        if self.active_job == job:
+                            self.api.watch(job)
+
+                    self.api.request("GET", TEXT + f"/generations/{job}", success=observe)
 
         self.api.request(
             "GET", TEXT + f"/conversations/{conversation_id}/messages", success=received
@@ -739,6 +870,13 @@ class MainWindow(QMainWindow):
                 {"model_id": self.model_combo.currentData()},
             )
 
+    def request_parameters(self):
+        parameters = dict(self.config.parameters)
+        model = next((m for m in self.models if m["id"] == self.model_combo.currentData()), None)
+        if model and model["backend"] == "ollama":
+            parameters.update(device="cpu", gpu_layers=0)
+        return parameters
+
     def send_message(self):
         if self.active_job or self._submitting or not self.is_connected:
             return
@@ -758,7 +896,7 @@ class MainWindow(QMainWindow):
             "content": content,
             "request_key": uuid.uuid4().hex,
             "model_id": model,
-            "parameters": self.config.parameters,
+            "parameters": self.request_parameters(),
         }
 
         def submitted(record):
@@ -842,33 +980,25 @@ class MainWindow(QMainWindow):
             )
 
     def render_messages(self):
-        blocks = []
-        for message in self.messages:
-            blocks.append(
-                (self.tr("you" if message["role"] == "user" else "assistant"), message["content"])
+        messages = [dict(message) for message in self.messages]
+        if self.last_job:
+            job = self.last_job
+            replacement = {
+                "role": "assistant",
+                "content": job.get("content", ""),
+                "model_name": job.get("model_name"),
+                "reasoning_content": job.get("reasoning_content", ""),
+                "statistics": job,
+                "generation_id": job["id"],
+            }
+            index = next(
+                (i for i, m in enumerate(messages) if m.get("generation_id") == job["id"]), None
             )
-        if (
-            self.last_job
-            and self.last_job.get("content")
-            and not any(m.get("generation_id") == self.last_job["id"] for m in self.messages)
-        ):
-            blocks.append((self.tr("assistant"), self.last_job["content"]))
-        if not blocks:
-            text = (
-                f'<p style="color:#8190a8;font-size:18px">{html.escape(self.tr("chat_hint"))}</p>'
-            )
-        else:
-            text = "".join(
-                '<div style="margin-bottom:28px"><p style="color:#8b80f9;font-size:11px;'
-                f'font-weight:700">{html.escape(role)}</p><p style="white-space:pre-wrap;'
-                f'line-height:150%;font-size:15px">{html.escape(content)}</p></div>'
-                for role, content in blocks
-            )
-        bar = self.transcript.verticalScrollBar()
-        at_bottom = bar.value() >= bar.maximum() - 30
-        self.transcript.setHtml(text)
-        if at_bottom:
-            bar.setValue(bar.maximum())
+            if index is not None:
+                messages[index] = replacement
+            elif job.get("content") or job.get("reasoning_content"):
+                messages.append(replacement)
+        self.transcript.set_messages(messages, self.tr)
 
     def copy_answer(self):
         content = self.last_job.get("content") if self.last_job else None
@@ -891,6 +1021,8 @@ class MainWindow(QMainWindow):
                 )
                 selected = conversation["model_id"] if conversation else None
             self.models = records
+            if records and not self.config.onboarding_complete:
+                self.dismiss_welcome()
             self.model_combo.blockSignals(True)
             self.model_combo.clear()
             self.model_combo.addItem(
@@ -1170,6 +1302,18 @@ class MainWindow(QMainWindow):
         if path:
             self.llama_path.setText(path)
 
+    def execution_mode_changed(self):
+        layers = self.parameter_inputs["gpu_layers"]
+        if self.device.currentData() == "cpu":
+            layers.setValue(0)
+        elif layers.value() == 0:
+            layers.setValue(99)
+
+    def choose_llama_cuda(self):
+        path, _ = QFileDialog.getOpenFileName(self, self.tr("llama_cuda_server"))
+        if path:
+            self.llama_cuda_path.setText(path)
+
     def save_settings(self):
         if self.active_job:
             self.show_error("busy")
@@ -1192,10 +1336,15 @@ class MainWindow(QMainWindow):
         if path and (not Path(path).is_file() or not os.access(path, os.X_OK)):
             self.show_error("llama_unavailable")
             return
+        cuda_path = self.llama_cuda_path.text().strip()
+        if cuda_path and (not Path(cuda_path).is_file() or not os.access(cuda_path, os.X_OK)):
+            self.show_error("llama_unavailable")
+            return
         roots = [self.roots.item(i).text() for i in range(self.roots.count())]
         changed = (
             roots != self.config.model_roots
             or path != self.config.llama_server
+            or cuda_path != self.config.llama_cuda_server
             or url != self.config.ollama_url
             or self.ollama_enabled.isChecked() != self.config.ollama_enabled
         )
@@ -1203,11 +1352,16 @@ class MainWindow(QMainWindow):
             self.show_error("external_backend_settings")
             return
         self.config.model_roots, self.config.llama_server = roots, path
+        self.config.llama_cuda_server = cuda_path
         self.config.ollama_url, self.config.ollama_enabled = url, self.ollama_enabled.isChecked()
         self.config.parameters = {k: box.value() for k, box in self.parameter_inputs.items()}
         self.config.parameters.update(
-            system_prompt=self.system_prompt.toPlainText(), device=self.device.text().strip()
+            system_prompt=self.system_prompt.toPlainText(),
+            device=self.device.currentData(),
+            thinking=self.thinking.isChecked(),
         )
+        if self.config.parameters["device"] == "cpu":
+            self.config.parameters["gpu_layers"] = 0
         from omnicore.text.types import GenerationParameters
 
         try:
@@ -1231,6 +1385,17 @@ class MainWindow(QMainWindow):
 
         def received(records):
             self.engines = records
+            llama = next((r for r in records if r["info"]["id"] == "llama.cpp"), {})
+            devices = llama.get("gpu_devices") or []
+            self.engine_summary.setText(
+                self.tr("gpu_detected", devices=", ".join(devices))
+                if devices
+                else self.tr(
+                    "cpu_available"
+                    if llama.get("info", {}).get("available")
+                    else "llama_unavailable"
+                )
+            )
             lines = [
                 f"{self.tr('backend')}: {self.api.base_url}",
                 f"{self.tr('active_task')}: {self.active_job or self.tr('none')}",
@@ -1250,6 +1415,27 @@ class MainWindow(QMainWindow):
                         f"{self.tr('vram')}: {human_size(resources.get('vram_bytes'))}",
                     ]
                 )
+
+                if record.get("execution_device"):
+                    lines.append(
+                        f"{self.tr('execution_device')}: {record['execution_device']} · "
+                        f"{self.tr('offloaded_layers')}: {record.get('gpu_offloaded_layers', 0)}"
+                    )
+                for gpu in record.get("nvidia_devices", []):
+                    lines.append(
+                        f"{gpu['name']} · {self.tr('vram')}: "
+                        f"{human_size(gpu['free_bytes'])}/{human_size(gpu['total_bytes'])}"
+                    )
+                for candidate in record.get("candidates", []):
+                    lines.append(
+                        f"{candidate['path']}: "
+                        + ", ".join(candidate["devices"])
+                        + (
+                            " · " + self.tr(candidate["error_code"])
+                            if candidate.get("error_code")
+                            else ""
+                        )
+                    )
 
             def hardware_received(snapshot):
                 hardware = snapshot["hardware"]
@@ -1275,6 +1461,35 @@ class MainWindow(QMainWindow):
 
         self.api.request("GET", TEXT + "/engines", success=received)
 
+    def first_import(self):
+        self.navigate(1)
+        self.choose_gguf()
+
+    def dismiss_welcome(self):
+        self.config.onboarding_complete = True
+        self.config.save()
+        self.onboarding.hide()
+
+    def reconnect(self):
+        if self._closing:
+            return
+        self.is_connected = False
+        self._connection_key = "connecting"
+        self.connection.setText(self.tr("connecting"))
+        self.session.reconnect()
+
+    def export_report(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, self.tr("export_report"), "OmniCore-diagnostics.json", "JSON (*.json)"
+        )
+        if not path:
+            return
+        try:
+            save_report(Path(path), diagnostic_report(self, QApplication.platformName()))
+            self.notify(self.tr("report_saved"))
+        except OSError:
+            self.show_error("report_failed")
+
     def closeEvent(self, event):
         if self._allow_close:
             event.accept()
@@ -1285,6 +1500,7 @@ class MainWindow(QMainWindow):
         self._closing = True
         self._poll.stop()
         self.pages.setEnabled(False)
+        self._connection_key = "closing"
         self.connection.setText(self.tr("closing"))
         self.session.stop()
 

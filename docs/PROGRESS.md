@@ -1,5 +1,22 @@
 # OmniCore — PROGRESS
 
+## Alpha.3 — stabilizacja w toku
+
+Audyt: czysty lokalny i zdalny main `b1c9a520441c2a785daad32e8b8a4591c3f28bce`,
+brak otwartych PR; Alpha.2 publiczna z pięcioma faktycznymi assetami. Nowa gałąź
+`feature/alpha-3-stability`, bez resetu lub dodatkowego checkoutu.
+
+Zakres: Android (pierwszy język, nawigacja, konfiguracja, status/reconnect/retry),
+Linux (pierwszy start, QPA X11/Wayland, diagnostyka i lifecycle), synchronizacja
+klientów i wyścigi backendu. Osobne commity, regresja/realny GGUF, paczki Alpha.3
+i CI oraz **szkic** wydania. Zgoda na publiczną Alpha.2 nie obejmuje Alpha.3.
+Nie wdrażamy Image AI ani nowego silnika/Rust.
+
+Ryzyka: wyścig kolejki ze sprzątaniem engine, blokady mutacji rozmowy względem
+submit, niedostępny fizyczny ARM64/HyperOS i natywna sesja CachyOS. Wayland/Arch
+będą raportowane tylko po faktycznym uruchomieniu w opisanym środowisku.
+
+
 ## Alpha.2 — dostarczone i opublikowane (2026-10-29)
 
 [Publiczne wydanie v0.1.0-alpha.2](https://github.com/vex2137/OmniCore/releases/tag/v0.1.0-alpha.2)
@@ -603,3 +620,204 @@ android-emulator-runner uruchamia linie script w osobnych powłokach, więc zmie
 test_status nie przechodziła do końcowego exit. Przeniesiono ten krok do jednego
 scripts/test_android_emulator.sh. Skrypt zachowuje kod Gradle, zbiera dostępne
 zrzuty również przy błędzie i zwraca pierwotny status. bash -n PASS; nowy CI wymagany.
+
+### Alpha.3 — moduł synchronizacji backendu
+
+Implementacja: semafor obejmuje także cleanup/unload po błędzie/anulowaniu;
+serialized cancel i shield zakończenia chronią cleanup przed kolejnym klientem
+lub odłączeniem żądania. Mutacje rozmów/modelu są blokowane względem submit.
+Publiczne trasy, schematy i SQLite pozostają kompatybilne.
+
+Wykonane: **123 backend PASS**, 0 FAIL (117 dotychczasowych + 5 deterministycznych
+przypadków konkurencji + 1 przypadek dwóch rzeczywistych transportów HTTP).
+Test dwóch klientów obejmuje wspólną historię, detach SSE bez cancel, odrzucenie
+mutacji aktywnej rozmowy/modelu, cancel obserwowany przez drugi strumień i zapis
+częściowej historii. Kontrolowany silnik nie dowodzi inferencji.
+OpenAPI/JSON Schema snapshots: export_contracts.py --check PASS, bez zmian.
+
+### Alpha.3 — moduł Android UX/połączenie
+
+Pierwszy odczyt języka wybiera PL/EN z listy języków systemu i zapisuje wynik;
+ręczny wybór ma pierwszeństwo po restarcie. Nawigacja telefonu używa krótkich
+lokalizowanych nazw i dwóch linii bez ellipsis, zachowując pełne opisy dostępności.
+Dodano pierwszy ekran z rzeczywistą konfiguracją komputera, statusy connecting/
+connected/disconnected/auth, sticky auth po zamknięciu banera, obsługę onLost,
+reconnect po błędzie pollingu i ręczne odświeżanie rozmów/modeli. Wyślij ponownie
+używa ostatniej wiadomości; retry niepotwierdzonego POST zachowuje request_key,
+a jawny retry zakończonego żądania tworzy nowy. Terminalny snapshot nie wraca do running.
+
+Wykonano **42 JVM PASS**, 0 fail/skip (34 istniejące + 4 polityki języka/statusu
++ 4 ViewModel sieć/retry/synchronizacja). Lokalny lint i assembleDebugAndroidTest PASS.
+Dodano test instrumentacyjny pierwszego języka i trwałości ręcznego wyboru;
+nie był jeszcze uruchomiony na emulatorze w tym etapie. Fizyczny telefon nieobecny.
+
+### Alpha.3 — zapisany moduł Linux UX/transport
+
+16 testów desktop PASS, 0 FAIL. Działają onboarding/import, reconnect własnego
+backendu bez zmiany PID, synchronizacja usunięcia rozmowy, obserwowanie zadań
+z historii, izolacja starych odpowiedzi HTTP oraz eksport raportu o zamkniętym
+schemacie (bez tokenów, ścieżek i treści), plik 0600. Logi odrzucają nieznane kody.
+Wybór QPA respektuje jawny override i wybiera Wayland/X11 według sesji; test
+wyboru nie jest testem natywnego CachyOS/Wayland. AppRun izoluje hostowe pluginy Qt.
+Backend 123 PASS zapisany wcześniej w 5e25533, Android 42 JVM PASS w 99a5b27.
+
+### Alpha.3 — odpowiedzi, tożsamość modelu i statystyki
+
+129 backend PASS (123 poprzednie + 6 przypadków regresji). Rzeczywisty test
+SmolLM2-135M-Instruct-Q4_K_M przez llama.cpp na CPU: 1 PASS, bez Ollamy;
+potwierdzono treść, liczniki wejścia/wyjścia, TTFT, czas, kontekst, finish_reason
+oraz zapis metadanych w historii. Nie testowano wag LFM3/Qwen użytkownika.
+Parser zachowuje reasoning oddzielnie, rozpoznaje odpowiedź JSON i SSE, usage oraz
+finish_reason. Domyślnie żąda wyłączenia thinking przez opcje szablonu (zależne od
+modelu). Brak finalnej odpowiedzi jest błędem, reasoning-only z length ma własny
+komunikat; nie zwiększamy automatycznie kontekstu ani limitu. Błąd przekroczenia
+kontekstu jest odróżniony od OOM. Nowe pola kontraktów są opcjonalne/defaultowane;
+stare dane i odciski idempotency pozostają zgodne. Nazwa modelu jest snapshotem
+wiadomości, zachowanym przy zmianie nazwy/modelu, restarcie i eksporcie/importcie.
+TTFT mierzony od rozpoczęcia wykonania (bez kolejki, z ładowaniem), osobno czas
+ładowania i pierwszego tekstu odpowiedzi. Liczby tokenów i tok./s pochodzą z silnika;
+brak danych pozostaje null, wykorzystanie kontekstu = raportowane wejście+wyjście.
+
+### Alpha.3 — widok rozmowy Linux i metadane klientów
+
+18 desktop PASS: natywne dymki z nazwą modelu zapisaną w wiadomości, bezpieczny
+Markdown (bez HTML i dostępu do zasobów lokalnych/zdalnych), osobne bloki kodu
+z kopiowaniem, kopiowanie wiadomości, lokalizowane statystyki i zwijane rozumowanie.
+Wyszukiwanie historii przeszukuje wiadomości przez istniejące API; nie gubi
+bieżącej rozmowy przy filtrowaniu. Starsze wiadomości mają neutralną etykietę
+Asystent/Assistant, bez przypisywania aktualnego modelu. Ctrl+F, Ctrl+Enter i Escape
+obsługują wyszukiwanie, wysyłanie i stop. Zachowano obsługę schowka i skalowanie.
+Android: 44 JVM PASS, lintDebug i assembleDebugAndroidTest PASS; dodano odczyt
+snapshotu modelu/statystyk, ich wyświetlanie oraz jawne sterowanie thinking.
+Nowe pola mają bezpieczne wartości domyślne dla starszego API/historii.
+Testy protokołu i UI nie zastępują testu fizycznego telefonu.
+
+### Alpha.3 — wybór CUDA/CPU
+
+131 backend + 18 desktop = 149 PASS. Dwa przypadki subprocess sprawdzają oddzielną
+binarkę CUDA, prawidłowe --device/--gpu-layers, brak fałszywych urządzeń z logów,
+zmianę na CPU, cleanup i fallback przy niedostępnej binarce CUDA. To test sterowania,
+nie GPU. Rzeczywisty SmolLM2 GGUF/llama.cpp: 2 PASS (CPU i auto→CPU z raportowanym
+fallbackiem), bez Ollamy. Dodano osobną konfigurację CUDA w backendzie/Qt i pola
+execution_device/fallback_reason w metadanych klientów. CPU pozostaje niezależny.
+Skrypt przypina llama.cpp, wariant CUDA buduje SM 89 i ma osobny workflow; wynik
+kompilacji CI wymaga jeszcze sprawdzenia. Test sprzętowy wymaga offloadu i VRAM
+z nvidia-smi; niewykonany — Cloud nie ma GPU. Brak deklaracji zgodności RTX 4060.
+
+### Alpha.3 — powtarzalne paczki i zamykanie podczas inferencji
+
+Rozszerzony rzeczywisty test Qt + HTTP/SSE + SmolLM2 GGUF CPU: 1 PASS, w tym
+streaming/cancel/restart, trzecia generacja przerwana zamknięciem aplikacji,
+brak procesów silnika i zapis częściowej historii cancelled w SQLite.
+Android po dodaniu metadanych urządzenia: 44 JVM PASS i lintDebug PASS.
+
+Wspólne distribution.json określa versionName, versionCode i nazwy AppImage/APK
+Alpha.3. Smoke pakietu porównuje digest pełnej historii po restarcie oraz wersję.
+Workflowy budowania obejmują gałąź Alpha.3, osobny upload do draft wymaga sukcesu
+obu runów i identycznego SHA w manifestach. Gotowe paczki i ich uruchomienie
+wymagają dalszego potwierdzenia; zmiana skryptu nie oznacza udanego builda.
+
+### Alpha.3 — potwierdzony checkpoint paczek i klientów
+
+Checkpoint gałęzi `f5f2b3779f19e5ded945a837f862ede91ccf2569`:
+CI backend `40915267745` PASS; Linux `40915268031` PASS, w tym 149 testów i faktyczny
+AppImage dwukrotnie; Android `40915267851` PASS (44 JVM, lint/build, po 2 testy UI
+na API 30 i 36, 0 fail/error/skip według XML). Dwa nadmiarowe runy push anulowano
+po uruchomieniu identycznej walidacji PR; nie były błędami produktu.
+
+Lokalny rzeczywisty AppImage: GUI/backend/llama.cpp CPU, streaming GGUF, zamknięcie,
+restart, język/motyw i identyczny digest pełnej historii PASS. W kontenerze Arch
+20261025 (glibc 2.44, Weston 15.0.1, Xvfb 21.1.25, font DejaVu) wykonano osobno
+rzeczywistą generację GGUF i restart na natywnym Wayland/pixman oraz X11/xcb;
+oba raporty ok=true, digest historii/katalog zachowane. Nie jest to test fizycznego
+CachyOS. Minimalny obraz Arch wymagał instalacji fontów; fontconfig wypisuje
+ostrzeżenia o nowszej konfiguracji hosta, ale tekst po instalacji fontu jest czytelny.
+Zrzut Linux pochodzi z tego Wayland/GGUF, Android z natywnego emulatora API 36
+z kontrolowanym backendem HTTP/SSE. Fizycznego telefonu ani GPU nie ma.
+
+Rzeczywisty Kotlin HTTP/SSE + FastAPI + SmolLM2 GGUF CPU: 1 PASS (load, streaming,
+detach bez cancel, jawne cancel, reconnect/historia, unload). To nie test urządzenia.
+Kod aplikacji Android nie został ponownie napisany. Pakiety nie zawierają wag.
+
+Uwaga techniczna checkpointu: checkout PR domyślnie budował tymczasowy merge
+`f288d7b8754dc0c2dab52c156bb8fe29b14e13df`, mimo run.head_sha wskazującego f5f2b37.
+Checkout pakujących workflowów przypięto teraz jawnie do PR head.sha, aby nowa para
+manifestów miała dokładnie SHA wymagane przez upload do draft. Nowe runy są konieczne
+przed dołączeniem paczek. Wydanie Alpha.3 nie zostało publicznie opublikowane.
+
+### 0.1.0 RC — automatyczne CUDA (przed bramką sprzętową)
+
+Dokończona walidacja Alpha.3: CI 40916851255 Linux, 40916851419 Android/API30+36,
+40916851208 backend PASS; kompilacja opcjonalnego CUDA SM89 40914492143 PASS.
+Poprawka wykrywania: zamknięta lista skonfigurowanych, zarządzanych i typowych ścieżek
+(w tym ~/llama.cpp/build/bin), bez skanowania modeli/dysku. Guard przywraca oryginalny
+LD_LIBRARY_PATH przed exec z AppImage. CUDA wymaga dodatniego potwierdzonego offloadu
+warstw z silnika; samo wykrycie urządzenia nie ustawia aktywnego CUDA. Auto ma CPU
+fallback także przy błędzie GPU; wymuszone CUDA zwraca konkretny błąd. Dodano NVSMI
+VRAM urządzenia i własnego procesu oraz szczegóły kandydatów w diagnostyce API.
+30 testów modułu generacji/silników/wykrywania PASS; 5 testów nowego modułu ponownie
+PASS po walidacji wymuszonego CUDA z zerem warstw. Są to kontrolowane testy procesu,
+nie inferencja GPU. Rzeczywisty RTX4060 wymaga testu właściciela przed Stable.
+
+### 0.1.0 RC — reasoning i SSE
+
+44 testy reasoning/transportu/generacji PASS. Nowy parser przyrostowy obsługuje
+podział <think>/</think> między tokenami, oddziela rozumowanie od odpowiedzi i ukrywa
+niekompletne znaczniki przy zakończeniu. Ustrukturyzowane reasoning ma osobny tor.
+Wieloliniowe data: SSE jest składane przed JSON, heartbeat/metadane są ignorowane,
+[DONE]/finish_reason/usage pozostają zachowane. Request thinking=false wysyła
+zarówno enable_thinking=false, jak i reasoning_effort=none do zgodnego llama.cpp;
+żaden preserve flag nie jest traktowany jako wyłączenie rozumowania. Reasoning-only
+z length nadal kończy się błędem, nie pustą zakończoną odpowiedzią. Regresje oznaczone
+LFM3/Qwen są testami protokołu, nie testami rzeczywistych wag użytkownika.
+
+### 0.1.0 RC — ustawienia klientów i zgodność danych
+
+20 Qt + 1 upgrade Alpha.3 PASS. Podstawowy widok Linux ma Auto/CPU/CUDA; ścieżki,
+warstwy i parametry silników są w rozwijanych opcjach zaawansowanych. Nowy profil
+preferuje Auto/99, istniejący ręczny CPU pozostaje zachowany; CPU zapisuje zero
+warstw. Diagnostyka rozróżnia dostępne GPU i aktualnie potwierdzony offload/VRAM.
+Długie historie tworzą początkowo 60 dymków; starsze można rzeczywiście doładować.
+Test aktualizacji zachowuje oryginalny JSON wiadomości bajt w bajt, ustawienia,
+katalog i eksport/import. Nie zmieniono schematu SQLite.
+Android: 44 JVM i lint PASS; opcje wykonania dotyczą komputera backendu, nie telefonu.
+Dodano wyświetlanie potwierdzonej liczby warstw na GPU i czytelne błędy GPU.
+
+### 0.1.0 RC — test sprzętowy bez hostowego Pythona
+
+Dodano --hardware-test do dispatchera AppImage i krótki test_omnicore_cachyos.sh.
+Test używa wyłącznie świeżej bazy tymczasowej i referencji do podanych GGUF;
+nie dotyka katalogu/historii użytkownika, nie drukuje tokenu, nie nadpisuje raportu.
+Sprawdza CPU/Auto/CUDA, niepustą odpowiedź, zapis nazwy modelu/historii, offload
+oraz pamięć własnego procesu według nvidia-smi; raport zawiera osiągi i gate
+hardware_ready. Cloud: rzeczywisty SmolLM2 CPU/Auto PASS, hardware_ready=false.
+Dodatkowy rzeczywisty test izolacji danych/modelu/raportu: 1 PASS (dwie generacje).
+Installer opcjonalnego silnika buduje przypięty commit z lokalnym CUDA Toolkit,
+nie instaluje sterownika, nie zastępuje istniejącego silnika i zachowuje runtime
+RPATH. bash -n i odmowa instalacji bez wymaganych narzędzi PASS; lokalnego CUDA13
+nie ma, więc jego budowanie wymaga potwierdzenia na sprzęcie. Silnik SM89/CUDA12
+z poprzedniego workflow został faktycznie zbudowany (40914492143 PASS).
+
+### 0.1.0-rc.1 — finalna walidacja źródeł przed paczkami
+
+156 backend + 20 Qt = 176 PASS; 44 JVM, lintDebug, assembleDebug oraz
+assembleDebugAndroidTest PASS dla RC/applicationId .rc. Rzeczywiste testy GGUF CPU:
+4 PASS (backend CPU/Auto, Qt z cancel/close/restart oraz izolowany hardware tool).
+Zmiana backendowej wersji na PEP440 0.1.0rc1 nie zmienia tras/schematu API v1.
+Wersja dystrybucji 0.1.0-rc.1, Android versionCode4; bramka Stable jest jawna.
+RC ma oddzielny ID, aby testowy podpis nie wymagał usunięcia istniejącej Alpha.
+Dokumentacja rozróżnia tę instalację od prawdziwej aktualizacji podpisanego APK.
+Opcjonalny prebuilt CUDA SM89 ma sprawdzoną sumę
+`ef431c73583986be861f47068f119172b0434393d7ff8b2ff2764c8e972058e5` i pochodzi
+z udanego workflow 40914492143. To dowód kompilacji, nie działania RTX4060.
+Końcowe artefakty/CI/merge/upload RC wymagają jeszcze potwierdzenia.
+
+### RC — znaleziony i odtworzony błąd zagnieżdżonych bibliotek
+
+Faktyczny zamrożony guard zwrócił przed poprawką LD_LIBRARY_PATH zawierające
+AppImage/_internal mimo przywrócenia LD_LIBRARY_PATH_ORIG. Zagnieżdżone bootloadery
+przenosiły wewnętrzne biblioteki także do ORIG. Native boundary filtruje teraz
+rzeczywisty sys._MEIPASS i podkatalogi również z ORIG, zachowując ścieżki CUDA hosta.
+Dodano regresję jednostkową i obowiązkowy test faktycznego wyekstrahowanego AppImage:
+natywna powłoka sprawdza brak _internal bez drukowania środowiska/sekretów.
+Nowe paczki muszą przejść tę kontrolę przed wydaniem RC.

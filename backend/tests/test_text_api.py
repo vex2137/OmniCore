@@ -250,3 +250,68 @@ def test_sse_disconnect_cancels_with_real_http_connection(text_app):
         thread.join(timeout=5)
         sock.close()
     assert not thread.is_alive()
+
+
+def test_independent_clients_share_history_detach_and_cancel(text_app):
+    """Two real HTTP transports with a protocol engine, not real inference."""
+    import json
+
+    app, path = text_app
+    app.state.text.engines["llama.cpp"] = ProtocolTestEngine(wait=True)
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    server = uvicorn.Server(uvicorn.Config(app, log_level="error", lifespan="on"))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+    thread.start()
+    try:
+        base = f"http://127.0.0.1:{sock.getsockname()[1]}"
+        with (
+            httpx.Client(base_url=base, trust_env=False, timeout=5) as linux,
+            httpx.Client(base_url=base, trust_env=False, timeout=5) as android,
+        ):
+            deadline = time.monotonic() + 5
+            while not server.started and thread.is_alive() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert server.started
+            model, conversation = create_chat(linux, path)
+            cid = conversation["id"]
+            assert any(c["id"] == cid for c in android.get("/api/v1/text/conversations").json())
+            job = android.post(
+                f"/api/v1/text/conversations/{cid}/generations",
+                json={"content": "shared request", "request_key": "shared-clients"},
+            ).json()
+            route = f"/api/v1/text/generations/{job['id']}"
+            wait_job(linux, job["id"], "running")
+            with linux.stream("GET", route + "/stream?cancel_on_disconnect=false") as stream:
+                assert stream.status_code == 200
+                assert next(stream.iter_lines()).startswith("data:")
+            assert android.get(route).json()["state"] == "running"
+            # The busy conversation/model cannot be changed under the other client.
+            assert linux.delete(f"/api/v1/text/conversations/{cid}").status_code == 409
+            assert (
+                linux.patch(f"/api/v1/text/conversations/{cid}", json={"title": "race"}).status_code
+                == 409
+            )
+            assert (
+                linux.put(f"/api/v1/text/models/{model['id']}/parameters", json={}).status_code
+                == 409
+            )
+            with linux.stream("GET", route + "/stream?cancel_on_disconnect=false") as stream:
+                iterator = stream.iter_lines()
+                assert next(iterator).startswith("data:")
+                assert android.post(route + "/cancel").json()["state"] == "cancelled"
+                records = [json.loads(line[6:]) for line in iterator if line.startswith("data:")]
+                assert records[-1]["state"] == "cancelled"
+                assert all(
+                    a["sequence"] <= b["sequence"]
+                    for a, b in zip(records, records[1:], strict=False)
+                )
+            history = linux.get(f"/api/v1/text/conversations/{cid}/messages").json()
+            assert history == android.get(f"/api/v1/text/conversations/{cid}/messages").json()
+            assert history[-1]["status"] == "cancelled" and history[-1]["content"] == "Hello"
+            assert len([m for m in history if m["role"] == "user"]) == 1
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+        sock.close()
+    assert not thread.is_alive()

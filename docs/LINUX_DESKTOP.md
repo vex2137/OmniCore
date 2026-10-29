@@ -87,3 +87,18 @@ Sprawdzono Linux CPU i X11/Xvfb. Fizyczne CachyOS/RTX 4060, CUDA i natywna sesja
 Wayland nie są jeszcze potwierdzone. Rzeczywista Ollama nie była dostępna do testu.
 Nie wszystkie GGUF i architektury są zgodne z wybranym silnikiem. Alpha nie ma
 jeszcze edycji/generowania obrazów, załączników multimodalnych ani klienta Web. Android działa jako osobny klient API.
+
+## Alpha.3 — rozmowy i diagnostyka
+
+Dymki używają zapisanej nazwy modelu. Starsze wiadomości bez snapshotu pokazują
+Asystent/Assistant. Markdown nie ładuje obrazów/plików z modelu; bloki kodu mają
+osobne kopiowanie. Ctrl+F przeszukuje historię przez backend, Ctrl+Enter wysyła,
+Escape zatrzymuje. Statystyki pokazują tylko dane raportowane przez silnik;
+TTFT obejmuje ładowanie, ale nie kolejkę. Rozumowanie można rozwinąć oddzielnie.
+
+Pierwszy ekran prowadzi do rzeczywistego importu GGUF i ustawień. Reconnect nie
+uruchamia drugiego własnego backendu. Zamknięcie klienta współdzielonego backendu
+odłącza podgląd, a jawny Stop anuluje zadanie. Prywatny backend aplikacji jest
+zatrzymywany razem z jej procesami. Eksport raportu diagnostycznego zawiera tylko
+zamknięty zestaw pól: bez tokenów, adresów, ścieżek, treści i surowych logów.
+[CUDA i fallback CPU](CUDA.md) są konfigurowane bez zmian logiki inferencji w GUI.

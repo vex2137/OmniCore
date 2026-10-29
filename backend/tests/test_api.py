@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_health_checks_database_and_contract(client):
     response = client.get("/api/v1/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.1.0a0", "database_version": 1}
+    assert response.json() == {"status": "ok", "version": "0.1.0rc1", "database_version": 1}
 
 
 def test_settings_persist_across_restarts(config):

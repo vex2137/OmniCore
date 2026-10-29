@@ -6,7 +6,7 @@ from pydantic import Field, field_validator
 
 from omnicore.schemas import WireModel
 from omnicore.text.store import TextStore, timestamp
-from omnicore.text.types import GenerationParameters, TextError
+from omnicore.text.types import GenerationParameters, GenerationStatistics, TextError
 
 
 class Conversation(WireModel):
@@ -27,6 +27,10 @@ class MessageRecord(WireModel):
     created_at: str
     generation_id: str | None = None
     parameters: GenerationParameters | None = None
+    model_id: str | None = Field(default=None, max_length=128)
+    model_name: str | None = Field(default=None, max_length=1024)
+    reasoning_content: str = Field(default="", max_length=1_000_000)
+    statistics: GenerationStatistics | None = None
 
     @field_validator("created_at")
     @classmethod
@@ -132,14 +136,18 @@ class Conversations:
             )
         return record
 
-    def save_assistant(self, conversation_id, generation_id, content, status, parameters):
+    def save_assistant(
+        self, conversation_id, generation_id, content, status, parameters, **metadata
+    ):
         with self.store.db.connect() as connection, connection:
             previous = connection.execute(
                 "SELECT record FROM text_messages WHERE generation_id=?", (generation_id,)
             ).fetchone()
             if previous:
                 record = MessageRecord.model_validate_json(previous[0])
-                record.content, record.status = content, status
+                record = record.model_copy(
+                    update={"content": content, "status": status, **metadata}
+                )
                 connection.execute(
                     "UPDATE text_messages SET record=? WHERE generation_id=?",
                     (record.model_dump_json(), generation_id),
@@ -154,6 +162,7 @@ class Conversations:
                     status=status,
                     parameters=parameters,
                     created_at=timestamp(),
+                    **metadata,
                 )
                 connection.execute(
                     "INSERT INTO text_messages(id,conversation_id,generation_id,record) "

@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
 
 @Composable
 fun GenerationSettings(s: UiState, vm: OmniViewModel) {
@@ -19,6 +20,9 @@ fun GenerationSettings(s: UiState, vm: OmniViewModel) {
         rememberSaveable(s.parameters) { mutableStateOf(s.parameters.maxTokens.toString()) }
     var context by
         rememberSaveable(s.parameters) { mutableStateOf(s.parameters.context.toString()) }
+    var device by rememberSaveable(s.parameters) { mutableStateOf(s.parameters.device) }
+    val llama = s.models.firstOrNull { it.id == s.selectedModel }?.backend != "ollama"
+    var thinking by rememberSaveable(s.parameters) { mutableStateOf(s.parameters.thinking) }
     var prompt by rememberSaveable(s.parameters) { mutableStateOf(s.parameters.systemPrompt) }
     val parameters =
         s.parameters.copy(
@@ -27,6 +31,11 @@ fun GenerationSettings(s: UiState, vm: OmniViewModel) {
             maxTokens = tokens.toIntOrNull() ?: 0,
             context = context.toIntOrNull() ?: 0,
             systemPrompt = prompt,
+            thinking = thinking,
+            device = if (llama) device else s.parameters.device,
+            gpuLayers =
+                if (!llama) s.parameters.gpuLayers
+                else if (device == "cpu") 0 else s.parameters.gpuLayers.takeIf { it > 0 } ?: 99,
         )
     Text(stringResource(R.string.generation), style = MaterialTheme.typography.titleMedium)
     Text(
@@ -36,6 +45,23 @@ fun GenerationSettings(s: UiState, vm: OmniViewModel) {
         ),
         style = MaterialTheme.typography.bodySmall,
     )
+    if (llama) {
+        Text(stringResource(R.string.processing_backend))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                    "auto" to R.string.mode_auto,
+                    "cpu" to R.string.mode_cpu,
+                    "cuda" to R.string.mode_cuda,
+                )
+                .forEach { (mode, label) ->
+                    FilterChip(
+                        selected = device == mode || (mode == "cuda" && device.startsWith("CUDA")),
+                        onClick = { device = mode },
+                        label = { Text(stringResource(label)) },
+                    )
+                }
+        }
+    }
     listOf(
             Triple(R.string.temperature, temperature, { value: String -> temperature = value }),
             Triple(R.string.top_p, topP, { value: String -> topP = value }),
@@ -60,6 +86,10 @@ fun GenerationSettings(s: UiState, vm: OmniViewModel) {
         minLines = 2,
         maxLines = 5,
     )
+    androidx.compose.foundation.layout.Row {
+        Switch(checked = thinking, onCheckedChange = { thinking = it })
+        Text(stringResource(R.string.thinking))
+    }
     if (!parameters.valid())
         Text(stringResource(R.string.error_parameters), color = MaterialTheme.colorScheme.error)
     Button(

@@ -29,7 +29,7 @@
   "error.engine_rejected_request": "The engine rejected this model or request.",
   "error.unsupported_parameter": "This engine does not support the selected parameter.",
   "error.engine_stream_interrupted": "The engine stream ended unexpectedly.",
-  "error.gpu_unavailable": "The selected GPU is unavailable. Select CPU or configure a GPU-enabled engine.",
+  "error.gpu_unavailable": "No working GPU engine/device was found. Use Auto for CPU fallback or check engine diagnostics.",
   "error.model_load_failed": "The model could not be loaded. Check engine version and model compatibility.",
   "error.model_not_loaded": "The model is not loaded.",
   "error.invalid_path": "The path is not an allowed regular file, or contains a symlink.",
@@ -50,5 +50,12 @@
   "error.conversation_busy": "A generation is active. Cancel it before changing this resource.",
   "error.generation_failed": "Generation failed. Check the selected model and engine.",
   "error.generation_limit_exceeded": "The generated response exceeds the configured safety limit.",
-  "error.backend_restarted": "The backend restarted before the job completed."
+  "error.backend_restarted": "The backend restarted before the job completed.",
+  "error.empty_response": "The engine returned no final answer. Check the chat template and finish reason; the context was not increased automatically.",
+  "error.reasoning_limit_reached": "The token limit was used for reasoning before a final answer. Disable thinking if the model supports it, or explicitly adjust the answer limit.",
+  "error.context_limit_exceeded": "The prompt exceeds the model context. Shorten the conversation or explicitly choose a context supported by the model and available memory.",
+  "error.engine_invalid_response": "The inference engine returned an invalid response.",
+  "error.gpu_offload_unverified": "The engine did not confirm moving any layers to GPU. Auto can use CPU; check GPU settings and engine compatibility.",
+  "error.cuda_runtime_unavailable": "The CUDA engine cannot load its runtime libraries or driver. Check diagnostics or use Auto/CPU.",
+  "error.gpu_layers_required": "Select at least one GPU layer to require CUDA."
 }

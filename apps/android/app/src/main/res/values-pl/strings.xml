@@ -31,7 +31,7 @@
   <string name="send">Wyślij</string>
   <string name="stop">Zatrzymaj generowanie</string>
   <string name="you">Ty</string>
-  <string name="assistant">OmniCore</string>
+  <string name="assistant">Asystent</string>
   <string name="copy">Kopiuj odpowiedź</string>
   <string name="ready">Gotowy</string>
   <string name="running">Generowanie…</string>
@@ -75,7 +75,7 @@
   <string name="max_tokens">Tokeny odpowiedzi</string>
   <string name="context">Rozmiar kontekstu</string>
   <string name="system_prompt">Instrukcja systemowa</string>
-  <string name="about">OmniCore 0.1.0-alpha.2 · build testowy
+  <string name="about">OmniCore %1$s · build testowy
 Kotlin / Compose / Material 3
 Klient API; bez inferencji na telefonie.</string>
   <string name="diagnostics_hint">Diagnostyka połączenia i silników. Tokeny i treść rozmów nie trafiają do logów.</string>
@@ -127,4 +127,35 @@ Pobrać ten plik na komputer backendu?</string>
   <string name="parameters_defaults">Domyślne parametry nowych rozmów na tym telefonie.</string>
   <string name="reconnecting">Ponowne łączenie… Zadanie backendu trwa.</string>
   <string name="api_version">Backend %1$s · API /v1 · baza %2$d</string>
+  <string name="nav_home">Start</string>
+  <string name="nav_chat">Czat</string>
+  <string name="nav_models">Modele</string>
+  <string name="nav_settings">Opcje</string>
+  <string name="nav_diagnostics">Status</string>
+  <string name="auth_failed">Błąd tokenu</string>
+  <string name="retry_message">Wyślij ponownie</string>
+  <string name="setup_title">Połącz z komputerem</string>
+  <string name="setup_steps">1. Uruchom OmniCore na komputerze i świadomie włącz zdalny dostęp z tokenem.\n2. W ustawieniach podaj adres komputera i token API. Localhost telefonu oznacza telefon.\n3. Wybierz lub zaimportuj model na backendzie. AI działa na komputerze. Poza zaufanym LAN używaj HTTPS.</string>
+  <string name="reasoning">Pokaż rozumowanie (to nie końcowa odpowiedź)</string>
+  <string name="speed">Szybkość</string>
+  <string name="input_tokens">Tokeny wejściowe</string>
+  <string name="ttft">TTFT</string>
+  <string name="first_answer">Pierwsza odpowiedź</string>
+  <string name="generation_time">Czas</string>
+  <string name="model_load_time">Ładowanie modelu</string>
+  <string name="finish_reason">Zakończenie</string>
+  <string name="finish_length">limit tokenów</string>
+  <string name="thinking">Myślenie (tylko zgodne modele)</string>
+  <string name="error_empty_response">Silnik nie zwrócił końcowej odpowiedzi. Sprawdź szablon rozmowy i powód zakończenia.</string>
+  <string name="error_reasoning_limit">Limit tokenów zużyto na rozumowanie. Wyłącz myślenie, jeśli obsługiwane, lub świadomie zmień limit odpowiedzi.</string>
+  <string name="error_context_limit">Polecenie przekracza kontekst modelu. Skróć historię lub świadomie zmień kontekst w granicach dostępnej pamięci.</string>
+  <string name="device">Urządzenie</string>
+  <string name="cpu_fallback">Fallback CPU: GPU niedostępne</string>
+  <string name="offloaded_layers">Warstwy na GPU</string>
+  <string name="processing_backend">Przetwarzanie na komputerze backendu</string>
+  <string name="mode_auto">Auto</string>
+  <string name="mode_cpu">CPU</string>
+  <string name="mode_cuda">CUDA</string>
+  <string name="error_gpu">Backend nie mógł użyć GPU. Wybierz Auto dla fallback CPU lub sprawdź diagnostykę silnika na komputerze.</string>
+  <string name="launcher_name">OmniCore RC</string>
 </resources>

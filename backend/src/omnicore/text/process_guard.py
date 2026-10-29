@@ -18,7 +18,9 @@ def main():
         raise OSError(ctypes.get_errno(), "Cannot protect engine lifecycle")
     if os.getppid() != expected_parent:
         raise SystemExit("Backend parent exited during engine startup")
-    os.execv(sys.argv[2], sys.argv[2:])  # noqa: S606 — configured trusted executable, no shell.
+    from omnicore.text.native import native_environment
+
+    os.execve(sys.argv[2], sys.argv[2:], native_environment())  # noqa: S606 — configured trusted executable, no shell.
 
 
 if __name__ == "__main__":

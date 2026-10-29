@@ -33,7 +33,21 @@ class SecureSettings(context: Context) : ClientSettings {
         }
 
     override var language: String
-        get() = preferences.getString("language", "en-US") ?: "en-US"
+        get() {
+            preferences.getString("language", null)?.let {
+                if (it in setOf("pl-PL", "en-US")) return it
+            }
+            val detected =
+                initialLanguage(
+                    android.content.res.Resources.getSystem()
+                        .configuration
+                        .locales
+                        .toLanguageTags()
+                        .split(',')
+                )
+            preferences.edit().putString("language", detected).apply()
+            return detected
+        }
         set(value) {
             preferences.edit().putString("language", value).apply()
         }

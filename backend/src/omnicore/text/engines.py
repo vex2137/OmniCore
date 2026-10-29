@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -18,18 +19,75 @@ import httpx
 
 from omnicore.config import is_loopback
 from omnicore.schemas import BackendInfo, Capability, ResourceUsage
+from omnicore.text import nvidia
+from omnicore.text.native import engine_candidates
+from omnicore.text.reasoning import normalize_stream, sse_data
 from omnicore.text.types import EngineModel, GenerationParameters, TextChunk, TextError, TextMessage
 
 
 def engine_error(error: Exception) -> TextError:
+    if isinstance(error, (ValueError, KeyError, TypeError)):
+        return TextError("engine_invalid_response", 502)
     if isinstance(error, httpx.TimeoutException):
         return TextError("engine_timeout", 504)
     if isinstance(error, httpx.HTTPStatusError):
         body = error.response.text.lower()[:8192]
-        if any(word in body for word in ["out of memory", "insufficient memory", "cuda error"]):
+        if any(
+            word in body for word in ["out of memory", "insufficient memory", "cudamalloc failed"]
+        ):
             return TextError("out_of_memory", 503)
+        if any(
+            word in body
+            for word in [
+                "context size",
+                "context window",
+                "prompt is too long",
+                "exceeds the available context",
+            ]
+        ):
+            return TextError("context_limit_exceeded", 422)
         return TextError("engine_rejected_request", 502)
     return TextError("engine_unavailable", 503)
+
+
+def _text(value):
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "".join(
+            part.get("text", "")
+            for part in value
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
+        )
+    raise TextError("engine_invalid_response", 502)
+
+
+def openai_chunk(item):
+    if not isinstance(item, dict):
+        raise TextError("engine_invalid_response", 502)
+    if item.get("error"):
+        raise TextError("engine_rejected_request", 502)
+    choices = item.get("choices") or []
+    text, reasoning, finish = "", "", None
+    # A single requested completion; never concatenate unrelated n>1 choices.
+    for choice in choices:
+        if choice.get("index", 0) != 0:
+            continue
+        delta = choice.get("delta") or choice.get("message") or {}
+        text += _text(delta.get("content"))
+        reasoning += _text(delta.get("reasoning_content") or delta.get("reasoning"))
+        finish = choice.get("finish_reason") or finish
+    usage, timing = item.get("usage") or {}, item.get("timings") or {}
+    return TextChunk(
+        content=text,
+        reasoning_content=reasoning,
+        input_tokens=usage.get("prompt_tokens"),
+        output_tokens=usage.get("completion_tokens"),
+        tokens_per_second=timing.get("predicted_per_second"),
+        finish_reason=finish,
+    )
 
 
 def client_for(url: str, timeout: float = 30) -> httpx.AsyncClient:
@@ -132,6 +190,10 @@ class OllamaEngine:
             raise engine_error(exc) from None
 
     async def stream(self, model, messages, parameters):
+        async for chunk in normalize_stream(self._stream(model, messages, parameters)):
+            yield chunk
+
+    async def _stream(self, model, messages, parameters):
         if parameters.gpu_layers or parameters.device != "cpu":
             raise TextError("unsupported_parameter", 422)
         options = {
@@ -151,6 +213,7 @@ class OllamaEngine:
                     "model": model,
                     "messages": [item.model_dump() for item in messages],
                     "stream": True,
+                    "think": parameters.thinking,
                     "options": options,
                 },
             ) as response:
@@ -172,7 +235,12 @@ class OllamaEngine:
                             raise TextError(code, 502)
                         count, duration = item.get("eval_count"), item.get("eval_duration")
                         yield TextChunk(
-                            content=item.get("message", {}).get("content", ""),
+                            content=_text(item.get("message", {}).get("content")),
+                            reasoning_content=_text(item.get("message", {}).get("thinking")),
+                            finish_reason=item.get("done_reason") if item.get("done") else None,
+                            input_tokens=item.get("prompt_eval_count")
+                            if item.get("done")
+                            else None,
                             output_tokens=count if item.get("done") else None,
                             tokens_per_second=count / (duration / 1e9)
                             if count and duration
@@ -231,11 +299,19 @@ class LlamaEngine:
         executable: Path | None = None,
         *,
         startup_timeout: float = 120,
+        cuda_executable: Path | None = None,
         chat_template: str | None = None,
         request_timeout: float = 300,
     ):
         found = str(executable) if executable else shutil.which("llama-server")
         self.executable = Path(found).absolute() if found else None
+        self.cuda_executable = cuda_executable.absolute() if cuda_executable else None
+        self._device_executables = {}
+        self._cpu_executable = self.executable
+        self.candidates = []
+        self.offloaded_layers = None
+        self.execution_device = None
+        self.fallback_reason = None
         self.startup_timeout = startup_timeout
         self.chat_template = chat_template
         self.request_timeout = request_timeout
@@ -250,7 +326,7 @@ class LlamaEngine:
         self._log = None
         self._verified_text_models: set[str] = set()
 
-    def _guarded_command(self, *arguments):
+    def _guarded_command(self, *arguments, executable=None):
         bootstrap = (
             [sys.executable, "--engine-guard"]
             if getattr(sys, "frozen", False)
@@ -259,20 +335,17 @@ class LlamaEngine:
         return [
             *bootstrap,
             str(os.getpid()),
-            str(self.executable),
+            str(executable or self.executable),
             *arguments,
         ]
 
-    async def _command(self, *arguments: str) -> str:
-        if (
-            not self.executable
-            or not self.executable.is_file()
-            or not os.access(self.executable, os.X_OK)
-        ):
+    async def _command(self, *arguments: str, executable=None) -> str:
+        executable = executable or self.executable
+        if not executable or not executable.is_file() or not os.access(executable, os.X_OK):
             raise TextError("engine_unavailable", 503)
         try:
             process = await asyncio.create_subprocess_exec(
-                *self._guarded_command(*arguments),
+                *self._guarded_command(*arguments, executable=executable),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 start_new_session=True,
@@ -284,29 +357,76 @@ class LlamaEngine:
                     process.kill()
                     await process.wait()
             if process.returncode:
-                raise TextError("engine_unavailable", 503)
+                code = (
+                    "cuda_runtime_unavailable"
+                    if any(
+                        value in output.lower()
+                        for value in (
+                            b"cannot open shared object",
+                            b"error while loading shared libraries",
+                            b"libcuda",
+                        )
+                    )
+                    else "engine_unavailable"
+                )
+                raise TextError(code, 503)
             return output.decode(errors="replace")[:65536]
         except (OSError, TimeoutError):
             raise TextError("engine_unavailable", 503) from None
 
     async def probe(self) -> BackendInfo:
-        try:
-            self.version = (await self._command("--version")).strip()
-            output = await self._command("--list-devices")
-            self.devices = [
-                line.strip().split(": ")[0]
-                for line in output.splitlines()
-                if any(marker in line for marker in ["CUDA", "Vulkan", "SYCL", "ROCm", "Metal"])
-            ]
-            return BackendInfo(
-                id=self.id,
-                version=self.version,
-                available=True,
-                capabilities=[Capability.TEXT],
-                resources=await self.resources(),
-            )
-        except TextError:
-            return BackendInfo(id=self.id, available=False)
+        available = []
+        devices = {}
+        # CUDA and CPU remain independent binaries: missing CUDA runtime/driver must not
+        # prevent the mandatory CPU engine from starting. No shell or library-path mutation.
+        candidates = []
+        for executable in engine_candidates(self.cuda_executable, self.executable):
+            if not executable:
+                continue
+            try:
+                version = (await self._command("--version", executable=executable)).strip()
+                output = await self._command("--list-devices", executable=executable)
+                available.append((executable, version))
+                detected = []
+                for line in output.splitlines():
+                    match = re.match(r"^\s*((?:CUDA|Vulkan|SYCL|ROCm|Metal)\d+):(?:\s|$)", line)
+                    if match:
+                        devices.setdefault(match[1], executable)
+                        detected.append(match[1])
+                candidates.append(
+                    {
+                        "path": str(executable),
+                        "available": True,
+                        "devices": detected,
+                        "version": version[:1024],
+                        "error_code": None,
+                    }
+                )
+            except TextError as exc:
+                if executable.is_file():
+                    candidates.append(
+                        {
+                            "path": str(executable),
+                            "available": False,
+                            "devices": [],
+                            "version": None,
+                            "error_code": exc.code,
+                        }
+                    )
+        self.candidates = candidates
+        self._device_executables, self.devices = devices, list(devices)
+        self._cpu_executable = next(
+            (p for p, _ in available if p == self.executable),
+            available[0][0] if available else None,
+        )
+        self.version = available[0][1] if available else None
+        return BackendInfo(
+            id=self.id,
+            version=self.version,
+            available=bool(available),
+            capabilities=[Capability.TEXT] if available else [],
+            resources=await self.resources(),
+        )
 
     async def models(self) -> list[EngineModel]:
         return (
@@ -323,91 +443,140 @@ class LlamaEngine:
             else []
         )
 
-    async def load(
-        self, path: Path, parameters: GenerationParameters, file_descriptor: int | None = None
-    ) -> None:
+    async def load(self, path: Path, parameters: GenerationParameters, file_descriptor=None):
         async with self._lock:
-            desired = (str(path), parameters.context_size, parameters.gpu_layers, parameters.device)
-            if self.parameters == desired and self.process and self.process.returncode is None:
-                return
             if not (await self.probe()).available:
                 raise TextError("engine_unavailable", 503)
-            if (
-                parameters.gpu_layers or parameters.device not in {"cpu", "auto"}
-            ) and not self.devices:
-                raise TextError("gpu_unavailable", 422)
-            if parameters.device not in {"cpu", "auto", *self.devices}:
-                raise TextError("gpu_unavailable", 422)
-            if parameters.device == "cpu" and parameters.gpu_layers:
-                raise TextError("unsupported_parameter", 422)
-            await self.unload()
-            with socket.socket() as sock:
-                sock.bind(("127.0.0.1", 0))
-                port = sock.getsockname()[1]
-            model_path = (
-                f"/proc/self/fd/{file_descriptor}" if file_descriptor is not None else str(path)
-            )
-            arguments = [
-                str(self.executable),
-                "--model",
-                model_path,
-                "--host",
-                "127.0.0.1",
-                "--port",
-                str(port),
-                "--ctx-size",
-                str(parameters.context_size),
-                "--gpu-layers",
-                str(parameters.gpu_layers),
-                "--parallel",
-                "1",
-                "--no-webui",
-            ]
-            if parameters.device == "cpu":
-                arguments += ["--device", "none"]
-            elif parameters.device != "auto":
-                arguments += ["--device", parameters.device]
-            if self.chat_template:
-                arguments += ["--chat-template", self.chat_template]
+            wants_gpu = parameters.gpu_layers > 0 and parameters.device != "cpu"
+            selected_device = parameters.device
+            if selected_device in {"cuda", "CUDA"}:
+                selected_device = next((d for d in self.devices if d.startswith("CUDA")), "CUDA0")
+            if selected_device == "auto":
+                selected_device = self.devices[0] if wants_gpu and self.devices else "cpu"
+            if selected_device not in {"cpu", *self.devices}:
+                error = next((c["error_code"] for c in self.candidates if c["error_code"]), None)
+                raise TextError(error or "gpu_unavailable", 422)
+            if not parameters.gpu_layers:
+                if parameters.device not in {"cpu", "auto"}:
+                    raise TextError("gpu_layers_required", 422)
+                selected_device = "cpu"
+            selected = self._device_executables.get(selected_device, self._cpu_executable)
+            if not selected:
+                raise TextError("engine_unavailable", 503)
+            fallback = "gpu_unavailable" if wants_gpu and selected_device == "cpu" else None
+            layers = parameters.gpu_layers if selected_device != "cpu" else 0
             try:
-                self._log = tempfile.TemporaryFile()
-                self.process = await asyncio.create_subprocess_exec(
-                    *self._guarded_command(*arguments[1:]),
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=self._log,
-                    start_new_session=True,
-                    pass_fds=(file_descriptor,) if file_descriptor is not None else (),
+                await self._load_selected(
+                    path,
+                    parameters.context_size,
+                    selected,
+                    selected_device,
+                    layers,
+                    fallback,
+                    file_descriptor,
                 )
-                self.client = client_for(f"http://127.0.0.1:{port}", timeout=self.request_timeout)
-                async with asyncio.timeout(self.startup_timeout):
-                    while self.process.returncode is None:
-                        try:
-                            response = await self.client.get("/health", timeout=1)
-                            if response.status_code == 200:
-                                self.model = str(path)
-                                self.parameters = desired
-                                return
-                        except httpx.HTTPError:
-                            pass
-                        await asyncio.sleep(0.1)
-                self._log.seek(0, 2)
-                size = self._log.tell()
-                self._log.seek(max(0, size - 16384))
-                log = self._log.read().lower()
-                code = (
-                    "out_of_memory"
-                    if b"out of memory" in log or b"insufficient memory" in log
-                    else "model_load_failed"
+            except TextError as exc:
+                if (
+                    parameters.device != "auto"
+                    or selected_device == "cpu"
+                    or not self._cpu_executable
+                ):
+                    raise
+                await self._load_selected(
+                    path,
+                    parameters.context_size,
+                    self._cpu_executable,
+                    "cpu",
+                    0,
+                    exc.code,
+                    file_descriptor,
                 )
-                raise TextError(code, 502)
-            except (OSError, TimeoutError):
-                await self.unload()
-                raise TextError("model_load_failed", 502) from None
-            except BaseException:
-                await self.unload()
-                raise
+
+    async def _load_selected(
+        self, path, context_size, selected, selected_device, layers, fallback, file_descriptor
+    ):
+        desired = (str(path), context_size, layers, selected_device, str(selected))
+        if self.parameters == desired and self.process and self.process.returncode is None:
+            self.fallback_reason = fallback
+            return
+        await self.unload()
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        model_path = (
+            f"/proc/self/fd/{file_descriptor}" if file_descriptor is not None else str(path)
+        )
+        arguments = [
+            str(selected),
+            "--model",
+            model_path,
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--ctx-size",
+            str(context_size),
+            "--gpu-layers",
+            str(layers),
+            "--parallel",
+            "1",
+            "--no-webui",
+        ]
+        arguments += ["--device", "none" if selected_device == "cpu" else selected_device]
+        if self.chat_template:
+            arguments += ["--chat-template", self.chat_template]
+        try:
+            self._log = tempfile.TemporaryFile()
+            self.process = await asyncio.create_subprocess_exec(
+                *self._guarded_command(*arguments[1:], executable=selected),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=self._log,
+                start_new_session=True,
+                pass_fds=(file_descriptor,) if file_descriptor is not None else (),
+            )
+            self.client = client_for(f"http://127.0.0.1:{port}", timeout=self.request_timeout)
+            async with asyncio.timeout(self.startup_timeout):
+                while self.process.returncode is None:
+                    try:
+                        response = await self.client.get("/health", timeout=1)
+                        if response.status_code == 200:
+                            self.model = str(path)
+                            self.parameters = desired
+                            startup_log = os.pread(self._log.fileno(), 131072, 0).decode(
+                                errors="replace"
+                            )
+                            offload = re.search(r"offloaded (\d+)/(\d+) layers", startup_log)
+                            self.offloaded_layers = int(offload[1]) if offload else 0
+                            if selected_device != "cpu" and not self.offloaded_layers:
+                                raise TextError("gpu_offload_unverified", 503)
+                            self.execution_device = selected_device
+                            self.fallback_reason = fallback
+                            return
+                    except httpx.HTTPError:
+                        pass
+                    await asyncio.sleep(0.1)
+            self._log.seek(0, 2)
+            size = self._log.tell()
+            self._log.seek(max(0, size - 16384))
+            log = self._log.read().lower()
+            code = (
+                "out_of_memory"
+                if b"out of memory" in log or b"insufficient memory" in log
+                else "model_load_failed"
+            )
+            raise TextError(code, 502)
+        except (OSError, TimeoutError):
+            await self.unload()
+            raise TextError("model_load_failed", 502) from None
+        except BaseException:
+            await self.unload()
+            raise
 
     async def stream(self, model, messages, parameters):
+        async for chunk in normalize_stream(self._stream(model, messages, parameters)):
+            yield chunk
+
+    async def _stream(self, model, messages, parameters):
         if not self.client or self.model != model:
             raise TextError("model_not_loaded", 409)
         self._generation_task = asyncio.current_task()
@@ -425,35 +594,37 @@ class LlamaEngine:
                     "max_tokens": parameters.max_tokens,
                     "seed": parameters.seed,
                     "stream_options": {"include_usage": True},
+                    "chat_template_kwargs": {"enable_thinking": parameters.thinking},
+                    "reasoning_format": "deepseek",
+                    **({"reasoning_effort": "none"} if not parameters.thinking else {}),
                 },
             ) as response:
                 if response.is_error:
                     await response.aread()
                     response.raise_for_status()
+                if response.headers.get("content-type", "").startswith("application/json"):
+                    body = bytearray()
+                    async for part in response.aiter_bytes():
+                        body.extend(part)
+                        if len(body) > 2_000_000:
+                            raise TextError("generation_limit_exceeded", 502)
+                    chunk = openai_chunk(json.loads(body))
+                    yield chunk
+                    if chunk.content:
+                        self._verified_text_models.add(model)
+                    return
                 finished = False
                 seen_text = False
-                async for line in response.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    data = line[5:].strip()
+                async for data in sse_data(response):
+                    data = data.strip()
                     if data == "[DONE]":
                         if seen_text:
                             self._verified_text_models.add(model)
                         return
-                    item = json.loads(data)
-                    if item.get("error"):
-                        raise TextError("engine_rejected_request", 502)
-                    choices = item.get("choices", [])
-                    text = "".join(
-                        choice.get("delta", {}).get("content") or "" for choice in choices
-                    )
-                    seen_text |= bool(text)
-                    finished |= any(choice.get("finish_reason") for choice in choices)
-                    yield TextChunk(
-                        content=text,
-                        output_tokens=item.get("usage", {}).get("completion_tokens"),
-                        tokens_per_second=item.get("timings", {}).get("predicted_per_second"),
-                    )
+                    chunk = openai_chunk(json.loads(data))
+                    seen_text |= bool(chunk.content)
+                    finished |= chunk.finish_reason is not None
+                    yield chunk
                 if not finished:
                     raise TextError("engine_stream_interrupted", 502)
                 if seen_text:
@@ -470,11 +641,18 @@ class LlamaEngine:
             await asyncio.gather(task, return_exceptions=True)
 
     async def resources(self) -> ResourceUsage:
+        ram = None
         if self.process:
             with suppress(OSError, ValueError):
                 for line in Path(f"/proc/{self.process.pid}/status").read_text().splitlines():
                     if line.startswith("VmRSS:"):
-                        return ResourceUsage(ram_bytes=int(line.split()[1]) * 1024)
+                        ram = int(line.split()[1]) * 1024
+            vram = (
+                await nvidia.process_memory(self.process.pid)
+                if self.execution_device and self.execution_device.startswith("CUDA")
+                else None
+            )
+            return ResourceUsage(ram_bytes=ram, vram_bytes=vram)
         return ResourceUsage()
 
     async def unload(self, model=None) -> None:
@@ -491,6 +669,7 @@ class LlamaEngine:
                 with suppress(ProcessLookupError):
                     os.killpg(process.pid, signal.SIGKILL)
                 await process.wait()
+        self.execution_device, self.offloaded_layers = None, None
         self.model, self.parameters = None, None
         self._verified_text_models.clear()
         if self._log:

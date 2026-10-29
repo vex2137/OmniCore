@@ -1,0 +1,74 @@
+name: Attach verified Alpha 3 packages to draft
+on:
+  workflow_dispatch:
+    inputs:
+      linux_run:
+        description: Successful Linux desktop and AppImage run ID
+        required: true
+        type: string
+      android_run:
+        description: Successful Native Android APK run ID (both emulator jobs)
+        required: true
+        type: string
+      expected_sha:
+        description: Full source commit shared by both runs
+        required: true
+        type: string
+permissions:
+  contents: write
+  actions: read
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      LINUX_RUN: ${{ inputs.linux_run }}
+      ANDROID_RUN: ${{ inputs.android_run }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      RELEASE_TAG: v0.1.0-alpha.3
+    steps:
+      - name: Require successful source runs and a draft destination
+        shell: bash
+        run: |
+          [[ "$LINUX_RUN" =~ ^[0-9]+$ && "$ANDROID_RUN" =~ ^[0-9]+$ ]]
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$(gh api "repos/$GH_REPO/actions/runs/$LINUX_RUN" --jq .name)" = 'Linux desktop and AppImage'
+          test "$(gh api "repos/$GH_REPO/actions/runs/$ANDROID_RUN" --jq .name)" = 'Native Android APK'
+          for run_id in "$LINUX_RUN" "$ANDROID_RUN"; do
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run_id" --jq .conclusion)" = success
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run_id" --jq .head_sha)" = "$EXPECTED_SHA"
+          done
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+      - uses: actions/download-artifact@v4
+        with:
+          name: OmniCore-0.1.0-alpha.3-x86_64
+          run-id: ${{ inputs.linux_run }}
+          github-token: ${{ github.token }}
+          path: package/linux
+      - uses: actions/download-artifact@v4
+        with:
+          name: OmniCore-0.1.0-alpha.3-android-arm64
+          run-id: ${{ inputs.android_run }}
+          github-token: ${{ github.token }}
+          path: package/android
+      - name: Verify identity, checksums and upload without publishing
+        shell: bash
+        run: |
+          test "$(jq -r .source_commit package/linux/build-manifest.json)" = "$EXPECTED_SHA"
+          test "$(jq -r .source_commit package/android/android-build.json)" = "$EXPECTED_SHA"
+          test "$(jq -r .version package/linux/build-manifest.json)" = 0.1.0-alpha.3
+          test "$(jq -r .version package/android/android-build.json)" = 0.1.0-alpha.3
+          (cd package/linux && sha256sum -c OmniCore-0.1.0-alpha.3-x86_64.AppImage.sha256)
+          (cd package/android && sha256sum -c OmniCore-0.1.0-alpha.3-android-arm64.apk.sha256)
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          gh release upload "$RELEASE_TAG" \
+            package/linux/OmniCore-0.1.0-alpha.3-x86_64.AppImage \
+            package/linux/OmniCore-0.1.0-alpha.3-x86_64.AppImage.sha256 \
+            package/linux/build-manifest.json \
+            package/android/OmniCore-0.1.0-alpha.3-android-arm64.apk \
+            package/android/OmniCore-0.1.0-alpha.3-android-arm64.apk.sha256 \
+            package/android/android-build.json --clobber
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          gh release view "$RELEASE_TAG" --json isDraft,assets

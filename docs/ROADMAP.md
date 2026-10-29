@@ -87,6 +87,24 @@ bezpieczny rollback i oszacowany koszt utrzymania. Bez spełnienia tych warunkó
 pozostaje implementacja Python. Nie przenosić obliczeń GPU do Rust ani nie
 deklarować zgodności modeli na podstawie zmiany języka.
 
+## Alpha.3 — stabilizacja przed dalszymi modułami
+
+- [x] Kolejka/cancel/cleanup i mutacje rozmów serializowane między klientami.
+- [x] Oddzielne reasoning i final answer, jawne błędy pustej odpowiedzi/limitu/kontekstu.
+- [x] Snapshot modelu i statystyki przy wiadomości, zgodne stare dane/idempotency.
+- [x] Linux: natywne dymki/Markdown/kod/kopiowanie, wyszukiwanie historii, onboarding,
+  izolacja transportu, raport bez sekretów i wybór QPA.
+- [x] Android: język systemowy i trwały wybór, nawigacja, reconnect/statusy/retry/refresh.
+- [x] Opcjonalna binarka CUDA + niezależny CPU, jawny fallback w auto, build SM 89.
+- [x] Zweryfikować kompilację CUDA w CI.
+- [ ] Zweryfikować rzeczywistą inferencję RTX 4060.
+- [x] Zbudować i uruchomić AppImage/APK Alpha.3 oraz CI/emulatory (szkic zachowany).
+- [ ] LFM3/Qwen3.5: zweryfikować dokładne pliki użytkownika i powtórzyć dłuższe prompty.
+- [ ] Fizyczne POCO/Xiaomi, CachyOS i NVIDIA: testy na właściwych urządzeniach.
+
+Image AI, Web, lokalna inferencja Android i nowe komponenty Rust pozostają poza
+bieżącą implementacją. Publiczne wydanie Alpha.3 wymaga osobnej zgody właściciela.
+
 ## OmniCore 0.1.0 — Text & Image
 
 **Status:** w realizacji — fundament Etapu 1 zaimplementowany i przetestowany;
@@ -320,3 +338,12 @@ Stabilne API i rozszerzenia przechodzą testy kontraktów; synchronizacja przech
 testy wielu urządzeń i konfliktów. Kryteria wydajności, bezpieczeństwa oraz
 dostępności mają udokumentowane wyniki, dokumentacja jest kompletna,
 a decyzja o Windows zapisana. Właściciel zatwierdza publiczne wydanie.
+
+## 0.1.0 RC → Stable
+
+Automatyczne wykrywanie CUDA, izolacja bibliotek, potwierdzony offload, VRAM,
+parser myślenia/SSE, prosty wybór wykonania, partie historii i test sprzętowy są
+zaimplementowane. Pozostają finalne paczki/CI RC i test właściciela na CachyOS/RTX4060
+oraz telefonie. Trwały produkcyjny podpis Androida jest oddzielną bramką; RC ma
+osobny identyfikator, aby nie wymagać usuwania wcześniejszej Alpha.
+Nie publikować v0.1.0 przed [potwierdzeniem](RELEASE_GATE.md).

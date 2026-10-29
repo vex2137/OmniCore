@@ -10,6 +10,8 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+DISTRIBUTION = json.loads((ROOT / "backend/src/omnicore/distribution.json").read_text())
+VERSION = DISTRIBUTION["version"]
 
 
 def main():
@@ -35,14 +37,15 @@ def main():
     metadata = subprocess.check_output(  # noqa: S603
         [str(sdk / "aapt"), "dump", "badging", str(apk)], text=True
     )
-    assert "name='io.github.vex2137.omnicore'" in metadata
-    assert "versionName='0.1.0-alpha.2'" in metadata
+    assert f"name='{DISTRIBUTION['android_application_id']}'" in metadata
+    assert f"versionName='{VERSION}'" in metadata
+    assert f"versionCode='{DISTRIBUTION['android_version_code']}'" in metadata
     assert "targetSdkVersion:'36'" in metadata
     assert "sdkVersion:'26'" in metadata
     assert "native-code: 'arm64-v8a'" in metadata
     output = ROOT / "dist"
     output.mkdir(exist_ok=True)
-    target = output / "OmniCore-0.1.0-alpha-android-arm64.apk"
+    target = output / f"OmniCore-{VERSION}-android-arm64.apk"
     shutil.copy2(apk, target)
     with target.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
@@ -50,8 +53,8 @@ def main():
     (output / "android-build.json").write_text(
         json.dumps(
             {
-                "version": "0.1.0-alpha.2",
-                "application_id": "io.github.vex2137.omnicore",
+                "version": VERSION,
+                "application_id": DISTRIBUTION["android_application_id"],
                 "build_type": "debug, test signing key; not a production signature",
                 "abi": "arm64-v8a",
                 "min_sdk": 26,

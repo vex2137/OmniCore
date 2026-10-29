@@ -5,7 +5,7 @@ from importlib.resources import files
 
 import httpx
 from PySide6.QtCore import QProcess, Qt
-from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
 
 from omnicore.desktop.config import DesktopConfig, config_path, data_path
 
@@ -101,7 +101,7 @@ def test_native_import_and_model_selection_no_ollama(desktop, qtbot, monkeypatch
 def test_settings_locale_theme_persist_and_restart(desktop, qtbot):
     w = desktop
     w.language.setCurrentIndex(w.language.findData("en-US"))
-    assert w.new_button.text() == "＋ New conversation"
+    assert w.new_button.text() == "+ New conversation"
     w.theme.setCurrentIndex(w.theme.findData("dark"))
     dark_styles = w.styleSheet()
     assert "#10151f" in dark_styles
@@ -276,3 +276,195 @@ def test_appimage_engine_path_is_rediscovered_after_remount(tmp_path, monkeypatc
     assert json.loads(config_path().read_text())["llama_server"] == ""
     monkeypatch.setattr(sys, "executable", str(tmp_path / "mount2/OmniCore"))
     assert Path(DesktopConfig.load().llama_server).parent.parent.name == "mount2"
+
+
+def test_platform_selection_respects_session_and_user_override():
+    from omnicore.desktop.platforms import configure_platform
+
+    environment = {"WAYLAND_DISPLAY": "wayland-0", "DISPLAY": ":0"}
+    assert configure_platform(environment) == "wayland;xcb"
+    assert configure_platform({"DISPLAY": ":99"}) == "xcb"
+    assert configure_platform({"WAYLAND_DISPLAY": "wayland-test"}) == "wayland"
+    assert configure_platform({"QT_QPA_PLATFORM": "offscreen", "DISPLAY": ":99"}) == "offscreen"
+    assert configure_platform({}) is None
+
+
+def test_welcome_actions_and_dismissal_persist(desktop, qtbot):
+    w = desktop
+    assert w.onboarding.isVisible()
+    assert w.welcome_import.isEnabled()
+    w.dismiss_welcome()
+    assert not w.onboarding.isVisible()
+    assert DesktopConfig.load().onboarding_complete
+    assert w.models == []
+
+
+def test_reconnect_owned_backend_keeps_process_and_shared_history(desktop, qtbot):
+    w = desktop
+    w.new_conversation()
+    qtbot.waitUntil(lambda: bool(w.current_id))
+    identifier = w.current_id
+    pid = w.session.process.processId()
+    w.show_error("connection_error")
+    assert not w.is_connected
+    w.reconnect()
+    qtbot.waitUntil(lambda: w.is_connected and not w._health_pending, timeout=15000)
+    assert w.session.owned and w.session.process.processId() == pid
+    assert any(c["id"] == identifier for c in w.conversations)
+
+
+def test_diagnostic_export_uses_closed_schema_and_private_file(desktop, monkeypatch, tmp_path):
+    from omnicore.desktop.report import diagnostic_report
+
+    w = desktop
+    marker = "token-and-private-content-should-not-export"
+    w.engines = [
+        {
+            "info": {
+                "id": "llama.cpp",
+                "available": True,
+                "version": marker,
+                "resources": {"ram_bytes": 42, "vram_bytes": None, "extra": marker},
+            },
+            "executable": marker,
+        }
+    ]
+    w.logs.appendPlainText(marker)
+    w.composer.setPlainText(marker)
+    report = diagnostic_report(w, QApplication.platformName())
+    assert marker not in json.dumps(report)
+    assert report["engines"][0]["ram_bytes"] == 42
+    assert "base_url" not in report and "logs" not in report
+    target = tmp_path / "report.json"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a: (str(target), ""))
+    w.export_report()
+    assert json.loads(target.read_text()) == report
+    assert target.stat().st_mode & 0o777 == 0o600
+    w.show_error("a" * 64)
+    w.log_event("b" * 64)
+    assert "a" * 64 not in w.notice.text()
+    assert "b" * 64 not in w.logs.toPlainText()
+
+
+def test_remote_conversation_deletion_clears_shared_cached_history(desktop, qtbot):
+    w = desktop
+    w.new_conversation()
+    qtbot.waitUntil(lambda: bool(w.current_id))
+    identifier = w.current_id
+    request(
+        w,
+        "POST",
+        f"/api/v1/text/conversations/{identifier}/messages",
+        {"role": "user", "content": "shared history"},
+    )
+    w.refresh_messages()
+    qtbot.waitUntil(lambda: "shared history" in w.transcript.toPlainText())
+    request(w, "DELETE", f"/api/v1/text/conversations/{identifier}")
+    w.refresh_shared_history()
+    qtbot.waitUntil(lambda: w.current_id is None)
+    assert "shared history" not in w.transcript.toPlainText()
+
+
+def test_native_markdown_code_model_identity_statistics_and_safe_resources(qtbot):
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QTextDocument
+    from PySide6.QtWidgets import QLabel, QPlainTextEdit, QPushButton
+
+    from omnicore.desktop.i18n import Translator
+    from omnicore.desktop.transcript import ChatTranscript, SafeMarkdown
+
+    transcript = ChatTranscript()
+    qtbot.addWidget(transcript)
+    transcript.resize(650, 700)
+    transcript.show()
+    source = '# Heading\n\n**Strong**\n\n```python\nprint("hello")\n```\n\n<script>bad()</script>'
+    messages = [
+        {
+            "role": "assistant",
+            "content": source,
+            "model_name": "Original Qwen",
+            "statistics": {
+                "output_tokens": 2,
+                "ttft_seconds": 0.1,
+                "context_used_tokens": 12,
+                "context_limit_tokens": 128,
+                "finish_reason": "length",
+            },
+        }
+    ]
+    transcript.set_messages(messages, Translator("en-US"))
+    qtbot.wait(30)
+    card = transcript.cards[0]
+    assert any(label.text() == "Original Qwen" for label in card.findChildren(QLabel))
+    browsers = card.findChildren(SafeMarkdown)
+    assert any(
+        "Strong" in b.toPlainText() and "**Strong**" not in b.toPlainText() for b in browsers
+    )
+    assert any(
+        "Output tokens: 2" in label.text() and "token limit" in label.text()
+        for label in card.findChildren(QLabel)
+    )
+    assert card.findChild(QPlainTextEdit).toPlainText() == 'print("hello")'
+    copy = next(button for button in card.findChildren(QPushButton) if button.text() == "Copy code")
+    qtbot.mouseClick(copy, Qt.LeftButton)
+    assert QApplication.clipboard().text() == 'print("hello")'
+    for url in ["file:///etc/passwd", "https://example.com/image.png", "data:image/png;base64,AA"]:
+        assert browsers[0].loadResource(QTextDocument.ImageResource, QUrl(url)) is None
+    transcript.set_messages(messages, Translator("pl-PL"))
+    assert any(
+        label.text() == "Original Qwen" for label in transcript.cards[0].findChildren(QLabel)
+    )
+    transcript.set_messages([{"role": "assistant", "content": "Old history"}], Translator("en-US"))
+    assert any(label.text() == "Assistant" for label in transcript.cards[0].findChildren(QLabel))
+
+
+def test_history_search_uses_backend_message_content_without_losing_selection(desktop, qtbot):
+    w = desktop
+    first = request(w, "POST", "/api/v1/text/conversations", {"title": "First"})
+    second = request(w, "POST", "/api/v1/text/conversations", {"title": "Second"})
+    request(
+        w,
+        "POST",
+        f"/api/v1/text/conversations/{first['id']}/messages",
+        {"role": "user", "content": "Unique searchable phrase"},
+    )
+    w.refresh_conversations(select=second["id"])
+    qtbot.waitUntil(lambda: w.current_id == second["id"])
+    w.history_search.setText("searchable")
+    qtbot.waitUntil(lambda: w.conversation_list.count() == 1)
+    assert w.conversation_list.item(0).data(Qt.UserRole) == first["id"]
+    assert w.current_id == second["id"]
+    w.history_search.clear()
+    qtbot.waitUntil(lambda: w.conversation_list.count() == 2)
+
+
+def test_processing_selector_hides_technical_paths_and_preserves_manual_choice(desktop, qtbot):
+    w = desktop
+    assert not w.advanced_settings.isVisible()
+    w.navigate(2)
+    w.device.setCurrentIndex(w.device.findData("cpu"))
+    w.save_settings()
+    assert DesktopConfig.load().parameters["device"] == "cpu"
+    assert DesktopConfig.load().parameters["gpu_layers"] == 0
+    w.device.setCurrentIndex(w.device.findData("auto"))
+    assert w.parameter_inputs["gpu_layers"].value() == 99
+    w.save_settings()
+    assert DesktopConfig.load().parameters["device"] == "auto"
+    w.advanced_toggle.click()
+    assert w.advanced_settings.isVisible()
+
+
+def test_long_history_is_incremental_and_earlier_messages_remain_accessible(qtbot):
+    from omnicore.desktop.i18n import Translator
+    from omnicore.desktop.transcript import ChatTranscript
+
+    widget = ChatTranscript()
+    qtbot.addWidget(widget)
+    messages = [{"id": str(i), "role": "user", "content": f"Message {i}"} for i in range(180)]
+    widget.set_messages(messages, Translator("en-US"))
+    assert len(widget.cards) == 60 and widget.cards[0].message["id"] == "120"
+    assert "Message 0" in widget.toPlainText()
+    widget.more.click()
+    assert len(widget.cards) == 120
+    widget.more.click()
+    assert len(widget.cards) == 180

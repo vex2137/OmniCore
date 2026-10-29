@@ -57,6 +57,11 @@
           "title": "Temperature",
           "type": "number"
         },
+        "thinking": {
+          "default": false,
+          "title": "Thinking",
+          "type": "boolean"
+        },
         "top_k": {
           "default": 40,
           "maximum": 1000,
@@ -83,6 +88,32 @@
       "title": "Content",
       "type": "string"
     },
+    "context_limit_tokens": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Context Limit Tokens"
+    },
+    "context_used_tokens": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Context Used Tokens"
+    },
     "conversation_id": {
       "title": "Conversation Id",
       "type": "string"
@@ -103,17 +134,138 @@
       "default": null,
       "title": "Error Code"
     },
+    "execution_device": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9_.:-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Execution Device"
+    },
+    "fallback_reason": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fallback Reason"
+    },
+    "finish_reason": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Finish Reason"
+    },
+    "first_answer_seconds": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "First Answer Seconds"
+    },
+    "generation_seconds": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Generation Seconds"
+    },
+    "gpu_offloaded_layers": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Gpu Offloaded Layers"
+    },
     "id": {
       "title": "Id",
       "type": "string"
+    },
+    "input_tokens": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Input Tokens"
     },
     "model_id": {
       "title": "Model Id",
       "type": "string"
     },
+    "model_load_seconds": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Load Seconds"
+    },
+    "model_name": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Name"
+    },
     "output_tokens": {
       "anyOf": [
         {
+          "minimum": 0,
           "type": "integer"
         },
         {
@@ -125,6 +277,12 @@
     },
     "parameters": {
       "$ref": "#/$defs/GenerationParameters"
+    },
+    "reasoning_content": {
+      "default": "",
+      "maxLength": 1000000,
+      "title": "Reasoning Content",
+      "type": "string"
     },
     "sequence": {
       "default": 0,
@@ -147,6 +305,7 @@
     "tokens_per_second": {
       "anyOf": [
         {
+          "minimum": 0,
           "type": "number"
         },
         {
@@ -155,6 +314,19 @@
       ],
       "default": null,
       "title": "Tokens Per Second"
+    },
+    "ttft_seconds": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ttft Seconds"
     },
     "updated_at": {
       "title": "Updated At",

@@ -24,6 +24,10 @@ class MainActivity : AppCompatActivity() {
     }
     private val networkCallback =
         object : ConnectivityManager.NetworkCallback() {
+            override fun onLost(network: Network) {
+                Handler(Looper.getMainLooper()).post { viewModel.networkLost() }
+            }
+
             override fun onAvailable(network: Network) {
                 Handler(Looper.getMainLooper()).post { viewModel.networkAvailable() }
             }

@@ -1,4 +1,6 @@
 #!/bin/sh
 set -eu
 OMNICORE_APPDIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# Keep host Qt/KDE plugins from being loaded into the bundled Qt ABI.
+unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH QML2_IMPORT_PATH QT_QPA_PLATFORMTHEME
 exec "$OMNICORE_APPDIR/usr/bin/OmniCore" "$@"

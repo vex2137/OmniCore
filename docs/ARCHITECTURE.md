@@ -406,3 +406,32 @@ Potwierdzają model rozszerzeń i koszty pakowania; nie są wynikami testów Omn
 | Rozjazd dokumentacji i implementacji | Snapshot OpenAPI/JSON Schema, testy kontraktów, aktualizacja PROGRESS po etapie |
 | Narzut i utrzymanie Rust | Najpierw profilowanie i cel; oddzielne opcjonalne artefakty; porównanie z Pythonem uwzględnia FFI/IPC oraz dysk |
 | FFI, awaria workera i rozjazd stanu | Brak automatycznej izolacji przez PyO3; testy awarii/timeoutów, uzgodnienie stanu przed retry, jeden właściciel SQLite |
+
+## Alpha.3 — generacja i opcjonalny silnik CUDA
+
+Wiadomość przechowuje niezmienny snapshot `model_id`/`model_name`, oddzielne
+`reasoning_content` oraz opcjonalne statystyki. SQLite nadal zapisuje wersjonowane
+rekordy JSON; stare rekordy otrzymują defaults, bez przepisywania bazy. REST/SSE
+pozostają addytywnie zgodne. Fingerprint starych request_key pomija domyślne nowe
+pole thinking=false. Brak finalnej odpowiedzi jest błędem, a nie ukończonym zadaniem.
+
+Klienci nie interpretują reasoning jako odpowiedzi. Qt renderuje Markdown bez HTML
+oraz bez odczytu zasobów zewnętrznych/lokalnych, kod jako tekst. Statystyki tokenów
+pochodzą z silnika; klient nie szacuje ich z długości tekstu. TTFT obejmuje ładowanie,
+ale nie kolejkę; ładowanie i pierwszy tekst odpowiedzi mają osobne czasy.
+
+Opcjonalna zaufana binarka CUDA i niezależna binarka CPU są nadzorowane przez ten
+sam adapter/proces guard. Wybór GPU nie zmienia logiki inferencji ani API klientów.
+Szczegóły fallbacku, SM 89, budowania i bramki sprzętowej: [CUDA.md](CUDA.md).
+Python pozostaje warstwą sterowania; nie wykazano potrzeby dodawania komponentu Rust.
+
+## 0.1.0 RC — wykrywanie i bramka Stable
+
+Adapter wybiera binarki z zamkniętej listy; CPU AppImage jest niezależnym fallbackiem.
+Po prctl i bootstrapie PyInstaller guard przywraca środowisko bibliotek użytkownika
+przed exec. Wykryte urządzenia, aktywne wykonanie i offloaded layers są rozdzielone.
+Nvidia-smi dostarcza opcjonalne dane VRAM, bez wyciągania wniosków z samej obecności GPU.
+Parser reasoning/SSE jest wspólny dla adapterów, niezależny od klientów; nie zmieniono
+schematu danych ani inferencji na Rust. Hardware-test korzysta z tych samych tras API
+w izolowanej tymczasowej instancji, nigdy z istniejącej bazy użytkownika.
+RC i Stable mają osobną bramkę: [RELEASE_GATE.md](RELEASE_GATE.md).

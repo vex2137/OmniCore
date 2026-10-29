@@ -31,7 +31,7 @@
   <string name="send">Send</string>
   <string name="stop">Stop generation</string>
   <string name="you">You</string>
-  <string name="assistant">OmniCore</string>
+  <string name="assistant">Assistant</string>
   <string name="copy">Copy response</string>
   <string name="ready">Ready</string>
   <string name="running">Generating…</string>
@@ -75,7 +75,7 @@
   <string name="max_tokens">Output tokens</string>
   <string name="context">Context size</string>
   <string name="system_prompt">System prompt</string>
-  <string name="about">OmniCore 0.1.0-alpha.2 · test build
+  <string name="about">OmniCore %1$s · test build
 Kotlin / Compose / Material 3
 API client; no inference on the phone.</string>
   <string name="diagnostics_hint">Connection and engine diagnostics. Tokens and conversation content are never logged.</string>
@@ -127,4 +127,35 @@ Download this file onto the backend computer?</string>
   <string name="parameters_defaults">Default parameters for new conversations on this phone.</string>
   <string name="reconnecting">Reconnecting… The backend task continues.</string>
   <string name="api_version">Backend %1$s · API /v1 · database %2$d</string>
+  <string name="nav_home">Home</string>
+  <string name="nav_chat">Chat</string>
+  <string name="nav_models">Models</string>
+  <string name="nav_settings">Setup</string>
+  <string name="nav_diagnostics">Status</string>
+  <string name="auth_failed">Auth error</string>
+  <string name="retry_message">Send again</string>
+  <string name="setup_title">Connect to your computer</string>
+  <string name="setup_steps">1. Start OmniCore on your computer and enable authenticated remote access.\n2. Enter the computer address and API token in Settings. Phone localhost refers to the phone.\n3. Choose or import a model on the backend. AI runs on the computer. Use HTTPS outside a trusted LAN.</string>
+  <string name="reasoning">Show reasoning (not the final answer)</string>
+  <string name="speed">Speed</string>
+  <string name="input_tokens">Input tokens</string>
+  <string name="ttft">TTFT</string>
+  <string name="first_answer">First answer</string>
+  <string name="generation_time">Elapsed</string>
+  <string name="model_load_time">Model load</string>
+  <string name="finish_reason">Finish</string>
+  <string name="finish_length">token limit</string>
+  <string name="thinking">Thinking (compatible models only)</string>
+  <string name="error_empty_response">The engine returned no final answer. Check the chat template and finish reason.</string>
+  <string name="error_reasoning_limit">The token budget was consumed by reasoning. Disable thinking if supported, or explicitly adjust the output limit.</string>
+  <string name="error_context_limit">The prompt exceeds the model context. Shorten the history or explicitly adjust the context within available memory.</string>
+  <string name="device">Device</string>
+  <string name="cpu_fallback">CPU fallback: GPU unavailable</string>
+  <string name="offloaded_layers">Layers on GPU</string>
+  <string name="processing_backend">Processing on the backend computer</string>
+  <string name="mode_auto">Auto</string>
+  <string name="mode_cpu">CPU</string>
+  <string name="mode_cuda">CUDA</string>
+  <string name="error_gpu">The backend could not use GPU. Select Auto for CPU fallback, or check engine diagnostics on the computer.</string>
+  <string name="launcher_name">OmniCore RC</string>
 </resources>
