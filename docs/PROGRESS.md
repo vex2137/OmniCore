@@ -498,3 +498,12 @@ po statusie Completed. Treść była już w drzewie; animacja przewijania nie za
 się w tej samej klatce. Test oczekuje teraz (maks. 10 s) rzeczywistej widoczności
 odpowiedzi, zachowując końcową asercję i sprawdzanie automatycznego przewijania.
 Nie dodano sleep, nie usunięto asercji i nie zmieniono aplikacji. Wymagany nowy CI.
+
+### Stabilizacja istniejącego testu backendu
+
+PR backend run `40866059597` ujawnił wyścig w istniejącym teście idempotencji:
+po await drugiego submit zadanie mogło już zakończyć się i zniknąć z manager.tasks.
+Test zachowuje teraz Task natychmiast po pierwszym submit i oczekuje tej samej
+referencji. Wszystkie asercje trwałości, treści, metryk i idempotencji zachowano.
+Kod backendu i kontrakty nie zostały zmienione. Push backend run `40866050449`
+dla tego samego kodu wcześniej PASS; wymagamy ponownej walidacji poprawki testu.

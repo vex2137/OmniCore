@@ -66,9 +66,10 @@ def test_success_idempotency_and_persistent_reply(tmp_path):
         manager, conversation = create_manager(tmp_path, ProtocolTestEngine())
         request = GenerationRequest(content="hello", request_key="once")
         record = await manager.submit(conversation.id, request)
+        task = manager.tasks[record.id]  # Keep the handle before duplicate submission yields.
         duplicate = await manager.submit(conversation.id, request)
         assert duplicate.id == record.id
-        await manager.tasks[record.id]
+        await task
         result = manager.record(record.id)
         assert result.state == "completed" and result.content == "Hello world"
         assert result.output_tokens == 2 and result.tokens_per_second == 1
