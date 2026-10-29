@@ -489,3 +489,12 @@ wymagający już connected=true. Naprawiono go: pierwszy connect/reconnect jest
 aktywny, gdy klient nie jest busy i nie zmienia aktywnej połączonej generacji.
 Test UI sprawdza teraz assertIsEnabled przed kliknięciem. Nie osłabiono auth,
 Keystore ani polityki LAN/HTTPS. Publikację zatrzymano; wymagany nowy poprawny CI.
+
+### Synchronizacja testu automatycznego przewijania
+
+Push run `40865054040` dla `909bcf0`: oba emulatory 30/36 PASS. PR run
+`40865061582`: API 36 PASS, API 30 FAIL na natychmiastowym assertIsDisplayed
+po statusie Completed. Treść była już w drzewie; animacja przewijania nie zakończyła
+się w tej samej klatce. Test oczekuje teraz (maks. 10 s) rzeczywistej widoczności
+odpowiedzi, zachowując końcową asercję i sprawdzanie automatycznego przewijania.
+Nie dodano sleep, nie usunięto asercji i nie zmieniono aplikacji. Wymagany nowy CI.

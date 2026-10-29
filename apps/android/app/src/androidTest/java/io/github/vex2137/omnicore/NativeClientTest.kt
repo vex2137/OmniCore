@@ -181,6 +181,8 @@ class NativeClientTest {
             compose.waitUntil(15000) {
                 compose.onAllNodesWithText("Completed").fetchSemanticsNodes().isNotEmpty()
             }
+            // Completion can arrive before the LazyColumn finishes its automatic scroll.
+            compose.waitUntil(10000) { compose.onNodeWithText("Hello from backend").isDisplayed() }
             compose.onNodeWithText("Hello from backend").assertIsDisplayed()
             compose.onNodeWithTag("composer").performTextInput("More")
             compose.onNodeWithTag("send").performClick()
