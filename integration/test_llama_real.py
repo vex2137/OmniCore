@@ -33,6 +33,9 @@ def test_gguf_without_ollama(tmp_path, device):
             data_dir=tmp_path / "data",
             model_roots=(path.parent,),
             llama_server=Path(executable),
+            llama_cuda_server=Path(os.environ["OMNICORE_TEST_LLAMA_CUDA_SERVER"])
+            if os.environ.get("OMNICORE_TEST_LLAMA_CUDA_SERVER")
+            else None,
             ollama_enabled=False,
             llama_chat_template=os.environ.get("OMNICORE_TEST_CHAT_TEMPLATE"),
             generation_timeout=120,

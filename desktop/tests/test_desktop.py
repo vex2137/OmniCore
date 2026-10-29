@@ -101,7 +101,7 @@ def test_native_import_and_model_selection_no_ollama(desktop, qtbot, monkeypatch
 def test_settings_locale_theme_persist_and_restart(desktop, qtbot):
     w = desktop
     w.language.setCurrentIndex(w.language.findData("en-US"))
-    assert w.new_button.text() == "＋ New conversation"
+    assert w.new_button.text() == "+ New conversation"
     w.theme.setCurrentIndex(w.theme.findData("dark"))
     dark_styles = w.styleSheet()
     assert "#10151f" in dark_styles

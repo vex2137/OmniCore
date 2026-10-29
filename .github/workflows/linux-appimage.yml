@@ -2,7 +2,7 @@ name: Linux desktop and AppImage
 
 on:
   push:
-    branches: [main, feature/alpha-3-stability, feature/0.1.0-alpha]
+    branches: [main, feature/0.1.0-alpha]
     paths:
       - 'backend/**'
       - 'desktop/**'
@@ -38,6 +38,8 @@ jobs:
       LLAMA_COMMIT: c3df4b7e22a1ac38da663552d19e649dd97ca936
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

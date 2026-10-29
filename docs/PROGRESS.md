@@ -716,3 +716,31 @@ Alpha.3. Smoke pakietu porównuje digest pełnej historii po restarcie oraz wers
 Workflowy budowania obejmują gałąź Alpha.3, osobny upload do draft wymaga sukcesu
 obu runów i identycznego SHA w manifestach. Gotowe paczki i ich uruchomienie
 wymagają dalszego potwierdzenia; zmiana skryptu nie oznacza udanego builda.
+
+### Alpha.3 — potwierdzony checkpoint paczek i klientów
+
+Checkpoint gałęzi `f5f2b3779f19e5ded945a837f862ede91ccf2569`:
+CI backend `40915267745` PASS; Linux `40915268031` PASS, w tym 149 testów i faktyczny
+AppImage dwukrotnie; Android `40915267851` PASS (44 JVM, lint/build, po 2 testy UI
+na API 30 i 36, 0 fail/error/skip według XML). Dwa nadmiarowe runy push anulowano
+po uruchomieniu identycznej walidacji PR; nie były błędami produktu.
+
+Lokalny rzeczywisty AppImage: GUI/backend/llama.cpp CPU, streaming GGUF, zamknięcie,
+restart, język/motyw i identyczny digest pełnej historii PASS. W kontenerze Arch
+20261025 (glibc 2.44, Weston 15.0.1, Xvfb 21.1.25, font DejaVu) wykonano osobno
+rzeczywistą generację GGUF i restart na natywnym Wayland/pixman oraz X11/xcb;
+oba raporty ok=true, digest historii/katalog zachowane. Nie jest to test fizycznego
+CachyOS. Minimalny obraz Arch wymagał instalacji fontów; fontconfig wypisuje
+ostrzeżenia o nowszej konfiguracji hosta, ale tekst po instalacji fontu jest czytelny.
+Zrzut Linux pochodzi z tego Wayland/GGUF, Android z natywnego emulatora API 36
+z kontrolowanym backendem HTTP/SSE. Fizycznego telefonu ani GPU nie ma.
+
+Rzeczywisty Kotlin HTTP/SSE + FastAPI + SmolLM2 GGUF CPU: 1 PASS (load, streaming,
+detach bez cancel, jawne cancel, reconnect/historia, unload). To nie test urządzenia.
+Kod aplikacji Android nie został ponownie napisany. Pakiety nie zawierają wag.
+
+Uwaga techniczna checkpointu: checkout PR domyślnie budował tymczasowy merge
+`f288d7b8754dc0c2dab52c156bb8fe29b14e13df`, mimo run.head_sha wskazującego f5f2b37.
+Checkout pakujących workflowów przypięto teraz jawnie do PR head.sha, aby nowa para
+manifestów miała dokładnie SHA wymagane przez upload do draft. Nowe runy są konieczne
+przed dołączeniem paczek. Wydanie Alpha.3 nie zostało publicznie opublikowane.

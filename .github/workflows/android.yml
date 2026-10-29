@@ -2,7 +2,7 @@ name: Native Android APK
 
 on:
   push:
-    branches: [main, feature/alpha-3-stability, feature/0.1.0-alpha, feature/android-part-2]
+    branches: [main, feature/0.1.0-alpha, feature/android-part-2]
     paths: ['backend/src/omnicore/distribution.json', 'apps/android/**', '.github/workflows/android.yml', 'scripts/package_android.py', 'scripts/test_android_emulator.sh']
   pull_request:
     paths: ['backend/src/omnicore/distribution.json', 'apps/android/**', '.github/workflows/android.yml', 'scripts/package_android.py', 'scripts/test_android_emulator.sh']
@@ -25,6 +25,8 @@ jobs:
         api: [30, 36]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
