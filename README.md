@@ -9,9 +9,14 @@ przesunięte przed Image AI. GGUF działa przez llama.cpp **bez Ollamy**; rzeczy
 przepływ import/load/generowanie/anulowanie/historia przeszedł test na CPU ze
 SmolLM2-135M-Instruct Q4_K_M. Nie oznacza to zgodności wszystkich modeli lub GPU.
 
-[**Pobierz 0.1.0 RC.1**](https://github.com/vex2137/OmniCore/releases/tag/v0.1.0-rc.1)
+[**Archiwalne publiczne RC.1**](https://github.com/vex2137/OmniCore/releases/tag/v0.1.0-rc.1)
 ([AppImage](https://github.com/vex2137/OmniCore/releases/download/v0.1.0-rc.1/OmniCore-0.1.0-rc.1-x86_64.AppImage),
 [APK ARM64](https://github.com/vex2137/OmniCore/releases/download/v0.1.0-rc.1/OmniCore-0.1.0-rc.1-android-arm64.apk), sumy i test sprzętowy w załącznikach).
+
+Nowy kandydat **RC.2**: [AppImage — artefakt CI](https://github.com/vex2137/OmniCore/actions/runs/40960267646/artifacts/12936111082)
+· [APK ARM64 — artefakt CI](https://github.com/vex2137/OmniCore/actions/runs/40960267733/artifacts/12936046127)
+(logowanie GitHub; ZIP zawiera paczkę, sumę i manifest). Właściciel ma też prywatny
+szkic z trwałymi załącznikami; [wyniki, sumy i bramki](docs/RELEASE_GATE.md#rc2--dostarczony-kandydat-do-akceptacji).
 
 Gałąź rozwojowa **0.1.0-rc.2** przygotowuje pierwsze Stable (nowe paczki testowe w Actions; RC.1 powyżej pozostaje niezmienione): automatycznie wykrywa lokalne
 silniki CUDA (m.in. `~/llama.cpp/build/bin/llama-server`), rozróżnia CPU/Auto/CUDA,

@@ -97,7 +97,8 @@ deklarować zgodności modeli na podstawie zmiany języka.
 - [x] Android: język systemowy i trwały wybór, nawigacja, reconnect/statusy/retry/refresh.
 - [x] Opcjonalna binarka CUDA + niezależny CPU, jawny fallback w auto, build SM 89.
 - [x] Zweryfikować kompilację CUDA w CI.
-- [ ] Zweryfikować rzeczywistą inferencję RTX 4060.
+- [x] Właściciel zgłosił test obu GGUF CPU/Auto/CUDA na RTX4060 w PR #6;
+  osobna akceptacja nowej paczki pozostaje bramką Stable.
 - [x] Zbudować i uruchomić AppImage/APK Alpha.3 oraz CI/emulatory (szkic zachowany).
 - [ ] LFM3/Qwen3.5: zweryfikować dokładne pliki użytkownika i powtórzyć dłuższe prompty.
 - [ ] Fizyczne POCO/Xiaomi, CachyOS i NVIDIA: testy na właściwych urządzeniach.
@@ -368,3 +369,10 @@ CachyOS/RTX4060 i telefonu oraz docelowego podpisywania, zgodnie z RELEASE_GATE.
 - P4: istniejący znak, bez zmiany marki; Android adaptive icon i marginesy.
 - P5: artefakty na GitHubie, PR do zatwierdzenia; brak automatycznego merge
   ani finalnego tagu/release. Telefon, docelowy podpis i zgoda właściciela są bramkami.
+
+
+RC.2: poprawki P0/P4, CI i kanoniczne paczki kodu 064005b są zweryfikowane.
+Obie paczki i sumy dostarczono do Actions oraz niepublicznego szkicu; PR #8
+pozostaje do przeglądu. Wyniki i aktualne bramki: RELEASE_GATE.md.
+P1 pozostaje bez specyfikacji, P2 bez uzasadnienia Rust. Pozostają test telefonu,
+akceptacja nowej paczki na RTX4060/CachyOS, podpis produkcyjny i zgoda na Stable.

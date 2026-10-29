@@ -950,3 +950,46 @@ The earlier same-ID RC.2 checkpoint is superseded; no such APK was published.
 Final-source real integrations: Qt stream/cancel/close/restart plus isolated hardware
 acceptance CPU/Auto: 2 PASS; actual Kotlin HTTP/SSE + FastAPI + GGUF CPU: PASS.
 These use SmolLM2, not mocks or user LFM/Qwen weights. No physical phone/GPU claim.
+
+### RC.2 — finalny checkpoint P5 do kontynuacji bez audytu
+
+**Kod i kanoniczne paczki: 064005b980dbc1629d74291d475e4023f63e3de0**.
+Późniejszy commit tego raportu zmienia wyłącznie dokumentację; nie należy
+przypisywać istniejącym paczkom nowego SHA ani nadpisywać ich innymi bajtami.
+PR #8 https://github.com/vex2137/OmniCore/pull/8 pozostaje do przeglądu, bez merge.
+Main w ostatniej weryfikacji: f429a40bf45c84879f13204e5a4d7bb397db9509, zawiera #6/#7.
+
+CI źródeł: backend 40960267667 PASS (158), Linux 40960267646 PASS (181=158+23 Qt,
+kompilacja CPU/AppImage, dwa uruchomienia i trwałość), Android 40960267733 PASS
+(47 JVM/lint/build, po 2 natywne UI na API30/36; XML 0 skip/fail/error).
+Real GGUF CPU: backend CPU/Auto, Qt cancel/close/restart, izolowany acceptance,
+klient Kotlin z FastAPI PASS. Kanoniczny pobrany AppImage: real GGUF, restart,
+digest historii i guard bibliotek PASS. Zamrożony --hardware-test CPU/Auto PASS,
+hardware_ready=False (Cloud nie ma GPU). Arch/Weston Wayland i X11/Xvfb: faktyczna
+paczka, GGUF, restart i ustawienia PASS. Kopia bazy RC.1 zachowała wszystkie dwie
+stare wiadomości i dodała dwie nowe, bez modyfikowania oryginalnej testowej bazy.
+Fontconfig w Arch ostrzega o nowych regułach hosta; testy GUI zakończone sukcesem.
+To nie test natywnego CachyOS lub fizycznego urządzenia.
+
+Upload 40961298009 PASS. Szkic ID428427155 (draft=true, prerelease=true):
+https://github.com/vex2137/OmniCore/releases/tag/untagged-c26a14644299567d18a1
+11 załączników istnieje na GitHubie, state=uploaded, niezerowe rozmiary i zgodne
+server digests. Obie paczki ponownie pobrano ze szkicu i zweryfikowano SHA-256:
+
+- AppImage 98707960 B: caac9059da913eb5aaba96aa4e6765af7169971c75f569f52a1634185e078a3b
+- APK 18209073 B: 3506d5f5627f12a16f7825b2f4638095bc765d734cc9530a252055157a3a8bbc
+
+Artefakty Actions: Linux12936111082, Android12936046127. Szkic zachowuje też sumy,
+manifesty, oba skrypty i istniejący opcjonalny silnik CUDA12/SM89. Nie dodano wag.
+Faktycznie wyekstrahowane SVG i desktop entry AppImage są zgodne z repozytorium.
+
+Commity implementacji: 0a32f3d (log/lifecycle), 3b9230f (Android stream/timeout),
+0b5f4e1 (adaptive icon), e1cae00 (Qt SSE), 917230e (RC.2), 7ca2368/064005b
+(ochrona instalacji RC.1 i test wersji). Brak Rust — pozostaje zmierzony plan.
+Pasek/algorytm: brak specyfikacji, odroczone jawnie w ROADMAP.
+
+Następnie: właściciel testuje te paczki i skrypt na swoim CachyOS/RTX4060 oraz APK
+na fizycznym ARM64. Wynik PR #6 jest zachowany, ale nie zastępuje potwierdzenia
+nowych bajtów. Wymagane docelowe podpisywanie/ścieżka aktualizacji i osobna zgoda
+na finalne wydanie; patrz RELEASE_GATE. Nie ma finalnego tagu ani Stable v0.1.0.
+Nie restartować projektu, nie usuwać checkoutu ani danych Alpha/RC.
