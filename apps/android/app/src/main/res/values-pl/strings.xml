@@ -31,7 +31,7 @@
   <string name="send">Wyślij</string>
   <string name="stop">Zatrzymaj generowanie</string>
   <string name="you">Ty</string>
-  <string name="assistant">OmniCore</string>
+  <string name="assistant">Asystent</string>
   <string name="copy">Kopiuj odpowiedź</string>
   <string name="ready">Gotowy</string>
   <string name="running">Generowanie…</string>
@@ -136,4 +136,17 @@ Pobrać ten plik na komputer backendu?</string>
   <string name="retry_message">Wyślij ponownie</string>
   <string name="setup_title">Połącz z komputerem</string>
   <string name="setup_steps">1. Uruchom OmniCore na komputerze i świadomie włącz zdalny dostęp z tokenem.\n2. W ustawieniach podaj adres komputera i token API. Localhost telefonu oznacza telefon.\n3. Wybierz lub zaimportuj model na backendzie. AI działa na komputerze. Poza zaufanym LAN używaj HTTPS.</string>
+  <string name="reasoning">Pokaż rozumowanie (to nie końcowa odpowiedź)</string>
+  <string name="speed">Szybkość</string>
+  <string name="input_tokens">Tokeny wejściowe</string>
+  <string name="ttft">TTFT</string>
+  <string name="first_answer">Pierwsza odpowiedź</string>
+  <string name="generation_time">Czas</string>
+  <string name="model_load_time">Ładowanie modelu</string>
+  <string name="finish_reason">Zakończenie</string>
+  <string name="finish_length">limit tokenów</string>
+  <string name="thinking">Myślenie (tylko zgodne modele)</string>
+  <string name="error_empty_response">Silnik nie zwrócił końcowej odpowiedzi. Sprawdź szablon rozmowy i powód zakończenia.</string>
+  <string name="error_reasoning_limit">Limit tokenów zużyto na rozumowanie. Wyłącz myślenie, jeśli obsługiwane, lub świadomie zmień limit odpowiedzi.</string>
+  <string name="error_context_limit">Polecenie przekracza kontekst modelu. Skróć historię lub świadomie zmień kontekst w granicach dostępnej pamięci.</string>
 </resources>

@@ -23,6 +23,9 @@ data class Message(
     val id: String = "",
     val role: String,
     val content: String,
+    @SerialName("model_name") val modelName: String? = null,
+    @SerialName("reasoning_content") val reasoningContent: String = "",
+    val statistics: GenerationStatistics? = null,
     val status: String = "completed",
     @SerialName("generation_id") val generationId: String? = null,
 )
@@ -72,6 +75,21 @@ data class Parameters(
     val seed: Int = 0,
     @SerialName("gpu_layers") val gpuLayers: Int = 0,
     val device: String = "cpu",
+    val thinking: Boolean = false,
+)
+
+@Serializable
+data class GenerationStatistics(
+    @SerialName("input_tokens") val inputTokens: Int? = null,
+    @SerialName("output_tokens") val outputTokens: Int? = null,
+    @SerialName("ttft_seconds") val ttftSeconds: Double? = null,
+    @SerialName("first_answer_seconds") val firstAnswerSeconds: Double? = null,
+    @SerialName("generation_seconds") val generationSeconds: Double? = null,
+    @SerialName("model_load_seconds") val modelLoadSeconds: Double? = null,
+    @SerialName("context_used_tokens") val contextUsedTokens: Int? = null,
+    @SerialName("context_limit_tokens") val contextLimitTokens: Int? = null,
+    @SerialName("finish_reason") val finishReason: String? = null,
+    @SerialName("tokens_per_second") val tokensPerSecond: Double? = null,
 )
 
 @Serializable
@@ -83,7 +101,32 @@ data class Generation(
     val sequence: Long = 0,
     @SerialName("error_code") val errorCode: String? = null,
     @SerialName("tokens_per_second") val tokensPerSecond: Double? = null,
+    @SerialName("model_name") val modelName: String? = null,
+    @SerialName("reasoning_content") val reasoningContent: String = "",
+    @SerialName("input_tokens") val inputTokens: Int? = null,
+    @SerialName("output_tokens") val outputTokens: Int? = null,
+    @SerialName("ttft_seconds") val ttftSeconds: Double? = null,
+    @SerialName("first_answer_seconds") val firstAnswerSeconds: Double? = null,
+    @SerialName("generation_seconds") val generationSeconds: Double? = null,
+    @SerialName("model_load_seconds") val modelLoadSeconds: Double? = null,
+    @SerialName("context_used_tokens") val contextUsedTokens: Int? = null,
+    @SerialName("context_limit_tokens") val contextLimitTokens: Int? = null,
+    @SerialName("finish_reason") val finishReason: String? = null,
 ) {
+    fun statistics() =
+        GenerationStatistics(
+            inputTokens,
+            outputTokens,
+            ttftSeconds,
+            firstAnswerSeconds,
+            generationSeconds,
+            modelLoadSeconds,
+            contextUsedTokens,
+            contextLimitTokens,
+            finishReason,
+            tokensPerSecond,
+        )
+
     val terminal: Boolean
         get() = state in setOf("completed", "cancelled", "failed", "interrupted")
 }

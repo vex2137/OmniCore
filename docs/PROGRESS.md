@@ -677,3 +677,17 @@ wiadomości, zachowanym przy zmianie nazwy/modelu, restarcie i eksporcie/importc
 TTFT mierzony od rozpoczęcia wykonania (bez kolejki, z ładowaniem), osobno czas
 ładowania i pierwszego tekstu odpowiedzi. Liczby tokenów i tok./s pochodzą z silnika;
 brak danych pozostaje null, wykorzystanie kontekstu = raportowane wejście+wyjście.
+
+### Alpha.3 — widok rozmowy Linux i metadane klientów
+
+18 desktop PASS: natywne dymki z nazwą modelu zapisaną w wiadomości, bezpieczny
+Markdown (bez HTML i dostępu do zasobów lokalnych/zdalnych), osobne bloki kodu
+z kopiowaniem, kopiowanie wiadomości, lokalizowane statystyki i zwijane rozumowanie.
+Wyszukiwanie historii przeszukuje wiadomości przez istniejące API; nie gubi
+bieżącej rozmowy przy filtrowaniu. Starsze wiadomości mają neutralną etykietę
+Asystent/Assistant, bez przypisywania aktualnego modelu. Ctrl+F, Ctrl+Enter i Escape
+obsługują wyszukiwanie, wysyłanie i stop. Zachowano obsługę schowka i skalowanie.
+Android: 44 JVM PASS, lintDebug i assembleDebugAndroidTest PASS; dodano odczyt
+snapshotu modelu/statystyk, ich wyświetlanie oraz jawne sterowanie thinking.
+Nowe pola mają bezpieczne wartości domyślne dla starszego API/historii.
+Testy protokołu i UI nie zastępują testu fizycznego telefonu.

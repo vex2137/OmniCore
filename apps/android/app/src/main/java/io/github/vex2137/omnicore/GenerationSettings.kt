@@ -19,6 +19,7 @@ fun GenerationSettings(s: UiState, vm: OmniViewModel) {
         rememberSaveable(s.parameters) { mutableStateOf(s.parameters.maxTokens.toString()) }
     var context by
         rememberSaveable(s.parameters) { mutableStateOf(s.parameters.context.toString()) }
+    var thinking by rememberSaveable(s.parameters) { mutableStateOf(s.parameters.thinking) }
     var prompt by rememberSaveable(s.parameters) { mutableStateOf(s.parameters.systemPrompt) }
     val parameters =
         s.parameters.copy(
@@ -27,6 +28,7 @@ fun GenerationSettings(s: UiState, vm: OmniViewModel) {
             maxTokens = tokens.toIntOrNull() ?: 0,
             context = context.toIntOrNull() ?: 0,
             systemPrompt = prompt,
+            thinking = thinking,
         )
     Text(stringResource(R.string.generation), style = MaterialTheme.typography.titleMedium)
     Text(
@@ -60,6 +62,10 @@ fun GenerationSettings(s: UiState, vm: OmniViewModel) {
         minLines = 2,
         maxLines = 5,
     )
+    androidx.compose.foundation.layout.Row {
+        Switch(checked = thinking, onCheckedChange = { thinking = it })
+        Text(stringResource(R.string.thinking))
+    }
     if (!parameters.valid())
         Text(stringResource(R.string.error_parameters), color = MaterialTheme.colorScheme.error)
     Button(

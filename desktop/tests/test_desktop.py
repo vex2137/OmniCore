@@ -363,3 +363,76 @@ def test_remote_conversation_deletion_clears_shared_cached_history(desktop, qtbo
     w.refresh_shared_history()
     qtbot.waitUntil(lambda: w.current_id is None)
     assert "shared history" not in w.transcript.toPlainText()
+
+
+def test_native_markdown_code_model_identity_statistics_and_safe_resources(qtbot):
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QTextDocument
+    from PySide6.QtWidgets import QLabel, QPlainTextEdit, QPushButton
+
+    from omnicore.desktop.i18n import Translator
+    from omnicore.desktop.transcript import ChatTranscript, SafeMarkdown
+
+    transcript = ChatTranscript()
+    qtbot.addWidget(transcript)
+    transcript.resize(650, 700)
+    transcript.show()
+    source = '# Heading\n\n**Strong**\n\n```python\nprint("hello")\n```\n\n<script>bad()</script>'
+    messages = [
+        {
+            "role": "assistant",
+            "content": source,
+            "model_name": "Original Qwen",
+            "statistics": {
+                "output_tokens": 2,
+                "ttft_seconds": 0.1,
+                "context_used_tokens": 12,
+                "context_limit_tokens": 128,
+                "finish_reason": "length",
+            },
+        }
+    ]
+    transcript.set_messages(messages, Translator("en-US"))
+    qtbot.wait(30)
+    card = transcript.cards[0]
+    assert any(label.text() == "Original Qwen" for label in card.findChildren(QLabel))
+    browsers = card.findChildren(SafeMarkdown)
+    assert any(
+        "Strong" in b.toPlainText() and "**Strong**" not in b.toPlainText() for b in browsers
+    )
+    assert any(
+        "Output tokens: 2" in label.text() and "token limit" in label.text()
+        for label in card.findChildren(QLabel)
+    )
+    assert card.findChild(QPlainTextEdit).toPlainText() == 'print("hello")'
+    copy = next(button for button in card.findChildren(QPushButton) if button.text() == "Copy code")
+    qtbot.mouseClick(copy, Qt.LeftButton)
+    assert QApplication.clipboard().text() == 'print("hello")'
+    for url in ["file:///etc/passwd", "https://example.com/image.png", "data:image/png;base64,AA"]:
+        assert browsers[0].loadResource(QTextDocument.ImageResource, QUrl(url)) is None
+    transcript.set_messages(messages, Translator("pl-PL"))
+    assert any(
+        label.text() == "Original Qwen" for label in transcript.cards[0].findChildren(QLabel)
+    )
+    transcript.set_messages([{"role": "assistant", "content": "Old history"}], Translator("en-US"))
+    assert any(label.text() == "Assistant" for label in transcript.cards[0].findChildren(QLabel))
+
+
+def test_history_search_uses_backend_message_content_without_losing_selection(desktop, qtbot):
+    w = desktop
+    first = request(w, "POST", "/api/v1/text/conversations", {"title": "First"})
+    second = request(w, "POST", "/api/v1/text/conversations", {"title": "Second"})
+    request(
+        w,
+        "POST",
+        f"/api/v1/text/conversations/{first['id']}/messages",
+        {"role": "user", "content": "Unique searchable phrase"},
+    )
+    w.refresh_conversations(select=second["id"])
+    qtbot.waitUntil(lambda: w.current_id == second["id"])
+    w.history_search.setText("searchable")
+    qtbot.waitUntil(lambda: w.conversation_list.count() == 1)
+    assert w.conversation_list.item(0).data(Qt.UserRole) == first["id"]
+    assert w.current_id == second["id"]
+    w.history_search.clear()
+    qtbot.waitUntil(lambda: w.conversation_list.count() == 2)

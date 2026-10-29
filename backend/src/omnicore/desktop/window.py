@@ -1,6 +1,5 @@
 """Native widgets for the existing API. Network and inference never block Qt."""
 
-import html
 import os
 import uuid
 from datetime import datetime
@@ -38,7 +37,6 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
-    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -46,6 +44,7 @@ from PySide6.QtWidgets import (
 from omnicore.desktop.config import data_path
 from omnicore.desktop.i18n import Translator
 from omnicore.desktop.report import diagnostic_report, save_report
+from omnicore.desktop.transcript import ChatTranscript
 from omnicore.release import distribution_version
 
 TEXT = "/api/v1/text"
@@ -105,6 +104,7 @@ class MainWindow(QMainWindow):
         )
         for key, handler in (
             ("Ctrl+N", self.new_conversation),
+            ("Ctrl+F", lambda: self.history_search.setFocus()),
             ("Ctrl+Return", self.send_message),
             ("Escape", self.stop_generation),
             ("Ctrl+,", lambda: self.navigate(2)),
@@ -224,6 +224,14 @@ class MainWindow(QMainWindow):
         self.new_button = self.button("new_chat", self.new_conversation, primary=True)
         left.addWidget(self.new_button)
         left.addWidget(self.button("refresh", self.refresh_shared_history))
+        self.history_search = QLineEdit()
+        self.history_search.setMaxLength(256)
+        self.search_timer = QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(250)
+        self.search_timer.timeout.connect(self.refresh_conversations)
+        self.history_search.textChanged.connect(lambda _: self.search_timer.start())
+        left.addWidget(self.history_search)
         self.conversation_list = QListWidget()
         self.conversation_list.setObjectName("conversations")
         self.conversation_list.currentItemChanged.connect(self.select_conversation)
@@ -243,15 +251,13 @@ class MainWindow(QMainWindow):
         self.model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.model_combo.currentIndexChanged.connect(self.model_selected)
         chat.addLayout(self.row(self.model_combo, self.button("refresh", self.refresh_models)))
-        self.transcript = QTextBrowser()
-        self.transcript.setObjectName("transcript")
-        self.transcript.setOpenExternalLinks(False)
+        self.transcript = ChatTranscript()
         chat.addWidget(self.transcript, 1)
         self.generation_status = self.label("ready")
         chat.addWidget(self.generation_status)
         self.composer = QPlainTextEdit()
         self.composer.setObjectName("composer")
-        self.composer.setMaximumHeight(128)
+        self.composer.setMaximumHeight(180)
         self.composer.setMinimumHeight(94)
         chat.addWidget(self.composer)
         self.send_button = self.button("send", self.send_message, primary=True)
@@ -404,6 +410,10 @@ class MainWindow(QMainWindow):
             self.parameter_inputs[key] = box
         self.device = QLineEdit(self.config.parameters.get("device", "cpu"))
         form.addRow(self.label("device"), self.device)
+        self.thinking = QCheckBox(self.tr("thinking"))
+        self.thinking.setChecked(self.config.parameters.get("thinking", False))
+        self._texts.append((self.thinking, "thinking"))
+        form.addRow(self.thinking)
         self.system_prompt = QPlainTextEdit(self.config.parameters.get("system_prompt", ""))
         self.system_prompt.setMaximumHeight(100)
         form.addRow(self.label("system_prompt"), self.system_prompt)
@@ -455,6 +465,7 @@ class MainWindow(QMainWindow):
             self.tr(("chat", "models", "settings", "diagnostics")[self.pages.currentIndex()])
         )
         self.composer.setPlaceholderText(self.tr("composer"))
+        self.history_search.setPlaceholderText(self.tr("search_history"))
         self.hf_query.setPlaceholderText(self.tr("hf_query"))
         self.model_tabs.setTabText(0, self.tr("installed"))
         self.model_tabs.setTabText(1, self.tr("download"))
@@ -556,8 +567,14 @@ class MainWindow(QMainWindow):
             QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QPushButton:focus {{
                 border: 1px solid {accent};
                 }}
-            QTextBrowser#transcript {{ padding: 22px;
-                }}
+            QFrame#assistantBubble {{ background: {panel}; border: 1px solid {border};
+                border-radius: 14px; }}
+            QFrame#userBubble {{ background: {field}; border: 1px solid {border};
+                border-radius: 14px; }}
+            QTextBrowser#messageText {{ background: transparent; border: none; padding: 0; }}
+            QLabel#messageAuthor {{ color: {accent}; font-weight: 700; }}
+            QLabel#messageStats {{ color: {muted}; font-size: 11px; }}
+            QPlainTextEdit#codeBlock {{ font-family: monospace; background: {bg}; }}
             QListWidget::item {{ padding: 12px 8px;
                 border-radius: 6px;
                 }}
@@ -670,14 +687,19 @@ class MainWindow(QMainWindow):
         self.notify(text)
 
     def refresh_conversations(self, select=None):
+        search = self.history_search.text().strip()
+
         def received(records):
+            if search != self.history_search.text().strip():
+                return
             self.conversations = records
             self._fill_conversations(
                 select or (records[0]["id"] if records and not self.current_id else None)
             )
             self._loaded("conversations")
 
-        self.api.request("GET", TEXT + "/conversations", success=received)
+        query = urlencode({"query": search})
+        self.api.request("GET", TEXT + "/conversations?" + query, success=received)
 
     def _fill_conversations(self, select=None):
         current = select or self.current_id
@@ -690,7 +712,11 @@ class MainWindow(QMainWindow):
             if record["id"] == current:
                 self.conversation_list.setCurrentItem(item)
         self.conversation_list.blockSignals(False)
-        if current and not any(record["id"] == current for record in self.conversations):
+        if (
+            current
+            and not self.history_search.text().strip()
+            and not any(record["id"] == current for record in self.conversations)
+        ):
             self.current_id = None
             self.messages = []
             self.last_job = None
@@ -916,33 +942,25 @@ class MainWindow(QMainWindow):
             )
 
     def render_messages(self):
-        blocks = []
-        for message in self.messages:
-            blocks.append(
-                (self.tr("you" if message["role"] == "user" else "assistant"), message["content"])
+        messages = [dict(message) for message in self.messages]
+        if self.last_job:
+            job = self.last_job
+            replacement = {
+                "role": "assistant",
+                "content": job.get("content", ""),
+                "model_name": job.get("model_name"),
+                "reasoning_content": job.get("reasoning_content", ""),
+                "statistics": job,
+                "generation_id": job["id"],
+            }
+            index = next(
+                (i for i, m in enumerate(messages) if m.get("generation_id") == job["id"]), None
             )
-        if (
-            self.last_job
-            and self.last_job.get("content")
-            and not any(m.get("generation_id") == self.last_job["id"] for m in self.messages)
-        ):
-            blocks.append((self.tr("assistant"), self.last_job["content"]))
-        if not blocks:
-            text = (
-                f'<p style="color:#8190a8;font-size:18px">{html.escape(self.tr("chat_hint"))}</p>'
-            )
-        else:
-            text = "".join(
-                '<div style="margin-bottom:28px"><p style="color:#8b80f9;font-size:11px;'
-                f'font-weight:700">{html.escape(role)}</p><p style="white-space:pre-wrap;'
-                f'line-height:150%;font-size:15px">{html.escape(content)}</p></div>'
-                for role, content in blocks
-            )
-        bar = self.transcript.verticalScrollBar()
-        at_bottom = bar.value() >= bar.maximum() - 30
-        self.transcript.setHtml(text)
-        if at_bottom:
-            bar.setValue(bar.maximum())
+            if index is not None:
+                messages[index] = replacement
+            elif job.get("content") or job.get("reasoning_content"):
+                messages.append(replacement)
+        self.transcript.set_messages(messages, self.tr)
 
     def copy_answer(self):
         content = self.last_job.get("content") if self.last_job else None
@@ -1282,7 +1300,9 @@ class MainWindow(QMainWindow):
         self.config.ollama_url, self.config.ollama_enabled = url, self.ollama_enabled.isChecked()
         self.config.parameters = {k: box.value() for k, box in self.parameter_inputs.items()}
         self.config.parameters.update(
-            system_prompt=self.system_prompt.toPlainText(), device=self.device.text().strip()
+            system_prompt=self.system_prompt.toPlainText(),
+            device=self.device.text().strip(),
+            thinking=self.thinking.isChecked(),
         )
         from omnicore.text.types import GenerationParameters
 

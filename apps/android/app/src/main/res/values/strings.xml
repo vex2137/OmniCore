@@ -31,7 +31,7 @@
   <string name="send">Send</string>
   <string name="stop">Stop generation</string>
   <string name="you">You</string>
-  <string name="assistant">OmniCore</string>
+  <string name="assistant">Assistant</string>
   <string name="copy">Copy response</string>
   <string name="ready">Ready</string>
   <string name="running">Generating…</string>
@@ -136,4 +136,17 @@ Download this file onto the backend computer?</string>
   <string name="retry_message">Send again</string>
   <string name="setup_title">Connect to your computer</string>
   <string name="setup_steps">1. Start OmniCore on your computer and enable authenticated remote access.\n2. Enter the computer address and API token in Settings. Phone localhost refers to the phone.\n3. Choose or import a model on the backend. AI runs on the computer. Use HTTPS outside a trusted LAN.</string>
+  <string name="reasoning">Show reasoning (not the final answer)</string>
+  <string name="speed">Speed</string>
+  <string name="input_tokens">Input tokens</string>
+  <string name="ttft">TTFT</string>
+  <string name="first_answer">First answer</string>
+  <string name="generation_time">Elapsed</string>
+  <string name="model_load_time">Model load</string>
+  <string name="finish_reason">Finish</string>
+  <string name="finish_length">token limit</string>
+  <string name="thinking">Thinking (compatible models only)</string>
+  <string name="error_empty_response">The engine returned no final answer. Check the chat template and finish reason.</string>
+  <string name="error_reasoning_limit">The token budget was consumed by reasoning. Disable thinking if supported, or explicitly adjust the output limit.</string>
+  <string name="error_context_limit">The prompt exceeds the model context. Shorten the history or explicitly adjust the context within available memory.</string>
 </resources>

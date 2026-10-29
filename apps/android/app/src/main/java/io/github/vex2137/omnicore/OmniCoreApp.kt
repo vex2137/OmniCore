@@ -183,6 +183,9 @@ private fun ErrorBanner(code: String, dismiss: () -> Unit) {
             "invalid_parameters" -> R.string.error_parameters
             "model_required" -> R.string.error_model
             "conversation_required" -> R.string.error_conversation
+            "empty_response" -> R.string.error_empty_response
+            "reasoning_limit_reached" -> R.string.error_reasoning_limit
+            "context_limit_exceeded" -> R.string.error_context_limit
             "out_of_memory" -> R.string.error_memory
             "engine_unavailable" -> R.string.error_engine
             "stream_disconnected" -> R.string.error_stream
@@ -378,8 +381,20 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 12.dp),
         ) {
-            items(messages) { MessageBubble(it.role, it.content) }
-            s.generation?.let { item { MessageBubble("assistant", it.content) } }
+            items(messages) {
+                MessageBubble(it.role, it.content, it.modelName, it.statistics, it.reasoningContent)
+            }
+            s.generation?.let { job ->
+                item {
+                    MessageBubble(
+                        "assistant",
+                        job.content,
+                        job.modelName,
+                        job.statistics(),
+                        job.reasoningContent,
+                    )
+                }
+            }
             if (s.selectedConversation == null)
                 item { Text(stringResource(R.string.no_conversations), Modifier.padding(16.dp)) }
         }
@@ -460,7 +475,13 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
 }
 
 @Composable
-private fun MessageBubble(role: String, content: String) {
+private fun MessageBubble(
+    role: String,
+    content: String,
+    modelName: String? = null,
+    statistics: GenerationStatistics? = null,
+    reasoningContent: String = "",
+) {
     val clipboard = LocalClipboardManager.current
     Surface(
         shape = MaterialTheme.shapes.large,
@@ -472,7 +493,8 @@ private fun MessageBubble(role: String, content: String) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    stringResource(if (role == "user") R.string.you else R.string.assistant),
+                    if (role == "user") stringResource(R.string.you)
+                    else modelName ?: stringResource(R.string.assistant),
                     Modifier.weight(1f),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
@@ -489,7 +511,18 @@ private fun MessageBubble(role: String, content: String) {
                         )
                     }
             }
+            if (reasoningContent.isNotBlank()) {
+                var expanded by remember { mutableStateOf(false) }
+                TextButton(onClick = { expanded = !expanded }) {
+                    Text(stringResource(R.string.reasoning))
+                }
+                if (expanded)
+                    SelectionContainer {
+                        Text(reasoningContent, style = MaterialTheme.typography.bodySmall)
+                    }
+            }
             SelectionContainer { Text(content, style = MaterialTheme.typography.bodyLarge) }
+            statistics?.let { GenerationDetails(it) }
         }
     }
 }
