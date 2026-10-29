@@ -15,6 +15,7 @@ from omnicore.config import RuntimeConfig
 from omnicore.diagnostics import HardwareSnapshot, hardware_snapshot
 from omnicore.events import EventHub
 from omnicore.schemas import BackendInfo, WireModel
+from omnicore.text import nvidia
 from omnicore.text.conversations import (
     Conversation,
     ConversationExport,
@@ -82,7 +83,28 @@ class GenerationWatch(WireModel):
     cancel_on_disconnect: bool = True
 
 
+class EngineCandidate(WireModel):
+    path: str
+    available: bool
+    version: str | None = None
+    devices: list[str] = Field(default_factory=list)
+    error_code: str | None = None
+
+
+class NvidiaDevice(WireModel):
+    index: int
+    name: str
+    total_bytes: int
+    free_bytes: int
+    driver_version: str
+
+
 class EngineDiagnostic(WireModel):
+    candidates: list[EngineCandidate] = Field(default_factory=list)
+    nvidia_devices: list[NvidiaDevice] = Field(default_factory=list)
+    execution_device: str | None = None
+    gpu_offloaded_layers: int | None = None
+    fallback_reason: str | None = None
     info: BackendInfo
     executable: str | None = None
     gpu_devices: list[str] = Field(default_factory=list)
@@ -166,6 +188,19 @@ def routes(service: TextService):
                     if isinstance(engine, LlamaEngine) and engine.executable
                     else None,
                     gpu_devices=engine.devices if isinstance(engine, LlamaEngine) else [],
+                    candidates=engine.candidates if isinstance(engine, LlamaEngine) else [],
+                    nvidia_devices=await nvidia.devices()
+                    if isinstance(engine, LlamaEngine)
+                    else [],
+                    execution_device=engine.execution_device
+                    if isinstance(engine, LlamaEngine)
+                    else None,
+                    gpu_offloaded_layers=engine.offloaded_layers
+                    if isinstance(engine, LlamaEngine)
+                    else None,
+                    fallback_reason=engine.fallback_reason
+                    if isinstance(engine, LlamaEngine)
+                    else None,
                 )
             )
         return records

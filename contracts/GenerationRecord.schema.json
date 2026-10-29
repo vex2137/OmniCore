@@ -202,6 +202,19 @@
       "default": null,
       "title": "Generation Seconds"
     },
+    "gpu_offloaded_layers": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Gpu Offloaded Layers"
+    },
     "id": {
       "title": "Id",
       "type": "string"

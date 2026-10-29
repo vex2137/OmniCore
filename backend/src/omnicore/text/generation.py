@@ -272,6 +272,7 @@ class GenerationManager:
                             )
                         finally:
                             record.model_load_seconds = time.monotonic() - loading
+                        record.gpu_offloaded_layers = getattr(engine, "offloaded_layers", None)
                         record.execution_device = getattr(engine, "execution_device", None)
                         record.fallback_reason = getattr(engine, "fallback_reason", None)
                         await self._consume(engine, str(path), messages, record, started)

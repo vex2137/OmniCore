@@ -333,9 +333,64 @@
         "title": "DownloadRecord",
         "type": "object"
       },
+      "EngineCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "devices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "path",
+          "available"
+        ],
+        "title": "EngineCandidate",
+        "type": "object"
+      },
       "EngineDiagnostic": {
         "additionalProperties": false,
         "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/EngineCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
           "executable": {
             "anyOf": [
               {
@@ -347,6 +402,28 @@
             ],
             "title": "Executable"
           },
+          "execution_device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Device"
+          },
+          "fallback_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallback Reason"
+          },
           "gpu_devices": {
             "items": {
               "type": "string"
@@ -354,8 +431,26 @@
             "title": "Gpu Devices",
             "type": "array"
           },
+          "gpu_offloaded_layers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Offloaded Layers"
+          },
           "info": {
             "$ref": "#/components/schemas/BackendInfo"
+          },
+          "nvidia_devices": {
+            "items": {
+              "$ref": "#/components/schemas/NvidiaDevice"
+            },
+            "title": "Nvidia Devices",
+            "type": "array"
           }
         },
         "required": [
@@ -589,6 +684,18 @@
               }
             ],
             "title": "Generation Seconds"
+          },
+          "gpu_offloaded_layers": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Offloaded Layers"
           },
           "id": {
             "title": "Id",
@@ -847,6 +954,18 @@
               }
             ],
             "title": "Generation Seconds"
+          },
+          "gpu_offloaded_layers": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Offloaded Layers"
           },
           "input_tokens": {
             "anyOf": [
@@ -1330,6 +1449,40 @@
           "created_at"
         ],
         "title": "ModelRecord",
+        "type": "object"
+      },
+      "NvidiaDevice": {
+        "additionalProperties": false,
+        "properties": {
+          "driver_version": {
+            "title": "Driver Version",
+            "type": "string"
+          },
+          "free_bytes": {
+            "title": "Free Bytes",
+            "type": "integer"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "total_bytes": {
+            "title": "Total Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "index",
+          "name",
+          "total_bytes",
+          "free_bytes",
+          "driver_version"
+        ],
+        "title": "NvidiaDevice",
         "type": "object"
       },
       "Preferences": {

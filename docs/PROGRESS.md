@@ -744,3 +744,17 @@ Uwaga techniczna checkpointu: checkout PR domyślnie budował tymczasowy merge
 Checkout pakujących workflowów przypięto teraz jawnie do PR head.sha, aby nowa para
 manifestów miała dokładnie SHA wymagane przez upload do draft. Nowe runy są konieczne
 przed dołączeniem paczek. Wydanie Alpha.3 nie zostało publicznie opublikowane.
+
+### 0.1.0 RC — automatyczne CUDA (przed bramką sprzętową)
+
+Dokończona walidacja Alpha.3: CI 40916851255 Linux, 40916851419 Android/API30+36,
+40916851208 backend PASS; kompilacja opcjonalnego CUDA SM89 40914492143 PASS.
+Poprawka wykrywania: zamknięta lista skonfigurowanych, zarządzanych i typowych ścieżek
+(w tym ~/llama.cpp/build/bin), bez skanowania modeli/dysku. Guard przywraca oryginalny
+LD_LIBRARY_PATH przed exec z AppImage. CUDA wymaga dodatniego potwierdzonego offloadu
+warstw z silnika; samo wykrycie urządzenia nie ustawia aktywnego CUDA. Auto ma CPU
+fallback także przy błędzie GPU; wymuszone CUDA zwraca konkretny błąd. Dodano NVSMI
+VRAM urządzenia i własnego procesu oraz szczegóły kandydatów w diagnostyce API.
+30 testów modułu generacji/silników/wykrywania PASS; 5 testów nowego modułu ponownie
+PASS po walidacji wymuszonego CUDA z zerem warstw. Są to kontrolowane testy procesu,
+nie inferencja GPU. Rzeczywisty RTX4060 wymaga testu właściciela przed Stable.

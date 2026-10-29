@@ -245,7 +245,9 @@ HTTPServer(('127.0.0.1',a.port),Handler).serve_forever()
         assert (await engine.probe()).available
         assert engine.devices == []
         with pytest.raises(TextError, match="gpu_unavailable"):
-            await engine.load(tmp_path / "unused.gguf", GenerationParameters(gpu_layers=1))
+            await engine.load(
+                tmp_path / "unused.gguf", GenerationParameters(device="cuda", gpu_layers=1)
+            )
         await engine.load(tmp_path / "one.gguf", GenerationParameters())
         first = engine.process
         assert first.returncode is None
@@ -282,6 +284,7 @@ if '--list-devices' in sys.argv:
 p=argparse.ArgumentParser(); p.add_argument('--port', type=int)
 a,_=p.parse_known_args()
 Path(__file__+'.args').write_text(json.dumps(sys.argv))
+if 'CUDA0' in DEVICES: print('offloaded 20/30 layers to GPU', file=sys.stderr, flush=True)
 class Handler(BaseHTTPRequestHandler):
  def do_GET(self):
   self.send_response(200); self.end_headers(); self.wfile.write(b'{}')
