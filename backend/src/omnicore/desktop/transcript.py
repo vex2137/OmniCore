@@ -46,6 +46,10 @@ def statistics_text(stats, tr):
             tr("finish_" + reason) if reason in {"stop", "length", "cancelled", "error"} else reason
         )
         parts.append(f"{tr('finish_reason')}: {reason}")
+    if stats.get("execution_device"):
+        parts.append(f"{tr('device')}: {stats['execution_device']}")
+    if stats.get("fallback_reason"):
+        parts.append(tr("cpu_fallback"))
     return " · ".join(parts)
 
 

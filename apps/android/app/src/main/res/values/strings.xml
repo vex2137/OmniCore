@@ -149,4 +149,6 @@ Download this file onto the backend computer?</string>
   <string name="error_empty_response">The engine returned no final answer. Check the chat template and finish reason.</string>
   <string name="error_reasoning_limit">The token budget was consumed by reasoning. Disable thinking if supported, or explicitly adjust the output limit.</string>
   <string name="error_context_limit">The prompt exceeds the model context. Shorten the history or explicitly adjust the context within available memory.</string>
+  <string name="device">Device</string>
+  <string name="cpu_fallback">CPU fallback: GPU unavailable</string>
 </resources>

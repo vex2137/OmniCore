@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -289,11 +290,16 @@ class LlamaEngine:
         executable: Path | None = None,
         *,
         startup_timeout: float = 120,
+        cuda_executable: Path | None = None,
         chat_template: str | None = None,
         request_timeout: float = 300,
     ):
         found = str(executable) if executable else shutil.which("llama-server")
         self.executable = Path(found).absolute() if found else None
+        self.cuda_executable = cuda_executable.absolute() if cuda_executable else None
+        self._device_executables = {}
+        self.execution_device = None
+        self.fallback_reason = None
         self.startup_timeout = startup_timeout
         self.chat_template = chat_template
         self.request_timeout = request_timeout
@@ -308,7 +314,7 @@ class LlamaEngine:
         self._log = None
         self._verified_text_models: set[str] = set()
 
-    def _guarded_command(self, *arguments):
+    def _guarded_command(self, *arguments, executable=None):
         bootstrap = (
             [sys.executable, "--engine-guard"]
             if getattr(sys, "frozen", False)
@@ -317,20 +323,17 @@ class LlamaEngine:
         return [
             *bootstrap,
             str(os.getpid()),
-            str(self.executable),
+            str(executable or self.executable),
             *arguments,
         ]
 
-    async def _command(self, *arguments: str) -> str:
-        if (
-            not self.executable
-            or not self.executable.is_file()
-            or not os.access(self.executable, os.X_OK)
-        ):
+    async def _command(self, *arguments: str, executable=None) -> str:
+        executable = executable or self.executable
+        if not executable or not executable.is_file() or not os.access(executable, os.X_OK):
             raise TextError("engine_unavailable", 503)
         try:
             process = await asyncio.create_subprocess_exec(
-                *self._guarded_command(*arguments),
+                *self._guarded_command(*arguments, executable=executable),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 start_new_session=True,
@@ -348,23 +351,32 @@ class LlamaEngine:
             raise TextError("engine_unavailable", 503) from None
 
     async def probe(self) -> BackendInfo:
-        try:
-            self.version = (await self._command("--version")).strip()
-            output = await self._command("--list-devices")
-            self.devices = [
-                line.strip().split(": ")[0]
-                for line in output.splitlines()
-                if any(marker in line for marker in ["CUDA", "Vulkan", "SYCL", "ROCm", "Metal"])
-            ]
-            return BackendInfo(
-                id=self.id,
-                version=self.version,
-                available=True,
-                capabilities=[Capability.TEXT],
-                resources=await self.resources(),
-            )
-        except TextError:
-            return BackendInfo(id=self.id, available=False)
+        available = []
+        devices = {}
+        # CUDA and CPU remain independent binaries: missing CUDA runtime/driver must not
+        # prevent the mandatory CPU engine from starting. No shell or library-path mutation.
+        for executable in dict.fromkeys((self.cuda_executable, self.executable)):
+            if not executable:
+                continue
+            try:
+                version = (await self._command("--version", executable=executable)).strip()
+                output = await self._command("--list-devices", executable=executable)
+                available.append((executable, version))
+                for line in output.splitlines():
+                    match = re.match(r"^\s*((?:CUDA|Vulkan|SYCL|ROCm|Metal)\d+):(?:\s|$)", line)
+                    if match:
+                        devices.setdefault(match[1], executable)
+            except TextError:
+                continue
+        self._device_executables, self.devices = devices, list(devices)
+        self.version = available[0][1] if available else None
+        return BackendInfo(
+            id=self.id,
+            version=self.version,
+            available=bool(available),
+            capabilities=[Capability.TEXT] if available else [],
+            resources=await self.resources(),
+        )
 
     async def models(self) -> list[EngineModel]:
         return (
@@ -385,19 +397,27 @@ class LlamaEngine:
         self, path: Path, parameters: GenerationParameters, file_descriptor: int | None = None
     ) -> None:
         async with self._lock:
-            desired = (str(path), parameters.context_size, parameters.gpu_layers, parameters.device)
-            if self.parameters == desired and self.process and self.process.returncode is None:
-                return
             if not (await self.probe()).available:
                 raise TextError("engine_unavailable", 503)
-            if (
-                parameters.gpu_layers or parameters.device not in {"cpu", "auto"}
-            ) and not self.devices:
-                raise TextError("gpu_unavailable", 422)
-            if parameters.device not in {"cpu", "auto", *self.devices}:
-                raise TextError("gpu_unavailable", 422)
             if parameters.device == "cpu" and parameters.gpu_layers:
-                raise TextError("unsupported_parameter", 422)
+                raise TextError("unsupported_parameter" if self.devices else "gpu_unavailable", 422)
+            wants_gpu = parameters.gpu_layers > 0 and parameters.device != "cpu"
+            selected_device = parameters.device
+            if selected_device == "auto":
+                selected_device = self.devices[0] if wants_gpu and self.devices else "cpu"
+            if selected_device not in {"cpu", *self.devices}:
+                raise TextError("gpu_unavailable", 422)
+            if not parameters.gpu_layers:
+                selected_device = "cpu"
+            selected = self._device_executables.get(selected_device, self.executable)
+            if not selected:
+                raise TextError("engine_unavailable", 503)
+            fallback = "gpu_unavailable" if wants_gpu and selected_device == "cpu" else None
+            layers = parameters.gpu_layers if selected_device != "cpu" else 0
+            desired = (str(path), parameters.context_size, layers, selected_device, str(selected))
+            if self.parameters == desired and self.process and self.process.returncode is None:
+                self.execution_device, self.fallback_reason = selected_device, fallback
+                return
             await self.unload()
             with socket.socket() as sock:
                 sock.bind(("127.0.0.1", 0))
@@ -406,7 +426,7 @@ class LlamaEngine:
                 f"/proc/self/fd/{file_descriptor}" if file_descriptor is not None else str(path)
             )
             arguments = [
-                str(self.executable),
+                str(selected),
                 "--model",
                 model_path,
                 "--host",
@@ -416,21 +436,18 @@ class LlamaEngine:
                 "--ctx-size",
                 str(parameters.context_size),
                 "--gpu-layers",
-                str(parameters.gpu_layers),
+                str(layers),
                 "--parallel",
                 "1",
                 "--no-webui",
             ]
-            if parameters.device == "cpu":
-                arguments += ["--device", "none"]
-            elif parameters.device != "auto":
-                arguments += ["--device", parameters.device]
+            arguments += ["--device", "none" if selected_device == "cpu" else selected_device]
             if self.chat_template:
                 arguments += ["--chat-template", self.chat_template]
             try:
                 self._log = tempfile.TemporaryFile()
                 self.process = await asyncio.create_subprocess_exec(
-                    *self._guarded_command(*arguments[1:]),
+                    *self._guarded_command(*arguments[1:], executable=selected),
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=self._log,
                     start_new_session=True,
@@ -444,6 +461,8 @@ class LlamaEngine:
                             if response.status_code == 200:
                                 self.model = str(path)
                                 self.parameters = desired
+                                self.execution_device = selected_device
+                                self.fallback_reason = fallback
                                 return
                         except httpx.HTTPError:
                             pass

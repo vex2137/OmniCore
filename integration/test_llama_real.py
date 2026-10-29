@@ -6,13 +6,15 @@ import time
 from pathlib import Path
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from omnicore.app import create_app
 from omnicore.config import RuntimeConfig
 
 
-def test_gguf_without_ollama(tmp_path):
+@pytest.mark.parametrize("device", ["cpu", "auto"])
+def test_gguf_without_ollama(tmp_path, device):
     executable = os.environ.get("OMNICORE_TEST_LLAMA_SERVER") or shutil.which("llama-server")
     model = os.environ.get("OMNICORE_TEST_GGUF")
     assert executable and Path(executable).is_file(), "Set OMNICORE_TEST_LLAMA_SERVER"
@@ -40,7 +42,13 @@ def test_gguf_without_ollama(tmp_path):
         imported = client.post("/api/v1/text/models/import", json={"path": str(path)})
         assert imported.status_code == 201, imported.text
         model_id = imported.json()["id"]
-        parameters = {"max_tokens": 24, "temperature": 0, "context_size": 512, "gpu_layers": 0}
+        parameters = {
+            "max_tokens": 24,
+            "temperature": 0,
+            "context_size": 512,
+            "gpu_layers": 20 if device == "auto" else 0,
+            "device": device,
+        }
         loaded = client.post(f"/api/v1/text/models/{model_id}/load", json=parameters)
         assert loaded.status_code == 200, loaded.text
         process = app.state.text.llama.process
@@ -72,6 +80,10 @@ def test_gguf_without_ollama(tmp_path):
         assert record["context_used_tokens"] == record["input_tokens"] + record["output_tokens"]
         assert record["context_limit_tokens"] == 512
         assert record["finish_reason"] in {"stop", "length"}
+        assert record["execution_device"] == app.state.text.llama.execution_device
+        if device == "auto" and not app.state.text.llama.devices:
+            assert record["execution_device"] == "cpu"
+            assert record["fallback_reason"] == "gpu_unavailable"
         messages = client.get(f"/api/v1/text/conversations/{conversation['id']}/messages").json()
         assert messages[-1]["role"] == "assistant" and messages[-1]["content"] == record["content"]
         assert messages[-1]["model_name"] == record["model_name"]

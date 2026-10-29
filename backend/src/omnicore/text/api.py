@@ -108,6 +108,7 @@ class TextService:
         self.models = ModelManager(self.store, FilePolicy((*config.model_roots, directory)))
         self.llama = LlamaEngine(
             config.llama_server,
+            cuda_executable=config.llama_cuda_server,
             chat_template=config.llama_chat_template,
             request_timeout=config.generation_timeout,
         )

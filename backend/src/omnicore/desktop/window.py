@@ -371,6 +371,10 @@ class MainWindow(QMainWindow):
         )
         self.llama_path = QLineEdit(self.config.llama_server)
         form.addRow(self.label("llama_server"), self.llama_path)
+        self.llama_cuda_path = QLineEdit(self.config.llama_cuda_server)
+        form.addRow(self.label("llama_cuda_server"), self.llama_cuda_path)
+        form.addRow(self.button("choose_cuda", self.choose_llama_cuda))
+        form.addRow(self.label("cuda_hint"))
         form.addRow(self.button("browse", self.choose_llama))
         self.ollama_url = QLineEdit(self.config.ollama_url)
         form.addRow(self.label("ollama_url"), self.ollama_url)
@@ -1264,6 +1268,11 @@ class MainWindow(QMainWindow):
         if path:
             self.llama_path.setText(path)
 
+    def choose_llama_cuda(self):
+        path, _ = QFileDialog.getOpenFileName(self, self.tr("llama_cuda_server"))
+        if path:
+            self.llama_cuda_path.setText(path)
+
     def save_settings(self):
         if self.active_job:
             self.show_error("busy")
@@ -1286,10 +1295,15 @@ class MainWindow(QMainWindow):
         if path and (not Path(path).is_file() or not os.access(path, os.X_OK)):
             self.show_error("llama_unavailable")
             return
+        cuda_path = self.llama_cuda_path.text().strip()
+        if cuda_path and (not Path(cuda_path).is_file() or not os.access(cuda_path, os.X_OK)):
+            self.show_error("llama_unavailable")
+            return
         roots = [self.roots.item(i).text() for i in range(self.roots.count())]
         changed = (
             roots != self.config.model_roots
             or path != self.config.llama_server
+            or cuda_path != self.config.llama_cuda_server
             or url != self.config.ollama_url
             or self.ollama_enabled.isChecked() != self.config.ollama_enabled
         )
@@ -1297,6 +1311,7 @@ class MainWindow(QMainWindow):
             self.show_error("external_backend_settings")
             return
         self.config.model_roots, self.config.llama_server = roots, path
+        self.config.llama_cuda_server = cuda_path
         self.config.ollama_url, self.config.ollama_enabled = url, self.ollama_enabled.isChecked()
         self.config.parameters = {k: box.value() for k, box in self.parameter_inputs.items()}
         self.config.parameters.update(

@@ -258,3 +258,63 @@ HTTPServer(('127.0.0.1',a.port),Handler).serve_forever()
         assert engine.process is None and engine.client is None
 
     asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("missing_cuda", [False, True])
+def test_independent_cuda_selection_and_cpu_fallback(tmp_path, missing_cuda):
+    """Real subprocess selection/cleanup with controlled HTTP; NOT GPU inference."""
+    cpu, cuda = tmp_path / "cpu-server", tmp_path / "cuda-server"
+    for executable, devices in [
+        (cpu, "Available devices:"),
+        (cuda, "CUDA init log is not a device\n  CUDA0: controlled device"),
+    ]:
+        executable.write_text(
+            f"#!{sys.executable}\n"
+            + f"DEVICES={devices!r}\n"
+            + """
+import argparse, json, sys
+from pathlib import Path
+from http.server import BaseHTTPRequestHandler, HTTPServer
+if '--version' in sys.argv:
+ print('protocol-test-only'); sys.exit(0)
+if '--list-devices' in sys.argv:
+ print(DEVICES); sys.exit(0)
+p=argparse.ArgumentParser(); p.add_argument('--port', type=int)
+a,_=p.parse_known_args()
+Path(__file__+'.args').write_text(json.dumps(sys.argv))
+class Handler(BaseHTTPRequestHandler):
+ def do_GET(self):
+  self.send_response(200); self.end_headers(); self.wfile.write(b'{}')
+ def log_message(self,*args): pass
+HTTPServer(('127.0.0.1',a.port),Handler).serve_forever()
+"""
+        )
+        executable.chmod(0o700)
+    if missing_cuda:
+        cuda.unlink()
+
+    async def exercise():
+        engine = LlamaEngine(cpu, cuda_executable=cuda, startup_timeout=5)
+        assert (await engine.probe()).available
+        assert engine.devices == ([] if missing_cuda else ["CUDA0"])
+        await engine.load(
+            tmp_path / "model.gguf", GenerationParameters(device="auto", gpu_layers=20)
+        )
+        selected = cpu if missing_cuda else cuda
+        args = json.loads(Path(str(selected) + ".args").read_text())
+        assert args[args.index("--gpu-layers") + 1] == ("0" if missing_cuda else "20")
+        assert args[args.index("--device") + 1] == ("none" if missing_cuda else "CUDA0")
+        assert engine.execution_device == ("cpu" if missing_cuda else "CUDA0")
+        assert engine.fallback_reason == ("gpu_unavailable" if missing_cuda else None)
+        first = engine.process
+        await engine.load(tmp_path / "model.gguf", GenerationParameters())
+        assert first.returncode is not None or missing_cuda
+        assert engine.execution_device == "cpu" and engine.fallback_reason is None
+        await engine.stop()
+        if missing_cuda:
+            with pytest.raises(TextError, match="gpu_unavailable"):
+                await engine.load(
+                    tmp_path / "model.gguf", GenerationParameters(device="CUDA0", gpu_layers=20)
+                )
+
+    asyncio.run(exercise())

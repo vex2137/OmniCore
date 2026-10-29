@@ -691,3 +691,15 @@ Android: 44 JVM PASS, lintDebug i assembleDebugAndroidTest PASS; dodano odczyt
 snapshotu modelu/statystyk, ich wyświetlanie oraz jawne sterowanie thinking.
 Nowe pola mają bezpieczne wartości domyślne dla starszego API/historii.
 Testy protokołu i UI nie zastępują testu fizycznego telefonu.
+
+### Alpha.3 — wybór CUDA/CPU
+
+131 backend + 18 desktop = 149 PASS. Dwa przypadki subprocess sprawdzają oddzielną
+binarkę CUDA, prawidłowe --device/--gpu-layers, brak fałszywych urządzeń z logów,
+zmianę na CPU, cleanup i fallback przy niedostępnej binarce CUDA. To test sterowania,
+nie GPU. Rzeczywisty SmolLM2 GGUF/llama.cpp: 2 PASS (CPU i auto→CPU z raportowanym
+fallbackiem), bez Ollamy. Dodano osobną konfigurację CUDA w backendzie/Qt i pola
+execution_device/fallback_reason w metadanych klientów. CPU pozostaje niezależny.
+Skrypt przypina llama.cpp, wariant CUDA buduje SM 89 i ma osobny workflow; wynik
+kompilacji CI wymaga jeszcze sprawdzenia. Test sprzętowy wymaga offloadu i VRAM
+z nvidia-smi; niewykonany — Cloud nie ma GPU. Brak deklaracji zgodności RTX 4060.

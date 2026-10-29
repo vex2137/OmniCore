@@ -169,5 +169,9 @@
   "finish_cancelled": "cancelled",
   "finish_error": "error",
   "reasoning": "Show reasoning (not the final answer)",
-  "thinking": "Thinking (compatible model templates only)"
+  "thinking": "Thinking (compatible model templates only)",
+  "llama_cuda_server": "Optional CUDA llama-server executable",
+  "choose_cuda": "Choose CUDA engine",
+  "cuda_hint": "Keep the CPU engine configured. For GPU set device=auto and GPU layers > 0. Missing GPU/runtime falls back to CPU in auto mode; explicit CUDA0 requires a detected device. Out-of-memory remains an error. CUDA hardware validation is required.",
+  "cpu_fallback": "CPU fallback: GPU unavailable"
 }

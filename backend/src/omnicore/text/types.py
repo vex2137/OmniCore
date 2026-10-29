@@ -32,6 +32,8 @@ class TextMessage(WireModel):
 
 
 class GenerationStatistics(WireModel):
+    execution_device: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9_.:-]+$")
+    fallback_reason: str | None = Field(default=None, max_length=80, pattern=r"^[a-zA-Z0-9_.-]+$")
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
     tokens_per_second: float | None = Field(default=None, ge=0, allow_inf_nan=False)

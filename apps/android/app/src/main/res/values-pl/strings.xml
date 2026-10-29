@@ -149,4 +149,6 @@ Pobrać ten plik na komputer backendu?</string>
   <string name="error_empty_response">Silnik nie zwrócił końcowej odpowiedzi. Sprawdź szablon rozmowy i powód zakończenia.</string>
   <string name="error_reasoning_limit">Limit tokenów zużyto na rozumowanie. Wyłącz myślenie, jeśli obsługiwane, lub świadomie zmień limit odpowiedzi.</string>
   <string name="error_context_limit">Polecenie przekracza kontekst modelu. Skróć historię lub świadomie zmień kontekst w granicach dostępnej pamięci.</string>
+  <string name="device">Urządzenie</string>
+  <string name="cpu_fallback">Fallback CPU: GPU niedostępne</string>
 </resources>

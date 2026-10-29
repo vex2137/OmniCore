@@ -272,6 +272,8 @@ class GenerationManager:
                             )
                         finally:
                             record.model_load_seconds = time.monotonic() - loading
+                        record.execution_device = getattr(engine, "execution_device", None)
+                        record.fallback_reason = getattr(engine, "fallback_reason", None)
                         await self._consume(engine, str(path), messages, record, started)
                 else:
                     await self._consume(engine, model.location, messages, record, started)
@@ -286,7 +288,7 @@ class GenerationManager:
                     model.metadata["last_inference"] = {
                         "at": timestamp(),
                         "engine_version": engine_info.version,
-                        "device": record.parameters.device
+                        "device": record.execution_device
                         if model.backend == "llama.cpp"
                         else "engine-managed",
                     }

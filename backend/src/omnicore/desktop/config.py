@@ -31,6 +31,7 @@ class DesktopConfig:
     theme: str = "system"
     model_roots: list[str] = field(default_factory=list)
     llama_server: str = ""
+    llama_cuda_server: str = ""
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_enabled: bool = True
     parameters: dict = field(default_factory=dict)
@@ -40,7 +41,10 @@ class DesktopConfig:
     def load(cls, path: Path | None = None):
         path = path or config_path()
         if not path.exists():
-            return cls(llama_server=bundled_engine())
+            return cls(
+                llama_server=bundled_engine(),
+                llama_cuda_server=os.environ.get("OMNICORE_LLAMA_CUDA_SERVER", ""),
+            )
         payload = json.loads(path.read_text(encoding="utf-8"))
         obj = cls(**payload)
         if obj.locale not in {"pl-PL", "en-US"} or obj.theme not in {"system", "light", "dark"}:

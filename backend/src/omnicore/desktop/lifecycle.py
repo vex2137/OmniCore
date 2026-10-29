@@ -108,6 +108,10 @@ class BackendSession(QObject):
             values["OMNICORE_LLAMA_SERVER"] = self.config.llama_server
         else:
             environment.remove("OMNICORE_LLAMA_SERVER")
+        if self.config.llama_cuda_server:
+            values["OMNICORE_LLAMA_CUDA_SERVER"] = self.config.llama_cuda_server
+        else:
+            environment.remove("OMNICORE_LLAMA_CUDA_SERVER")
         for key, value in values.items():
             environment.insert(key, value)
         process = QProcess(self)

@@ -169,5 +169,9 @@
   "finish_cancelled": "anulowano",
   "finish_error": "błąd",
   "reasoning": "Pokaż rozumowanie (to nie jest końcowa odpowiedź)",
-  "thinking": "Myślenie (tylko zgodne szablony modeli)"
+  "thinking": "Myślenie (tylko zgodne szablony modeli)",
+  "llama_cuda_server": "Opcjonalna binarka CUDA llama-server",
+  "choose_cuda": "Wybierz silnik CUDA",
+  "cuda_hint": "Zachowaj konfigurację silnika CPU. Dla GPU ustaw device=auto i GPU layers > 0. Brak GPU/runtime oznacza fallback CPU w trybie auto; jawne CUDA0 wymaga wykrytego urządzenia. Brak pamięci pozostaje błędem. Wymagana weryfikacja na sprzęcie CUDA.",
+  "cpu_fallback": "Fallback CPU: GPU niedostępne"
 }

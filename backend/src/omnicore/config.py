@@ -27,6 +27,7 @@ class RuntimeConfig:
     allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "::1")
     max_body_bytes: int = 65_536
     llama_server: Path | None = None
+    llama_cuda_server: Path | None = None
     llama_chat_template: str | None = None
     model_roots: tuple[Path, ...] = ()
     ollama_url: str = "http://127.0.0.1:11434"
@@ -87,6 +88,9 @@ class RuntimeConfig:
             ),
             llama_server=Path(os.environ["OMNICORE_LLAMA_SERVER"])
             if os.environ.get("OMNICORE_LLAMA_SERVER")
+            else None,
+            llama_cuda_server=Path(os.environ["OMNICORE_LLAMA_CUDA_SERVER"])
+            if os.environ.get("OMNICORE_LLAMA_CUDA_SERVER")
             else None,
             llama_chat_template=os.environ.get("OMNICORE_LLAMA_CHAT_TEMPLATE"),
             model_roots=tuple(

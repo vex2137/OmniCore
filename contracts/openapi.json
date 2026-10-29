@@ -527,6 +527,32 @@
             ],
             "title": "Error Code"
           },
+          "execution_device": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Device"
+          },
+          "fallback_reason": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "pattern": "^[a-zA-Z0-9_.-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallback Reason"
+          },
           "finish_reason": {
             "anyOf": [
               {
@@ -758,6 +784,32 @@
               }
             ],
             "title": "Context Used Tokens"
+          },
+          "execution_device": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Device"
+          },
+          "fallback_reason": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "pattern": "^[a-zA-Z0-9_.-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallback Reason"
           },
           "finish_reason": {
             "anyOf": [
