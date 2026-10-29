@@ -1,6 +1,6 @@
 # OmniCore — ROADMAP
 
-Plan rozwoju lokalnej platformy AI. Wersja rozwojowa: **0.1.0 Alpha**.
+Plan rozwoju lokalnej platformy AI. Wersja rozwojowa: **0.1.0 RC → Stable**.
 Ostatnia aktualizacja: **2026-10-29**.
 
 ## Status i sposób realizacji
@@ -351,3 +351,20 @@ Nie publikować v0.1.0 przed [potwierdzeniem](RELEASE_GATE.md).
 RC.1 jest udostępniona jako publiczne prerelease z 11 załącznikami. Main zawiera
 implementację po PR #5, CI źródła i main PASS. Następny krok: potwierdzenie raportu
 CachyOS/RTX4060 i telefonu oraz docelowego podpisywania, zgodnie z RELEASE_GATE.md.
+
+
+## Bieżąca sesja Stable — ustalony zakres
+
+- P0: zachować scalone PR #6/#7, ograniczyć log silnika, poprawić odzyskiwanie
+  współdzielonego streamingu Androida i transport SSE Qt; testy i paczki RC.2.
+- P1: brak specyfikacji „wydzielenia paska” i „algorytmu” w dokumentacji,
+  pasującej historii commitów oraz zgłoszeniach repozytorium (brak issues).
+  Nie ustalono, który pasek, ani wejść/wyjść i reguł algorytmu. Pominięte;
+  wymagany jest konkretny widok/komponent oraz przykłady oczekiwanego zachowania.
+- P2: zachować decyzję z pomiarów `benchmarks/linux-cpu-baseline.json` i plan
+  `native/README.md`. Python/FastAPI/SQLite/orkiestracja, C++/CUDA w llama.cpp,
+  Kotlin/Compose/API w Androidzie; Rust dopiero po wykazaniu potrzeby i korzyści.
+  Błąd rosnącego logu usuwa ograniczony bufor i lifecycle asyncio bez nowego ABI.
+- P4: istniejący znak, bez zmiany marki; Android adaptive icon i marginesy.
+- P5: artefakty na GitHubie, PR do zatwierdzenia; brak automatycznego merge
+  ani finalnego tagu/release. Telefon, docelowy podpis i zgoda właściciela są bramkami.

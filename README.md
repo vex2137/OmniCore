@@ -13,13 +13,13 @@ SmolLM2-135M-Instruct Q4_K_M. Nie oznacza to zgodności wszystkich modeli lub GP
 ([AppImage](https://github.com/vex2137/OmniCore/releases/download/v0.1.0-rc.1/OmniCore-0.1.0-rc.1-x86_64.AppImage),
 [APK ARM64](https://github.com/vex2137/OmniCore/releases/download/v0.1.0-rc.1/OmniCore-0.1.0-rc.1-android-arm64.apk), sumy i test sprzętowy w załącznikach).
 
-Wersja **0.1.0-rc.1** przygotowuje pierwsze Stable: automatycznie wykrywa lokalne
+Gałąź rozwojowa **0.1.0-rc.2** przygotowuje pierwsze Stable (nowe paczki testowe w Actions; RC.1 powyżej pozostaje niezmienione): automatycznie wykrywa lokalne
 silniki CUDA (m.in. `~/llama.cpp/build/bin/llama-server`), rozróżnia CPU/Auto/CUDA,
 potwierdza offload i zachowuje CPU fallback. AppImage zawiera niezależny silnik CPU;
 CUDA jest opcjonalną integracją, nie domniemaną właściwością dołączonej binarki.
 Reasoning i odpowiedź są oddzielone, także przy znacznikach `<think>` i SSE.
 
-**Stable v0.1.0 nie jest jeszcze zatwierdzone sprzętowo.** [Bramka i krótki test
+**Stable v0.1.0 nie jest zatwierdzone do publikacji.** PR #6 zawiera zgłoszone przez właściciela udane testy LFM3/Qwen3.5 CPU/Auto/CUDA na RTX4060; nie zastępuje to akceptacji nowej paczki, telefonu i podpisu APK. [Bramka i krótki test
 CachyOS/RTX4060](docs/RELEASE_GATE.md) oraz [konfiguracja CUDA](docs/CUDA.md).
 RC APK ma podpis testowy i osobny identyfikator, więc nie wymaga usuwania Alpha.
 Historia backendu pozostaje wspólna. [Zmiany](CHANGELOG.md).

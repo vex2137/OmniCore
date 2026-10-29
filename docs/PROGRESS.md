@@ -916,3 +916,22 @@ signal, and maps HTTP401/403 on streaming connections to unauthorized without
 exposing server bodies. Four actual Qt HTTP transport tests PASS (LF/CRLF,
 multiline snapshots, malformed object and authentication). The earlier complete
 backend/Qt run passed 178 tests before these three new parametrized cases.
+
+### Stable hardening — P1/P2 and RC.2 build checkpoint
+
+No actionable specification for the requested bar/algorithm was found in relevant
+docs, matching commit history or repository issues (none). These items are explicitly
+deferred in ROADMAP, without inventing behavior. Existing measured Python/Rust
+admission plan remains applicable; no new workload/profile proves an FFI/worker
+benefit. No Rust crate, JNI requirement or inference rewrite was added.
+
+RC.2 metadata: Python 0.1.0rc2, distribution 0.1.0-rc.2, Android versionCode5,
+existing .rc applicationId. Contract snapshot regenerated; 3 contract tests PASS.
+Full local tests before final transport cases: 158 backend + 20 Qt PASS, followed
+by 4 targeted Qt transport PASS (three new parametrized cases). Android full JVM
+47 PASS, lint/build PASS; ruff check/format and git diff --check PASS.
+CI, final packaged tests and artifact delivery are the next checkpoint.
+Production signing remains unresolved: the current integration cannot list Actions
+secrets (403); no secret values were read, no random production key was created.
+No device or GPU test was performed in Cloud. PR #6 owner results are recorded
+separately in RELEASE_GATE; Stable still requires explicit approval and phone/signing gates.
