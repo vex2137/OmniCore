@@ -259,3 +259,31 @@ ruch GitHub/PR, CI, integracja main dopiero po weryfikacji oraz szkic wydania.
 - Właściciel rozszerzył zakres o natywnego Androida Kotlin/Compose jako klienta
   istniejącego API. Bez WebView i bez inferencji na telefonie. Image AI/Web nadal
   nie są realizowane; Rust nadal wyłącznie po uzasadnionych pomiarach.
+
+## Android — moduł 1: natywny klient i lokalny APK
+
+Zaimplementowano Kotlin/Compose/Material 3: Home, czat/historię, nowe rozmowy,
+rename/delete, wybór modelu, streaming SSE/cancel, katalog/import ścieżki backendu,
+load/unload, informacje o silnikach, ustawienia połączenia, PL/EN i system/light/dark.
+Klient nie zawiera WebView, inferencji, wag ani modułu Rust.
+
+Token jest szyfrowany AES-GCM przez Android Keystore, backup wyłączony; UI nie
+zapisuje tokenu w stanie Activity i nie ma loggera requestów. HTTP wymaga zgody
+na zaufany LAN i prywatnego IPv4; publiczne hosty wymagają HTTPS. Redirecty są
+wyłączone, token nie jest automatycznie ponownie używany dla innego origin.
+
+Lokalnie wykonano **14 testów JVM PASS**, Android lint **PASS**, assembleDebug
+oraz assembleDebugAndroidTest **PASS**. Powstał rzeczywisty podpisany testowo APK
+ARM64, sprawdzony przez apksigner/aapt (ID, wersja, API 26+, ABI arm64-v8a).
+Pierwsza suma lokalnego APK: `7a810fb4115087557c13f65c8bc63f007f32701b81f6ccf4e64cf947e3c24c0d`.
+To nie jest jeszcze końcowa paczka CI — debug signing i środowisko zmieniają bajty.
+
+Nie uruchomiono lokalnie testu instalacji/UI: brak /dev/kvm i telefonu. Test Compose
+z kontrolowanym backendem HTTP/SSE i rzeczywistym Keystore jest przygotowany oraz
+skompilowany; będzie uruchomiony przez emulator x86_64 w GitHub Actions. Nie oznacza
+on realnej inferencji ani instalacji na fizycznym ARM64. Backend GGUF jest osobno
+rzeczywiście sprawdzony na Linuxie. Instrukcja LAN/TLS/build: docs/ANDROID.md.
+
+AppImage i checksum są już załączone do szkicu wydania (ID 427506837), state=uploaded,
+draft=true, digest AppImage `07397174bcbc7cf6e9f14b8193881cb71b4b04ab5c30c3c908ce053cd3dab2c2`.
+Przesłanie przez Actions 40825408523 powiodło się po 401 bezpośredniego uploadu z cloud.

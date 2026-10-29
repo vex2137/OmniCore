@@ -3,7 +3,27 @@ name: Linux desktop and AppImage
 on:
   push:
     branches: [main, feature/0.1.0-alpha]
+    paths:
+      - 'backend/**'
+      - 'desktop/**'
+      - 'packaging/linux/**'
+      - 'scripts/build_appimage.py'
+      - 'scripts/test_appimage.py'
+      - 'scripts/export_contracts.py'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/linux-appimage.yml'
   pull_request:
+    paths:
+      - 'backend/**'
+      - 'desktop/**'
+      - 'packaging/linux/**'
+      - 'scripts/build_appimage.py'
+      - 'scripts/test_appimage.py'
+      - 'scripts/export_contracts.py'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/linux-appimage.yml'
   workflow_dispatch:
 
 permissions:

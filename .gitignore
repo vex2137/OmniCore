@@ -21,3 +21,8 @@ node_modules/
 
 build/
 *.AppImage
+.gradle/
+.kotlin/
+local.properties
+*.jks
+*.keystore
