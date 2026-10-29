@@ -4,7 +4,7 @@
   "settings": "Ustawienia",
   "diagnostics": "Diagnostyka",
   "tagline": "Twoje AI. Twój komputer.",
-  "alpha": "LOKALNE AI · ALPHA 0.1.0",
+  "alpha": "0.1.0 Alpha.3",
   "new_chat": "＋ Nowa rozmowa",
   "rename": "Zmień nazwę",
   "delete": "Usuń",
@@ -139,5 +139,14 @@
   "invalid_settings": "Nieprawidłowe ustawienia. Sprawdź parametry i uprawnienia katalogu.",
   "invalid_backend_url": "Nieprawidłowy adres backendu. Użyj lokalnego HTTP lub zdalnego HTTPS.",
   "remote_requires_https": "Zdalne połączenie wymaga HTTPS.",
-  "incompatible_backend": "Backend jest niezgodny z OmniCore API."
+  "incompatible_backend": "Backend jest niezgodny z OmniCore API.",
+  "reconnect": "Połącz ponownie",
+  "welcome_title": "Witaj w OmniCore",
+  "welcome_steps": "1. Zaimportuj lokalny GGUF lub pobierz model w zakładce Modele.\n2. W razie potrzeby skonfiguruj llama.cpp w Ustawieniach. Ollama jest opcjonalna.\n3. Załaduj zgodny model, utwórz rozmowę i wyślij wiadomość. Paczka nie zawiera wag.",
+  "dismiss_welcome": "Rozumiem",
+  "export_report": "Eksportuj raport diagnostyczny",
+  "report_saved": "Zapisano raport bez tokenów, ścieżek i treści rozmów.",
+  "report_failed": "Nie można zapisać raportu. Wybierz dostępny katalog.",
+  "unknown_error": "Nieoczekiwany błąd backendu. Połącz ponownie lub sprawdź diagnostykę.",
+  "disconnected": "Rozłączono"
 }

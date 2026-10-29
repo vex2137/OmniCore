@@ -34,6 +34,7 @@ class DesktopConfig:
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_enabled: bool = True
     parameters: dict = field(default_factory=dict)
+    onboarding_complete: bool = False
 
     @classmethod
     def load(cls, path: Path | None = None):

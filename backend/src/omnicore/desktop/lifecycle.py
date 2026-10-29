@@ -59,6 +59,17 @@ class BackendSession(QObject):
             "GET", "/api/v1/health", success=self._reuse, failure=self._not_running, timeout=700
         )
 
+    def reconnect(self):
+        if self.closing:
+            return
+        self._ready = False
+        if self.owned and self.process and self.process.state() != QProcess.NotRunning:
+            self.api.request(
+                "GET", "/api/v1/health", success=self._connected, failure=self.failed.emit
+            )
+        else:
+            self.start()
+
     def _reuse(self, health):
         if not isinstance(health, dict) or health.get("status") != "ok":
             self.failed.emit("incompatible_backend")

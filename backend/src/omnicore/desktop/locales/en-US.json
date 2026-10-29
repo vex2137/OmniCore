@@ -4,7 +4,7 @@
   "settings": "Settings",
   "diagnostics": "Diagnostics",
   "tagline": "Your AI. Your machine.",
-  "alpha": "LOCAL AI · ALPHA 0.1.0",
+  "alpha": "0.1.0 Alpha.3",
   "new_chat": "＋ New conversation",
   "rename": "Rename",
   "delete": "Delete",
@@ -139,5 +139,14 @@
   "invalid_settings": "Invalid settings. Check parameters and directory permissions.",
   "invalid_backend_url": "Invalid backend URL. Use local HTTP or remote HTTPS.",
   "remote_requires_https": "Remote connections require HTTPS.",
-  "incompatible_backend": "The backend is not compatible with the OmniCore API."
+  "incompatible_backend": "The backend is not compatible with the OmniCore API.",
+  "reconnect": "Reconnect",
+  "welcome_title": "Welcome to OmniCore",
+  "welcome_steps": "1. Import a local GGUF or download one in Models.\n2. Configure llama.cpp in Settings when needed. Ollama is optional.\n3. Load a compatible model, create a conversation and send a message. Model weights are never bundled.",
+  "dismiss_welcome": "Got it",
+  "export_report": "Export diagnostic report",
+  "report_saved": "Diagnostic report saved without tokens, paths or conversation content.",
+  "report_failed": "Cannot save the diagnostic report. Choose a writable location.",
+  "unknown_error": "Unexpected backend error. Reconnect or check diagnostics.",
+  "disconnected": "Disconnected"
 }

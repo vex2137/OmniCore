@@ -13,6 +13,7 @@ from omnicore.desktop.api import ApiClient
 from omnicore.desktop.config import DesktopConfig, data_path
 from omnicore.desktop.i18n import Translator
 from omnicore.desktop.lifecycle import BackendSession
+from omnicore.desktop.platforms import configure_platform
 from omnicore.desktop.window import MainWindow
 
 
@@ -125,6 +126,9 @@ def main():
     parser.add_argument("--screenshot", type=Path)
     parser.add_argument("--smoke-gguf", type=Path)
     args = parser.parse_args()
+    if configure_platform() is None:
+        print("OmniCore needs a graphical session: DISPLAY or WAYLAND_DISPLAY.", file=sys.stderr)
+        return 1
     app = QApplication(sys.argv[:1])
     app.setApplicationName("OmniCore")
     app.setOrganizationName("OmniCore")

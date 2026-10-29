@@ -5,7 +5,7 @@ from importlib.resources import files
 
 import httpx
 from PySide6.QtCore import QProcess, Qt
-from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
 
 from omnicore.desktop.config import DesktopConfig, config_path, data_path
 
@@ -276,3 +276,90 @@ def test_appimage_engine_path_is_rediscovered_after_remount(tmp_path, monkeypatc
     assert json.loads(config_path().read_text())["llama_server"] == ""
     monkeypatch.setattr(sys, "executable", str(tmp_path / "mount2/OmniCore"))
     assert Path(DesktopConfig.load().llama_server).parent.parent.name == "mount2"
+
+
+def test_platform_selection_respects_session_and_user_override():
+    from omnicore.desktop.platforms import configure_platform
+
+    environment = {"WAYLAND_DISPLAY": "wayland-0", "DISPLAY": ":0"}
+    assert configure_platform(environment) == "wayland;xcb"
+    assert configure_platform({"DISPLAY": ":99"}) == "xcb"
+    assert configure_platform({"WAYLAND_DISPLAY": "wayland-test"}) == "wayland"
+    assert configure_platform({"QT_QPA_PLATFORM": "offscreen", "DISPLAY": ":99"}) == "offscreen"
+    assert configure_platform({}) is None
+
+
+def test_welcome_actions_and_dismissal_persist(desktop, qtbot):
+    w = desktop
+    assert w.onboarding.isVisible()
+    assert w.welcome_import.isEnabled()
+    w.dismiss_welcome()
+    assert not w.onboarding.isVisible()
+    assert DesktopConfig.load().onboarding_complete
+    assert w.models == []
+
+
+def test_reconnect_owned_backend_keeps_process_and_shared_history(desktop, qtbot):
+    w = desktop
+    w.new_conversation()
+    qtbot.waitUntil(lambda: bool(w.current_id))
+    identifier = w.current_id
+    pid = w.session.process.processId()
+    w.show_error("connection_error")
+    assert not w.is_connected
+    w.reconnect()
+    qtbot.waitUntil(lambda: w.is_connected and not w._health_pending, timeout=15000)
+    assert w.session.owned and w.session.process.processId() == pid
+    assert any(c["id"] == identifier for c in w.conversations)
+
+
+def test_diagnostic_export_uses_closed_schema_and_private_file(desktop, monkeypatch, tmp_path):
+    from omnicore.desktop.report import diagnostic_report
+
+    w = desktop
+    marker = "token-and-private-content-should-not-export"
+    w.engines = [
+        {
+            "info": {
+                "id": "llama.cpp",
+                "available": True,
+                "version": marker,
+                "resources": {"ram_bytes": 42, "vram_bytes": None, "extra": marker},
+            },
+            "executable": marker,
+        }
+    ]
+    w.logs.appendPlainText(marker)
+    w.composer.setPlainText(marker)
+    report = diagnostic_report(w, QApplication.platformName())
+    assert marker not in json.dumps(report)
+    assert report["engines"][0]["ram_bytes"] == 42
+    assert "base_url" not in report and "logs" not in report
+    target = tmp_path / "report.json"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a: (str(target), ""))
+    w.export_report()
+    assert json.loads(target.read_text()) == report
+    assert target.stat().st_mode & 0o777 == 0o600
+    w.show_error("a" * 64)
+    w.log_event("b" * 64)
+    assert "a" * 64 not in w.notice.text()
+    assert "b" * 64 not in w.logs.toPlainText()
+
+
+def test_remote_conversation_deletion_clears_shared_cached_history(desktop, qtbot):
+    w = desktop
+    w.new_conversation()
+    qtbot.waitUntil(lambda: bool(w.current_id))
+    identifier = w.current_id
+    request(
+        w,
+        "POST",
+        f"/api/v1/text/conversations/{identifier}/messages",
+        {"role": "user", "content": "shared history"},
+    )
+    w.refresh_messages()
+    qtbot.waitUntil(lambda: "shared history" in w.transcript.toPlainText())
+    request(w, "DELETE", f"/api/v1/text/conversations/{identifier}")
+    w.refresh_shared_history()
+    qtbot.waitUntil(lambda: w.current_id is None)
+    assert "shared history" not in w.transcript.toPlainText()

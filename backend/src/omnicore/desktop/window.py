@@ -45,6 +45,8 @@ from PySide6.QtWidgets import (
 
 from omnicore.desktop.config import data_path
 from omnicore.desktop.i18n import Translator
+from omnicore.desktop.report import diagnostic_report, save_report
+from omnicore.release import distribution_version
 
 TEXT = "/api/v1/text"
 TERMINAL = {"completed", "failed", "cancelled", "interrupted"}
@@ -78,11 +80,12 @@ class MainWindow(QMainWindow):
         self.downloads, self.remote_files = [], []
         self.engines = []
         self.is_connected = False
+        self._connection_key = "connecting"
         self._closing = False
         self._allow_close = False
         self._pending_import = None
         self._health_pending = set()
-        self.setWindowTitle("OmniCore · 0.1.0 Alpha")
+        self.setWindowTitle(f"OmniCore · {distribution_version()}")
         self.resize(1280, 820)
         self.setMinimumSize(920, 640)
         self._build()
@@ -171,6 +174,8 @@ class MainWindow(QMainWindow):
         self.connection = self.label("connecting")
         self.connection.setObjectName("badge")
         header.addWidget(self.connection)
+        self.reconnect_button = self.button("reconnect", self.reconnect)
+        header.addWidget(self.reconnect_button)
         body.addLayout(header)
         self.notice = QLabel()
         self.notice.setWordWrap(True)
@@ -178,6 +183,24 @@ class MainWindow(QMainWindow):
         self.notice.setObjectName("notice")
         self.notice.hide()
         body.addWidget(self.notice)
+        self.onboarding = QFrame()
+        self.onboarding.setObjectName("notice")
+        intro = QVBoxLayout(self.onboarding)
+        intro.addWidget(self.label("welcome_title", title=True))
+        intro_text = self.label("welcome_steps")
+        intro_text.setWordWrap(True)
+        intro.addWidget(intro_text)
+        self.welcome_import = self.button("import_gguf", self.first_import, primary=True)
+        self.welcome_import.setEnabled(False)
+        intro.addLayout(
+            self.row(
+                self.welcome_import,
+                self.button("settings", lambda: self.navigate(2)),
+                self.button("dismiss_welcome", self.dismiss_welcome),
+            )
+        )
+        self.onboarding.setVisible(not self.config.onboarding_complete)
+        body.addWidget(self.onboarding)
         self.pages = QStackedWidget()
         body.addWidget(self.pages, 1)
         self._build_chat()
@@ -200,6 +223,7 @@ class MainWindow(QMainWindow):
         left.setContentsMargins(0, 0, 16, 0)
         self.new_button = self.button("new_chat", self.new_conversation, primary=True)
         left.addWidget(self.new_button)
+        left.addWidget(self.button("refresh", self.refresh_shared_history))
         self.conversation_list = QListWidget()
         self.conversation_list.setObjectName("conversations")
         self.conversation_list.currentItemChanged.connect(self.select_conversation)
@@ -397,6 +421,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         layout.addWidget(self.label("diagnostics_hint"))
         layout.addWidget(self.button("refresh", self.refresh_diagnostics))
+        layout.addWidget(self.button("export_report", self.export_report))
         self.diagnostic_text = QPlainTextEdit()
         self.diagnostic_text.setReadOnly(True)
         layout.addWidget(self.diagnostic_text, 2)
@@ -435,7 +460,7 @@ class MainWindow(QMainWindow):
         self.model_tabs.setTabText(1, self.tr("download"))
         for index, key in enumerate(("system", "light", "dark")):
             self.theme.setItemText(index, self.tr(key))
-        self.connection.setText(self.tr("connected" if self.is_connected else "connecting"))
+        self.connection.setText(self.tr(self._connection_key))
         self.about.setText(self.tr("about", path=data_path()))
         self.refresh_model_table()
         self.render_messages()
@@ -588,6 +613,8 @@ class MainWindow(QMainWindow):
         if self._closing:
             return
         self.is_connected = True
+        self._connection_key = "connected"
+        self.welcome_import.setEnabled(True)
         self.pages.setEnabled(True)
         self.connection.setText(self.tr("connected"))
         self.statusBar().showMessage(self.tr("ready"))
@@ -598,6 +625,15 @@ class MainWindow(QMainWindow):
         self.api.request("GET", "/api/v1/settings", success=self._preferences)
         self.refresh_diagnostics()
         self.refresh_downloads()
+        if self.active_job:
+            job = self.active_job
+
+            def resume(record):
+                self.generation_snapshot(record)
+                if self.active_job == job:
+                    self.api.watch(job)
+
+            self.api.request("GET", TEXT + f"/generations/{job}", success=resume)
         if self._pending_import:
             path, self._pending_import = self._pending_import, None
             self.import_gguf(path)
@@ -615,7 +651,7 @@ class MainWindow(QMainWindow):
             self.connected.emit()
 
     def log_event(self, code):
-        if code.replace("_", "").isalnum() and len(code) < 90:
+        if code in self.tr.catalog or code in {"backend_starting", "connected"}:
             self.logs.appendPlainText(f"{datetime.now().strftime('%H:%M:%S')}  {code}")
 
     def notify(self, text):
@@ -624,8 +660,13 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(text, 10000)
 
     def show_error(self, code):
-        self.log_event(code)
-        text = self.tr.catalog.get(code) or self.tr("operation_error", code=code)
+        safe_code = code if code in self.tr.catalog else "unknown_error"
+        self.log_event(safe_code)
+        if code in {"connection_error", "backend_exited", "backend_process_error", "unauthorized"}:
+            self.is_connected = False
+            self._connection_key = "unauthorized" if code == "unauthorized" else "disconnected"
+            self.connection.setText(self.tr(self._connection_key))
+        text = self.tr.catalog.get(safe_code) or self.tr("operation_error", code=safe_code)
         self.notify(text)
 
     def refresh_conversations(self, select=None):
@@ -649,8 +690,18 @@ class MainWindow(QMainWindow):
             if record["id"] == current:
                 self.conversation_list.setCurrentItem(item)
         self.conversation_list.blockSignals(False)
-        if select:
+        if current and not any(record["id"] == current for record in self.conversations):
+            self.current_id = None
+            self.messages = []
+            self.last_job = None
+            self.render_messages()
+        elif select:
             self.open_conversation(select)
+
+    def refresh_shared_history(self):
+        self.refresh_conversations()
+        if self.current_id:
+            self.refresh_messages()
 
     def new_conversation(self):
         if not self.is_connected:
@@ -696,6 +747,29 @@ class MainWindow(QMainWindow):
             if self.current_id == conversation_id:
                 self.messages = messages
                 self.render_messages()
+                live = next(
+                    (
+                        m
+                        for m in reversed(messages)
+                        if m.get("generation_id") and m.get("status") in {"queued", "running"}
+                    ),
+                    None,
+                )
+                if live and not self.active_job:
+                    job = live["generation_id"]
+                    self.active_job = job
+                    self.stop_button.setEnabled(True)
+                    self.send_button.setEnabled(False)
+                    self.conversation_list.setEnabled(False)
+                    self.new_button.setEnabled(False)
+                    self.model_combo.setEnabled(False)
+
+                    def observe(record):
+                        self.generation_snapshot(record)
+                        if self.active_job == job:
+                            self.api.watch(job)
+
+                    self.api.request("GET", TEXT + f"/generations/{job}", success=observe)
 
         self.api.request(
             "GET", TEXT + f"/conversations/{conversation_id}/messages", success=received
@@ -891,6 +965,8 @@ class MainWindow(QMainWindow):
                 )
                 selected = conversation["model_id"] if conversation else None
             self.models = records
+            if records and not self.config.onboarding_complete:
+                self.dismiss_welcome()
             self.model_combo.blockSignals(True)
             self.model_combo.clear()
             self.model_combo.addItem(
@@ -1275,6 +1351,35 @@ class MainWindow(QMainWindow):
 
         self.api.request("GET", TEXT + "/engines", success=received)
 
+    def first_import(self):
+        self.navigate(1)
+        self.choose_gguf()
+
+    def dismiss_welcome(self):
+        self.config.onboarding_complete = True
+        self.config.save()
+        self.onboarding.hide()
+
+    def reconnect(self):
+        if self._closing:
+            return
+        self.is_connected = False
+        self._connection_key = "connecting"
+        self.connection.setText(self.tr("connecting"))
+        self.session.reconnect()
+
+    def export_report(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, self.tr("export_report"), "OmniCore-diagnostics.json", "JSON (*.json)"
+        )
+        if not path:
+            return
+        try:
+            save_report(Path(path), diagnostic_report(self, QApplication.platformName()))
+            self.notify(self.tr("report_saved"))
+        except OSError:
+            self.show_error("report_failed")
+
     def closeEvent(self, event):
         if self._allow_close:
             event.accept()
@@ -1285,6 +1390,7 @@ class MainWindow(QMainWindow):
         self._closing = True
         self._poll.stop()
         self.pages.setEnabled(False)
+        self._connection_key = "closing"
         self.connection.setText(self.tr("closing"))
         self.session.stop()
 

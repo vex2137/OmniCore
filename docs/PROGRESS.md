@@ -650,3 +650,13 @@ Wykonano **42 JVM PASS**, 0 fail/skip (34 istniejące + 4 polityki języka/statu
 + 4 ViewModel sieć/retry/synchronizacja). Lokalny lint i assembleDebugAndroidTest PASS.
 Dodano test instrumentacyjny pierwszego języka i trwałości ręcznego wyboru;
 nie był jeszcze uruchomiony na emulatorze w tym etapie. Fizyczny telefon nieobecny.
+
+### Alpha.3 — zapisany moduł Linux UX/transport
+
+16 testów desktop PASS, 0 FAIL. Działają onboarding/import, reconnect własnego
+backendu bez zmiany PID, synchronizacja usunięcia rozmowy, obserwowanie zadań
+z historii, izolacja starych odpowiedzi HTTP oraz eksport raportu o zamkniętym
+schemacie (bez tokenów, ścieżek i treści), plik 0600. Logi odrzucają nieznane kody.
+Wybór QPA respektuje jawny override i wybiera Wayland/X11 według sesji; test
+wyboru nie jest testem natywnego CachyOS/Wayland. AppRun izoluje hostowe pluginy Qt.
+Backend 123 PASS zapisany wcześniej w 5e25533, Android 42 JVM PASS w 99a5b27.
