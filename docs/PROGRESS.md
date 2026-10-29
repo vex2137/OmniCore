@@ -821,3 +821,52 @@ rzeczywisty sys._MEIPASS i podkatalogi również z ORIG, zachowując ścieżki C
 Dodano regresję jednostkową i obowiązkowy test faktycznego wyekstrahowanego AppImage:
 natywna powłoka sprawdza brak _internal bez drukowania środowiska/sekretów.
 Nowe paczki muszą przejść tę kontrolę przed wydaniem RC.
+
+### RC.1 — potwierdzona dostawa GitHub i checkpoint do kontynuacji
+
+Źródło paczek: **09cd1d8f8f62b96512587a764b6f83ed452d0ef6**.
+PR #5 scalony (bez force push) do main jako
+**92a2ca02ccd06acfd81f63935d978703c73cf618**; oba drzewa źródeł są identyczne.
+CI PR: backend 40930829737 PASS (157 testów), Linux 40930829718 PASS
+(157 backend + 20 Qt = 177), Android 40930829695 PASS (44 JVM/lint/build,
+2 UI na API30 i 2 UI na API36, 0 fail/error według XML). CI main na checkpoint92:
+40932360138 backend, 40932360205 Linux i 40932360129 Android — wszystkie PASS.
+Wcześniejsze runy anulowane przy aktualizacji PR nie były błędami produktu.
+
+Rzeczywista inferencja: 4 testy pytest CPU (backend CPU/Auto, Qt cancel/close/restart,
+izolacja hardware tool), 1 dodatkowy test Auto z rzeczywistą binarką CUDA przy braku
+runtime oraz 1 rzeczywisty klient Kotlin + FastAPI/GGUF PASS. To nie inferencja GPU.
+Faktyczny CI AppImage testowano dodatkowo z prawdziwym GGUF CPU, restartem i digestem
+historii oraz kontrolą zagnieżdżonych bibliotek. Kanoniczny plik CI przeszedł również
+Wayland/Weston i X11/Xvfb z GGUF/restartem w kontenerze Arch. Nie testowano fizycznego
+CachyOS/RTX4060 ani telefonu. Zrzuty pochodzą z tego AppImage i emulatora API36
+(kontrolowany backend w teście interfejsu Android).
+
+Publiczne **prerelease RC.1** (nie Stable):
+https://github.com/vex2137/OmniCore/releases/tag/v0.1.0-rc.1
+ID 428235659, draft=false, prerelease=true, make_latest=false. Tag wskazuje merge92.
+Upload 40932563350 PASS: 11 załączników mają state=uploaded, niezerowe rozmiary i
+zweryfikowane server digest. Pobrano obie paczki ponownie z publicznych URL i
+obliczono zgodne SHA-256:
+
+| Plik | Bajty | SHA-256 |
+| --- | ---: | --- |
+| OmniCore-0.1.0-rc.1-x86_64.AppImage | 98707960 | 15bd847bda98abad9b6666f5897fe96012c0364ea964f475a5a219e203766a2d |
+| OmniCore-0.1.0-rc.1-android-arm64.apk | 18207561 | 7760e6d46ba4418331ef85b54f99f0c0432d24da08508edffa59822b8bfb69d2 |
+| OmniCore-llama-cuda-sm89.tar.gz | 250652194 | ef431c73583986be861f47068f119172b0434393d7ff8b2ff2764c8e972058e5 |
+
+Załączniki zawierają sumy, manifesty, test_omnicore_cachyos.sh, install_cuda_engine.sh
+i tools.sha256; bez wag. SM89 z CUDA12.6 ma potwierdzoną kompilację, nie inferencję.
+RC APK ma ID io.github.vex2137.omnicore.rc i podpis testowy; instaluje się obok Alpha.
+Nie deklarować aktualizacji APK podpisanego niedostępnym kluczem poprzedniego CI.
+
+Commity RC: 5f2f559 (wykrywanie/VRAM/offload), 1887845 (reasoning/SSE), 42d26fe
+(klienci/upgrade), 2e48568 (test sprzętowy/installer), d343707 (paczki/bramka),
+09cd1d8 (odtworzony i naprawiony błąd zagnieżdżonego LD_LIBRARY_PATH_ORIG).
+Starsze commity Alpha.3 zachowano w historii PR. Alpha.1/2 i szkic Alpha.3 pozostają.
+
+**Następny krok bez ponownego audytu:** właściciel uruchamia załączony test na obu
+GGUF, przekazuje nowy omnicore-hardware-*.json oraz wynik GUI Wayland i APK ARM64.
+Nie zastępować raportu wynikiem samego zewnętrznego llama-server. Nie publikować
+v0.1.0 Stable przed potwierdzeniem sprzętu i docelowego podpisywania. Szczegóły
+w RELEASE_GATE.md. Trwałe dane użytkownika nie były resetowane ani usuwane.

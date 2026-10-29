@@ -206,3 +206,10 @@ aktualizacji APK podpisanego innym kluczem. RC wymaga własnego adresu/tokena; p
 połączeniu widzi istniejącą historię serwera. Wybór Auto/CPU/CUDA dotyczy komputera.
 Wynik fizycznego Androida oraz trwałe podpisywanie są bramkami Stable:
 [RELEASE_GATE.md](RELEASE_GATE.md).
+
+Przy współdzieleniu istniejącej historii uruchamiaj jeden backend: zamknij GUI z
+prywatnym serwerem przed startem serwera LAN na tej samej bazie. Ustaw świadomie
+OMNICORE_MODEL_ROOTS (np. katalog Pulpit z modelami), allowed hosts i token zgodnie
+z powyższą instrukcją. Desktop można potem podłączyć do tego serwera przez
+OMNICORE_DESKTOP_URL i OMNICORE_DESKTOP_TOKEN (token w środowisku, nie w argumentach
+ani logach). Nie uruchamiaj dwóch niezależnych backendów do tej samej bazy.

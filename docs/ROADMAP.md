@@ -347,3 +347,7 @@ zaimplementowane. Pozostają finalne paczki/CI RC i test właściciela na CachyO
 oraz telefonie. Trwały produkcyjny podpis Androida jest oddzielną bramką; RC ma
 osobny identyfikator, aby nie wymagać usuwania wcześniejszej Alpha.
 Nie publikować v0.1.0 przed [potwierdzeniem](RELEASE_GATE.md).
+
+RC.1 jest udostępniona jako publiczne prerelease z 11 załącznikami. Main zawiera
+implementację po PR #5, CI źródła i main PASS. Następny krok: potwierdzenie raportu
+CachyOS/RTX4060 i telefonu oraz docelowego podpisywania, zgodnie z RELEASE_GATE.md.

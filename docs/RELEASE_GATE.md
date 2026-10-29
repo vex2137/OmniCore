@@ -4,8 +4,8 @@ Bieżąca paczka: **0.1.0-rc.1**, nie Stable. Zgoda na publiczne Stable obowiąz
 po testach i osobnym potwierdzeniu sprzętowym właściciela. Nie twórz tagu v0.1.0
 ani finalnego wydania przed potwierdzeniem poniższych punktów.
 
-- [ ] Końcowe CI CPU/Qt/JVM/lint/emulatory, oba artefakty i manifesty tego samego SHA.
-- [ ] Faktyczny AppImage: start/stop, GGUF CPU, historia i ustawienia po restarcie.
+- [x] Końcowe CI CPU/Qt/JVM/lint/emulatory, oba artefakty i manifesty tego samego SHA.
+- [x] Faktyczny AppImage: start/stop, GGUF CPU, historia i ustawienia po restarcie.
 - [ ] CachyOS/RTX4060: wykrywanie lokalnego llama-server CUDA, Auto/CPU/CUDA,
   faktyczny offload i VRAM, niepusta końcowa odpowiedź LFM3 oraz Qwen3.5.
 - [ ] Raport właściciela i potwierdzenie testu sprzętowego; wyniki muszą dotyczyć
@@ -26,8 +26,8 @@ Pobierz AppImage, oba skrypty i sumy z wydania RC. Sprawdź pliki `.sha256` i:
 chmod +x OmniCore-0.1.0-rc.1-x86_64.AppImage
 bash test_omnicore_cachyos.sh \
   ./OmniCore-0.1.0-rc.1-x86_64.AppImage \
-  /home/lunex/Pulpit/LFM3-1.7B-Q8_0.gguf \
-  /home/lunex/Pulpit/Qwen_Qwen3.5-4B-Q8_0.gguf
+  "$HOME/Pulpit/LFM3-1.7B-Q8_0.gguf" \
+  "$HOME/Pulpit/Qwen_Qwen3.5-4B-Q8_0.gguf"
 ```
 
 Nie potrzeba Pythona ani Ollamy. Test nie wymaga działającej sesji graficznej,
@@ -49,3 +49,13 @@ Po potwierdzeniu: zachować raport, zamknąć blokery, przygotować podpis produ
 zaktualizować wersjonowanie/CI, ponownie zbudować i sprawdzić paczki Stable, scalić,
 potwierdzić zdalne SHA, utworzyć v0.1.0 i publiczne finalne wydanie. RC nie może być
 przemianowana na Stable bez tej weryfikacji.
+
+## Zweryfikowany kandydat
+
+Publiczne [RC.1](https://github.com/vex2137/OmniCore/releases/tag/v0.1.0-rc.1)
+zawiera obie paczki, SHA-256, manifesty, skrypty z sumą i opcjonalny silnik SM89.
+Źródło paczek: `09cd1d8f8f62b96512587a764b6f83ed452d0ef6`; tag RC wskazuje merge
+`92a2ca02ccd06acfd81f63935d978703c73cf618`, o identycznym drzewie źródeł.
+Nie istnieje tag ani Stable v0.1.0. Kolejny etap wymaga raportu sprzętowego właściciela.
+Przy ręcznym teście GUI użyj Auto oraz kontekstu 4096 jak w udanym zewnętrznym teście;
+RC nie zmienia automatycznie zachowanego wcześniej kontekstu 100000.
