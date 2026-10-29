@@ -521,6 +521,8 @@ class LlamaEngine:
             "--parallel",
             "1",
             "--no-webui",
+            "-lv",
+            "4",
         ]
         arguments += ["--device", "none" if selected_device == "cpu" else selected_device]
         if self.chat_template:
