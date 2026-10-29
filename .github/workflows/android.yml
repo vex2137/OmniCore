@@ -3,9 +3,9 @@ name: Native Android APK
 on:
   push:
     branches: [main, feature/0.1.0-alpha, feature/android-part-2]
-    paths: ['apps/android/**', '.github/workflows/android.yml', 'scripts/package_android.py']
+    paths: ['apps/android/**', '.github/workflows/android.yml', 'scripts/package_android.py', 'scripts/test_android_emulator.sh']
   pull_request:
-    paths: ['apps/android/**', '.github/workflows/android.yml', 'scripts/package_android.py']
+    paths: ['apps/android/**', '.github/workflows/android.yml', 'scripts/package_android.py', 'scripts/test_android_emulator.sh']
   workflow_dispatch:
 
 permissions:
@@ -70,15 +70,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           working-directory: apps/android
-          script: |
-            adb shell getconf PAGE_SIZE
-            adb shell mkdir -p /sdcard/Download
-            test_status=0
-            ./gradlew --no-daemon connectedDebugAndroidTest || test_status=$?
-            mkdir -p ../../dist/android-evidence
-            adb pull /sdcard/Download/omnicore-android-chat.png ../../dist/android-evidence/android-chat.png || true
-            adb pull /sdcard/Download/omnicore-android-failure.png ../../dist/android-evidence/android-failure.png || true
-            exit "$test_status"
+          script: bash ../../scripts/test_android_emulator.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:

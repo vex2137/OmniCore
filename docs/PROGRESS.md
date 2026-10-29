@@ -536,3 +536,12 @@ obserwowana przez derivedStateOf, więc nowe obiekty layoutInfo przy każdym kro
 scroll nie unieważniają całego widoku. Klucz efektu zależy wyłącznie od faktycznej
 zmiany wysokości. Diagnostyka testu najpierw robi zrzut i nie maskuje pierwotnego
 wyjątku, jeśli zapytanie o semantykę nie może czekać na idle.
+
+### Zachowanie statusu testu w skrypcie emulatora
+
+Raport XML source `523133f`, API 30: **1 PASS, 0 fail/error/skip**. Poprawki
+widoku przeszły pełny natywny przepływ. Krok workflow zgłosił błąd po teście:
+android-emulator-runner uruchamia linie script w osobnych powłokach, więc zmienna
+test_status nie przechodziła do końcowego exit. Przeniesiono ten krok do jednego
+scripts/test_android_emulator.sh. Skrypt zachowuje kod Gradle, zbiera dostępne
+zrzuty również przy błędzie i zwraca pierwotny status. bash -n PASS; nowy CI wymagany.
