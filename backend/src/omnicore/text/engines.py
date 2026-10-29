@@ -8,7 +8,6 @@ import shutil
 import signal
 import socket
 import sys
-import tempfile
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from pathlib import Path
@@ -323,7 +322,9 @@ class LlamaEngine:
         self.devices: list[str] = []
         self._lock = asyncio.Lock()
         self._generation_task: asyncio.Task | None = None
-        self._log = None
+        self._log = bytearray()
+        self._log_task: asyncio.Task | None = None
+        self._observed_offload = 0
         self._verified_text_models: set[str] = set()
 
     def _guarded_command(self, *arguments, executable=None):
@@ -528,14 +529,14 @@ class LlamaEngine:
         if self.chat_template:
             arguments += ["--chat-template", self.chat_template]
         try:
-            self._log = tempfile.TemporaryFile()
             self.process = await asyncio.create_subprocess_exec(
                 *self._guarded_command(*arguments[1:], executable=selected),
                 stdout=asyncio.subprocess.DEVNULL,
-                stderr=self._log,
+                stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,
                 pass_fds=(file_descriptor,) if file_descriptor is not None else (),
             )
+            self._log_task = asyncio.create_task(self._drain_log(self.process.stderr))
             self.client = client_for(f"http://127.0.0.1:{port}", timeout=self.request_timeout)
             async with asyncio.timeout(self.startup_timeout):
                 while self.process.returncode is None:
@@ -544,11 +545,7 @@ class LlamaEngine:
                         if response.status_code == 200:
                             self.model = str(path)
                             self.parameters = desired
-                            startup_log = os.pread(self._log.fileno(), 131072, 0).decode(
-                                errors="replace"
-                            )
-                            offload = re.search(r"offloaded (\d+)/(\d+) layers", startup_log)
-                            self.offloaded_layers = int(offload[1]) if offload else 0
+                            self.offloaded_layers = self._observed_offload
                             if selected_device != "cpu" and not self.offloaded_layers:
                                 raise TextError("gpu_offload_unverified", 503)
                             self.execution_device = selected_device
@@ -557,10 +554,7 @@ class LlamaEngine:
                     except httpx.HTTPError:
                         pass
                     await asyncio.sleep(0.1)
-            self._log.seek(0, 2)
-            size = self._log.tell()
-            self._log.seek(max(0, size - 16384))
-            log = self._log.read().lower()
+            log = bytes(self._log[-16384:]).lower()
             code = (
                 "out_of_memory"
                 if b"out of memory" in log or b"insufficient memory" in log
@@ -573,6 +567,17 @@ class LlamaEngine:
         except BaseException:
             await self.unload()
             raise
+
+    async def _drain_log(self, reader):
+        # -lv 4 is required for offload evidence. Drain continuously so verbose
+        # prompts cannot fill /tmp or block the engine's stderr pipe. Retain only
+        # a bounded private tail; never expose raw logs through diagnostics.
+        while part := await reader.read(8192):
+            self._log.extend(part)
+            del self._log[:-131072]
+            offload = re.search(rb"offloaded (\d+)/(\d+) layers", self._log)
+            if offload:
+                self._observed_offload = int(offload[1])
 
     async def stream(self, model, messages, parameters):
         async for chunk in normalize_stream(self._stream(model, messages, parameters)):
@@ -674,9 +679,14 @@ class LlamaEngine:
         self.execution_device, self.offloaded_layers = None, None
         self.model, self.parameters = None, None
         self._verified_text_models.clear()
-        if self._log:
-            self._log.close()
-            self._log = None
+        if self._log_task:
+            try:
+                await asyncio.wait_for(self._log_task, 1)
+            except TimeoutError:
+                self._log_task.cancel()
+            self._log_task = None
+        self._log.clear()
+        self._observed_offload = 0
 
     async def stop(self):
         await self.unload()

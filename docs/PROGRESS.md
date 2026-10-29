@@ -870,3 +870,19 @@ GGUF, przekazuje nowy omnicore-hardware-*.json oraz wynik GUI Wayland i APK ARM6
 Nie zastępować raportu wynikiem samego zewnętrznego llama-server. Nie publikować
 v0.1.0 Stable przed potwierdzeniem sprzętu i docelowego podpisywania. Szczegóły
 w RELEASE_GATE.md. Trwałe dane użytkownika nie były resetowane ani usuwane.
+
+### Stable hardening — P0, bounded native stderr
+
+Branch starts at main f429a40. PR #6 (0f0dd16, source 745166d) and #7
+(f429a40) are merged; `-lv 4` is retained and regression-checked. PR #6 records
+owner tests of LFM3/Qwen3.5 CPU/Auto/CUDA on RTX4060 with hardware_ready=True.
+This is owner-reported hardware evidence for that build, not a Cloud GPU test.
+
+Verbose stderr previously accumulated without a size limit in a temporary file.
+The engine now continuously drains its pipe into a private 128 KiB memory tail,
+retains offload evidence independently and joins the reader during shutdown.
+No raw prompt/log output is exported. A controlled engine emits ~2 MB before
+health becomes ready: bounded output, preserved offload and process/reader cleanup PASS.
+Targeted native/adapter/parent-death suite: 23 PASS. Real SmolLM2 GGUF CPU and Auto:
+2 PASS (the first invocation lacked the test-specific executable variable; corrected
+configuration passed). No GPU hardware is present in Cloud; no CUDA claim from mocks.
