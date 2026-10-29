@@ -15,7 +15,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GIT = shutil.which("git") or "/usr/bin/git"
-NAME = "OmniCore-0.1.0-alpha-x86_64.AppImage"
+VERSION = json.loads((ROOT / "backend/src/omnicore/distribution.json").read_text())["version"]
+NAME = f"OmniCore-{VERSION}-x86_64.AppImage"
 
 
 def run(*command, **kwargs):
@@ -170,7 +171,7 @@ def main():
     shutil.copy2(ROOT / "packaging/linux/appimage-runtime-LICENSE", licenses)
     engine = bundle_engine(args.llama_server, binary_dir / "engines", args.patchelf)
     manifest = {
-        "version": "0.1.0-alpha.1",
+        "version": VERSION,
         "python": platform.python_version(),
         "build_platform": platform.platform(),
         "glibc_build_host": platform.libc_ver(),

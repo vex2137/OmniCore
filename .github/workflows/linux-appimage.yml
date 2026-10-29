@@ -2,7 +2,7 @@ name: Linux desktop and AppImage
 
 on:
   push:
-    branches: [main, feature/0.1.0-alpha]
+    branches: [main, feature/alpha-3-stability, feature/0.1.0-alpha]
     paths:
       - 'backend/**'
       - 'desktop/**'
@@ -66,10 +66,10 @@ jobs:
         run: xvfb-run -a uv run --frozen python scripts/test_appimage.py
       - uses: actions/upload-artifact@v4
         with:
-          name: OmniCore-0.1.0-alpha-x86_64
+          name: OmniCore-0.1.0-alpha.3-x86_64
           path: |
-            dist/*.AppImage
-            dist/*.sha256
+            dist/OmniCore-0.1.0-alpha.3-x86_64.AppImage
+            dist/OmniCore-0.1.0-alpha.3-x86_64.AppImage.sha256
             dist/build-manifest.json
             dist/appimage-test.json
             dist/appimage-test.png

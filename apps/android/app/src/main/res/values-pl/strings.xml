@@ -75,7 +75,7 @@
   <string name="max_tokens">Tokeny odpowiedzi</string>
   <string name="context">Rozmiar kontekstu</string>
   <string name="system_prompt">Instrukcja systemowa</string>
-  <string name="about">OmniCore 0.1.0-alpha.2 · build testowy
+  <string name="about">OmniCore %1$s · build testowy
 Kotlin / Compose / Material 3
 Klient API; bez inferencji na telefonie.</string>
   <string name="diagnostics_hint">Diagnostyka połączenia i silników. Tokeny i treść rozmów nie trafiają do logów.</string>

@@ -9,6 +9,12 @@ przesunięte przed Image AI. GGUF działa przez llama.cpp **bez Ollamy**; rzeczy
 przepływ import/load/generowanie/anulowanie/historia przeszedł test na CPU ze
 SmolLM2-135M-Instruct Q4_K_M. Nie oznacza to zgodności wszystkich modeli lub GPU.
 
+Alpha.3 jest rozwijana jako stabilizacja: synchronizacja wielu klientów,
+wyraźne błędy pustej odpowiedzi/limitu reasoning, niezmienna nazwa modelu i statystyki
+przy wiadomości, Markdown/bloki kodu/wyszukiwanie Linux, systemowy język i reconnect
+Android. [CUDA/CPU](docs/CUDA.md) opisuje opcjonalny silnik NVIDIA i ograniczenia
+weryfikacji sprzętowej. Alpha.3 pozostaje szkicem do czasu osobnej zgody na publikację.
+
 ```sh
 uv sync --frozen --extra desktop --group gui-test --group packaging
 uv run --frozen omnicore-desktop

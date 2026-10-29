@@ -703,3 +703,16 @@ execution_device/fallback_reason w metadanych klientów. CPU pozostaje niezależ
 Skrypt przypina llama.cpp, wariant CUDA buduje SM 89 i ma osobny workflow; wynik
 kompilacji CI wymaga jeszcze sprawdzenia. Test sprzętowy wymaga offloadu i VRAM
 z nvidia-smi; niewykonany — Cloud nie ma GPU. Brak deklaracji zgodności RTX 4060.
+
+### Alpha.3 — powtarzalne paczki i zamykanie podczas inferencji
+
+Rozszerzony rzeczywisty test Qt + HTTP/SSE + SmolLM2 GGUF CPU: 1 PASS, w tym
+streaming/cancel/restart, trzecia generacja przerwana zamknięciem aplikacji,
+brak procesów silnika i zapis częściowej historii cancelled w SQLite.
+Android po dodaniu metadanych urządzenia: 44 JVM PASS i lintDebug PASS.
+
+Wspólne distribution.json określa versionName, versionCode i nazwy AppImage/APK
+Alpha.3. Smoke pakietu porównuje digest pełnej historii po restarcie oraz wersję.
+Workflowy budowania obejmują gałąź Alpha.3, osobny upload do draft wymaga sukcesu
+obu runów i identycznego SHA w manifestach. Gotowe paczki i ich uruchomienie
+wymagają dalszego potwierdzenia; zmiana skryptu nie oznacza udanego builda.

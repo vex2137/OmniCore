@@ -87,6 +87,23 @@ bezpieczny rollback i oszacowany koszt utrzymania. Bez spełnienia tych warunkó
 pozostaje implementacja Python. Nie przenosić obliczeń GPU do Rust ani nie
 deklarować zgodności modeli na podstawie zmiany języka.
 
+## Alpha.3 — stabilizacja przed dalszymi modułami
+
+- [x] Kolejka/cancel/cleanup i mutacje rozmów serializowane między klientami.
+- [x] Oddzielne reasoning i final answer, jawne błędy pustej odpowiedzi/limitu/kontekstu.
+- [x] Snapshot modelu i statystyki przy wiadomości, zgodne stare dane/idempotency.
+- [x] Linux: natywne dymki/Markdown/kod/kopiowanie, wyszukiwanie historii, onboarding,
+  izolacja transportu, raport bez sekretów i wybór QPA.
+- [x] Android: język systemowy i trwały wybór, nawigacja, reconnect/statusy/retry/refresh.
+- [x] Opcjonalna binarka CUDA + niezależny CPU, jawny fallback w auto, build SM 89.
+- [ ] Zweryfikować kompilację CUDA w CI; oddzielnie rzeczywistą inferencję RTX 4060.
+- [ ] Zbudować i uruchomić AppImage/APK Alpha.3, sprawdzić CI/emulatory i szkic z SHA-256.
+- [ ] LFM3/Qwen3.5: zweryfikować dokładne pliki użytkownika i powtórzyć dłuższe prompty.
+- [ ] Fizyczne POCO/Xiaomi, CachyOS i NVIDIA: testy na właściwych urządzeniach.
+
+Image AI, Web, lokalna inferencja Android i nowe komponenty Rust pozostają poza
+bieżącą implementacją. Publiczne wydanie Alpha.3 wymaga osobnej zgody właściciela.
+
 ## OmniCore 0.1.0 — Text & Image
 
 **Status:** w realizacji — fundament Etapu 1 zaimplementowany i przetestowany;

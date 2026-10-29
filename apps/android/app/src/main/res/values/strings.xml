@@ -75,7 +75,7 @@
   <string name="max_tokens">Output tokens</string>
   <string name="context">Context size</string>
   <string name="system_prompt">System prompt</string>
-  <string name="about">OmniCore 0.1.0-alpha.2 · test build
+  <string name="about">OmniCore %1$s · test build
 Kotlin / Compose / Material 3
 API client; no inference on the phone.</string>
   <string name="diagnostics_hint">Connection and engine diagnostics. Tokens and conversation content are never logged.</string>

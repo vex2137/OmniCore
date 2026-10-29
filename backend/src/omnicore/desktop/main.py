@@ -1,6 +1,7 @@
 """Linux entry point and an explicit smoke mode for the actual packaged application."""
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -15,6 +16,7 @@ from omnicore.desktop.i18n import Translator
 from omnicore.desktop.lifecycle import BackendSession
 from omnicore.desktop.platforms import configure_platform
 from omnicore.desktop.window import MainWindow
+from omnicore.release import distribution_version
 
 
 class SmokeRun:
@@ -50,7 +52,9 @@ class SmokeRun:
 
     def tick(self):
         w = self.window
-        if self.stage == "import" and w.models:
+        if self.stage == "ready":
+            self.complete()
+        elif self.stage == "import" and w.models:
             record = next(
                 (r for r in w.models if r["location"] == str(Path(self.gguf).absolute())), None
             )
@@ -83,6 +87,8 @@ class SmokeRun:
     def complete(self):
         if self.finished:
             return
+        if self.window._health_pending or (self.window.conversations and not self.window.messages):
+            return
         self.finished = True
         self.ok = self.window.is_connected
         if self.screenshot:
@@ -103,6 +109,12 @@ class SmokeRun:
                 json.dumps(
                     {
                         "ok": self.ok,
+                        "version": distribution_version(),
+                        "history_digest": hashlib.sha256(
+                            json.dumps(
+                                self.window.messages, sort_keys=True, ensure_ascii=False
+                            ).encode()
+                        ).hexdigest(),
                         "stage": self.stage,
                         "backend_pid": self.pid,
                         "owned": self.window.session.owned,

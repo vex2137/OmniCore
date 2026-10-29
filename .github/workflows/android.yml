@@ -2,10 +2,10 @@ name: Native Android APK
 
 on:
   push:
-    branches: [main, feature/0.1.0-alpha, feature/android-part-2]
-    paths: ['apps/android/**', '.github/workflows/android.yml', 'scripts/package_android.py', 'scripts/test_android_emulator.sh']
+    branches: [main, feature/alpha-3-stability, feature/0.1.0-alpha, feature/android-part-2]
+    paths: ['backend/src/omnicore/distribution.json', 'apps/android/**', '.github/workflows/android.yml', 'scripts/package_android.py', 'scripts/test_android_emulator.sh']
   pull_request:
-    paths: ['apps/android/**', '.github/workflows/android.yml', 'scripts/package_android.py', 'scripts/test_android_emulator.sh']
+    paths: ['backend/src/omnicore/distribution.json', 'apps/android/**', '.github/workflows/android.yml', 'scripts/package_android.py', 'scripts/test_android_emulator.sh']
   workflow_dispatch:
 
 permissions:
@@ -49,10 +49,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: matrix.api == 36
         with:
-          name: OmniCore-0.1.0-alpha-android-arm64
+          name: OmniCore-0.1.0-alpha.3-android-arm64
           path: |
-            dist/*.apk
-            dist/*.apk.sha256
+            dist/OmniCore-0.1.0-alpha.3-android-arm64.apk
+            dist/OmniCore-0.1.0-alpha.3-android-arm64.apk.sha256
             dist/android-build.json
           if-no-files-found: error
           retention-days: 30

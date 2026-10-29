@@ -793,7 +793,10 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
             Modifier.fillMaxWidth(),
         )
         GenerationSettings(s, vm)
-        Text(stringResource(R.string.about), style = MaterialTheme.typography.bodySmall)
+        Text(
+            stringResource(R.string.about, BuildConfig.VERSION_NAME),
+            style = MaterialTheme.typography.bodySmall,
+        )
         Spacer(Modifier.height(30.dp))
     }
 }

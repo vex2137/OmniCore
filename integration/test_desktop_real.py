@@ -1,6 +1,7 @@
 """Explicit real Qt + HTTP/SSE + GGUF test. No mocked inference or automatic weights."""
 
 import os
+import subprocess
 from pathlib import Path
 
 from PySide6.QtCore import QProcess, Qt, QTimer
@@ -79,6 +80,27 @@ def test_real_gui_stream_cancel_history_restart(qtbot, tmp_path, monkeypatch):
     qtbot.waitUntil(lambda: w.is_connected and not w._health_pending, timeout=20000)
     w.open_conversation(conversation)
     qtbot.waitUntil(lambda: any(m["content"] == answer for m in w.messages))
+    # Close during a third actual generation, then reopen persisted history.
+    w.composer.setPlainText("Describe the numbers from one to one hundred in detail.")
+    w.send_message()
+    qtbot.waitUntil(lambda: bool(w.active_job) and bool(w.last_job.get("content")), timeout=130000)
+    backend_pid = session.process.processId()
+    children = subprocess.check_output(  # noqa: S603,S607 — inspect only this owned backend.
+        ["/usr/bin/ps", "--ppid", str(backend_pid), "-o", "pid="], text=True
+    ).split()
+    assert Path(f"/proc/{backend_pid}/status").is_file()
+    assert children, "The owned backend must have a real engine child"
     w.close()
     qtbot.waitUntil(lambda: w._allow_close, timeout=12000)
     assert session.process.state() == QProcess.NotRunning
+    qtbot.waitUntil(
+        lambda: all(not Path(f"/proc/{pid}").exists() for pid in children), timeout=10000
+    )
+    from omnicore.database import Database
+    from omnicore.desktop.config import data_path
+    from omnicore.text.conversations import Conversations
+    from omnicore.text.store import TextStore
+
+    saved = Conversations(TextStore(Database(data_path()))).messages(conversation)
+    assert any(m.content == answer and m.status == "completed" for m in saved)
+    assert saved[-1].status == "cancelled" and saved[-1].content

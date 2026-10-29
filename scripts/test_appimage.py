@@ -9,12 +9,13 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+VERSION = json.loads((ROOT / "backend/src/omnicore/distribution.json").read_text())["version"]
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--appimage", type=Path, default=ROOT / "dist/OmniCore-0.1.0-alpha-x86_64.AppImage"
+        "--appimage", type=Path, default=ROOT / f"dist/OmniCore-{VERSION}-x86_64.AppImage"
     )
     parser.add_argument("--gguf", type=Path)
     args = parser.parse_args()
@@ -58,12 +59,14 @@ def main():
                 raise
             record = json.loads(report.read_text())
             assert record["ok"] and record["owned"], record
+            assert record["version"] == VERSION
             assert record["backend_pid"] and not Path(f"/proc/{record['backend_pid']}").exists()
             if index == 0:
                 config = directory / "config/omnicore/desktop.json"
                 config.parent.mkdir(parents=True, exist_ok=True)
                 config.write_text(json.dumps({"locale": "en-US", "theme": "dark"}))
             else:
+                assert record["history_digest"] == result[0]["history_digest"]
                 assert record["conversations"] == result[0]["conversations"]
                 assert record["models"] == result[0]["models"]
                 assert record["locale"] == "en-US" and record["theme"] == "dark"
