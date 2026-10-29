@@ -73,9 +73,12 @@ jobs:
           script: |
             adb shell getconf PAGE_SIZE
             adb shell mkdir -p /sdcard/Download
-            ./gradlew --no-daemon connectedDebugAndroidTest
+            test_status=0
+            ./gradlew --no-daemon connectedDebugAndroidTest || test_status=$?
             mkdir -p ../../dist/android-evidence
-            adb pull /sdcard/Download/omnicore-android-chat.png ../../dist/android-evidence/android-chat.png
+            adb pull /sdcard/Download/omnicore-android-chat.png ../../dist/android-evidence/android-chat.png || true
+            adb pull /sdcard/Download/omnicore-android-failure.png ../../dist/android-evidence/android-failure.png || true
+            exit "$test_status"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

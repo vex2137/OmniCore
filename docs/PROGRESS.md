@@ -507,3 +507,14 @@ Test zachowuje teraz Task natychmiast po pierwszym submit i oczekuje tej samej
 referencji. Wszystkie asercje trwałości, treści, metryk i idempotencji zachowano.
 Kod backendu i kontrakty nie zostały zmienione. Push backend run `40866050449`
 dla tego samego kodu wcześniej PASS; wymagamy ponownej walidacji poprawki testu.
+
+### Poprawka widoku czatu przy zmianie rozmiaru klawiatury
+
+Run `40866050470`: API 36 PASS, API 30 FAIL na widoczności odpowiedzi mimo
+oczekiwania. Samo oczekiwanie na animację nie rozwiązało problemu. Kontener
+Scaffold konsumuje teraz własne insets, aby imePadding nie naliczał ponownie
+wysokości dolnego paska, a automatyczne przewijanie reaguje również na zmianę
+wysokości viewportu (IME/orientacja), nie tylko liczbę wiadomości/sekwencję.
+Ustawienia mają imePadding, więc pola i przycisk połączenia pozostają osiągalne
+przy otwartej klawiaturze. Test wciąż wymaga rzeczywistej widoczności odpowiedzi;
+CI zachowuje zrzut i geometrię fixture także przy błędzie, bez tokenów/headers.

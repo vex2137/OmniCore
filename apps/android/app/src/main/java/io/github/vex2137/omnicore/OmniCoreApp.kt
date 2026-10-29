@@ -130,7 +130,7 @@ fun OmniCoreApp(vm: OmniViewModel, onLanguage: (String) -> Unit) {
                             }
                     },
                 ) { padding ->
-                    Column(Modifier.padding(padding).fillMaxSize()) {
+                    Column(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize()) {
                         if (state.busy)
                             LinearProgressIndicator(Modifier.fillMaxWidth().testTag("busy"))
                         state.error?.let { ErrorBanner(it, vm::dismissError) }
@@ -301,7 +301,11 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
         val messages =
             s.messages.filterNot { it.generationId != null && it.generationId == s.generation?.id }
         val scroll = androidx.compose.foundation.lazy.rememberLazyListState()
-        LaunchedEffect(messages.size, s.generation?.sequence) {
+        LaunchedEffect(
+            messages.size,
+            s.generation?.sequence,
+            scroll.layoutInfo.viewportSize.height,
+        ) {
             val count = messages.size + if (s.generation != null) 1 else 0
             if (count > 0) scroll.animateScrollToItem(count - 1)
         }
@@ -627,7 +631,7 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
     var clear by remember { mutableStateOf(false) }
     var trusted by remember(s.trustedLan) { mutableStateOf(s.trustedLan) }
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineSmall)

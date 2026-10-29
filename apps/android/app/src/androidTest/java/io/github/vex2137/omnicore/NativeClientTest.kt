@@ -279,6 +279,20 @@ class NativeClientTest {
                         .isNotEmpty()
             }
             compose.onNodeWithText("Hello from backend").assertDoesNotExist()
+        } catch (failure: Throwable) {
+            // Only geometry and fixture UI are captured; never dump password semantics or headers.
+            val reply =
+                compose.onAllNodesWithText("Hello from backend").fetchSemanticsNodes().firstOrNull()
+            val list = compose.onAllNodesWithTag("messages").fetchSemanticsNodes().firstOrNull()
+            println("Chat geometry: reply=${reply?.boundsInRoot}, list=${list?.boundsInRoot}")
+            val capture =
+                InstrumentationRegistry.getInstrumentation()
+                    .uiAutomation
+                    .executeShellCommand(
+                        "screencap -p /sdcard/Download/omnicore-android-failure.png"
+                    )
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(capture).use { it.readBytes() }
+            throw failure
         } finally {
             server.shutdown()
         }
