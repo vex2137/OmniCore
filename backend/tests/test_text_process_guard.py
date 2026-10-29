@@ -29,7 +29,12 @@ time.sleep(60)
         deadline = time.monotonic() + 4
         while time.monotonic() < deadline:
             status = Path(f"/proc/{child_pid}/status")
-            if not status.exists() or "State:\tZ" in status.read_text():
+            try:
+                contents = status.read_text()
+            except (FileNotFoundError, ProcessLookupError):
+                # Exiting between lookup/open/read satisfies the lifecycle requirement.
+                break
+            if "State:\tZ" in contents:
                 break
             time.sleep(0.01)
         else:

@@ -724,6 +724,7 @@ class MainWindow(QMainWindow):
 
         def deleted(_):
             self.current_id = None
+            self.last_job = None
             self.messages = []
             self.render_messages()
             self.refresh_conversations()

@@ -4,7 +4,6 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -24,18 +23,19 @@ class NativeClientTest {
     private val token = "a".repeat(48)
     @Volatile private var exists = false
     @Volatile private var title = "New conversation"
+    @Volatile private var selectedModelId = "m1"
     @Volatile private var content = ""
     @Volatile private var generationNumber = 0
     @Volatile private var jobState = "running"
 
-    private fun conversation() = """{"id":"c1","title":"$title","model_id":"m1"}"""
+    private fun conversation() = """{"id":"c1","title":"$title","model_id":"$selectedModelId"}"""
 
     private fun job(
         state: String = jobState,
         sequence: Int = 1,
         answer: String = "Hello from backend",
     ) =
-        """{"id":"j$generationNumber","conversation_id":"c1","model_id":"m1","state":"$state","content":"$answer","sequence":$sequence}"""
+        """{"id":"j$generationNumber","conversation_id":"c1","model_id":"$selectedModelId","state":"$state","content":"$answer","sequence":$sequence}"""
 
     private fun json(body: String) =
         MockResponse().setHeader("Content-Type", "application/json").setBody(body)
@@ -54,7 +54,7 @@ class NativeClientTest {
                             json("""{"status":"ok","version":"test","database_version":1}""")
                         path == "/api/v1/text/models" ->
                             json(
-                                """[{"id":"m1","name":"Fixture GGUF","backend":"llama.cpp","format":"GGUF","size_bytes":1000,"compatibility":"unverified"}]"""
+                                """[{"id":"m1","name":"Fixture GGUF","backend":"llama.cpp","format":"GGUF","size_bytes":1000,"compatibility":"unverified"},{"id":"m2","name":"Second GGUF","backend":"llama.cpp","format":"GGUF","compatibility":"unverified"}]"""
                             )
                         path == "/api/v1/text/engines" ->
                             json(
@@ -67,11 +67,10 @@ class NativeClientTest {
                         path == "/api/v1/text/conversations" ->
                             json(if (exists) "[${conversation()}]" else "[]")
                         path == "/api/v1/text/conversations/c1" && request.method == "PATCH" -> {
-                            title =
-                                WireJson.parseToJsonElement(request.body.readUtf8())
-                                    .jsonObject["title"]!!
-                                    .jsonPrimitive
-                                    .content
+                            val patch =
+                                WireJson.parseToJsonElement(request.body.readUtf8()).jsonObject
+                            patch["title"]?.let { title = it.jsonPrimitive.content }
+                            patch["model_id"]?.let { selectedModelId = it.jsonPrimitive.content }
                             json(conversation())
                         }
                         path == "/api/v1/text/conversations/c1" && request.method == "DELETE" -> {
@@ -124,7 +123,8 @@ class NativeClientTest {
             compose.onNodeWithTag("trusted_lan").performScrollTo().performClick()
             compose.onNodeWithTag("connect").performScrollTo().performClick()
             compose.waitUntil(15000) {
-                compose.onAllNodesWithText("Connected").fetchSemanticsNodes().isNotEmpty()
+                compose.onAllNodesWithText("Connected").fetchSemanticsNodes().isNotEmpty() &&
+                    compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty()
             }
             val context = InstrumentationRegistry.getInstrumentation().targetContext
             val preferences = context.getSharedPreferences("omnicore", 0)
@@ -134,8 +134,18 @@ class NativeClientTest {
             compose.onNodeWithTag("nav_0").performClick()
             compose.onNodeWithTag("home_new").performScrollTo().performClick()
             compose.waitUntil(10000) {
-                compose.onAllNodesWithTag("composer").fetchSemanticsNodes().isNotEmpty()
+                compose
+                    .onAllNodes(hasTestTag("composer") and isEnabled())
+                    .fetchSemanticsNodes()
+                    .isNotEmpty() &&
+                    compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty()
             }
+            compose.onNodeWithText("Fixture GGUF · llama.cpp").performClick()
+            compose.onNodeWithText("Second GGUF · llama.cpp").performClick()
+            compose.waitUntil(10000) {
+                compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty()
+            }
+            assertEquals("m2", selectedModelId)
             compose.onNodeWithTag("composer").performTextInput("Hello")
             compose.onNodeWithTag("send").performClick()
             compose.waitUntil(15000) {
@@ -151,6 +161,9 @@ class NativeClientTest {
             compose.waitUntil(10000) {
                 compose.onAllNodesWithText("Cancelled").fetchSemanticsNodes().isNotEmpty()
             }
+            compose.waitUntil(10000) {
+                compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty()
+            }
             compose.onNodeWithContentDescription("Rename").performClick()
             compose.onNodeWithText("Conversation title").performTextClearance()
             compose.onNodeWithText("Conversation title").performTextInput("My history")
@@ -158,13 +171,11 @@ class NativeClientTest {
             compose.waitUntil(10000) {
                 compose.onAllNodesWithText("My history").fetchSemanticsNodes().isNotEmpty()
             }
-            val evidence = File(context.getExternalFilesDir(null), "evidence").apply { mkdirs() }
-            InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot().apply {
-                File(evidence, "android-chat.png").outputStream().use {
-                    compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
-                }
-                recycle()
-            }
+            val capture =
+                InstrumentationRegistry.getInstrumentation()
+                    .uiAutomation
+                    .executeShellCommand("screencap -p /sdcard/Download/omnicore-android-chat.png")
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(capture).use { it.readBytes() }
             compose.onNodeWithTag("nav_2").performClick()
             compose.onNodeWithText("Fixture GGUF").assertExists()
             compose.onNodeWithTag("nav_4").performClick()
@@ -197,7 +208,15 @@ class NativeClientTest {
             compose.onNodeWithTag("nav_1").performClick()
             compose.onNodeWithContentDescription("Delete").performClick()
             compose.onNode(hasText("Confirm") and hasClickAction()).performClick()
-            compose.waitUntil(10000) { !exists }
+            compose.waitUntil(10000) {
+                !exists &&
+                    compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty() &&
+                    compose
+                        .onAllNodesWithText("Choose a conversation")
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+            }
+            compose.onNodeWithText("Hello from backend").assertDoesNotExist()
         } finally {
             server.shutdown()
         }

@@ -90,12 +90,14 @@ data class CreateConversation(
 
 @Serializable data class RenameConversation(val title: String)
 
+@Serializable data class ModelSelection(@SerialName("model_id") val modelId: String)
+
 @Serializable
 data class GenerationRequest(
     val content: String,
     @SerialName("request_key") val requestKey: String,
     @SerialName("model_id") val modelId: String,
-    val parameters: Parameters,
+    val parameters: Parameters? = null,
 )
 
 @Serializable data class ModelImport(val path: String)

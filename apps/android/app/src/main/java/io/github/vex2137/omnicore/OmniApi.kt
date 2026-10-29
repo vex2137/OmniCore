@@ -131,6 +131,14 @@ class OmniApi(private val base: String, private val token: String) {
         )
     }
 
+    suspend fun selectModel(conversationId: String, modelId: String) {
+        exchange(
+            "PATCH",
+            "/api/v1/text/conversations/$conversationId",
+            WireJson.encodeToString(ModelSelection(modelId)),
+        )
+    }
+
     suspend fun delete(id: String) {
         exchange("DELETE", "/api/v1/text/conversations/$id")
     }

@@ -197,7 +197,22 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectModel(id: String) {
-        mutable.update { it.copy(selectedModel = id) }
+        if (mutable.value.generating || mutable.value.busy) return
+        val conversation = mutable.value.selectedConversation
+        if (conversation == null) mutable.update { it.copy(selectedModel = id) }
+        else
+            action { service ->
+                service.selectModel(conversation, id)
+                mutable.update { previous ->
+                    previous.copy(
+                        selectedModel = id,
+                        conversations =
+                            previous.conversations.map {
+                                if (it.id == conversation) it.copy(modelId = id) else it
+                            },
+                    )
+                }
+            }
     }
 
     fun refresh() = action { refresh(it) }
@@ -218,7 +233,15 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
         }
         mutable.value.selectedConversation?.let { id ->
             if (conversations.any { it.id == id }) loadMessages(service, id)
-            else mutable.update { it.copy(selectedConversation = null, messages = emptyList()) }
+            else
+                mutable.update {
+                    it.copy(
+                        selectedConversation = null,
+                        messages = emptyList(),
+                        generation = null,
+                        draft = "",
+                    )
+                }
         }
         mutable.value.generation?.takeIf { !it.terminal }?.let { accept(service.generation(it.id)) }
     }
@@ -285,15 +308,8 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
             pending?.takeIf {
                 pendingConversation == conversation &&
                     it.content == state.draft &&
-                    it.modelId == model &&
-                    it.parameters == state.parameters
-            }
-                ?: GenerationRequest(
-                    state.draft,
-                    UUID.randomUUID().toString(),
-                    model,
-                    state.parameters,
-                )
+                    it.modelId == model
+            } ?: GenerationRequest(state.draft, UUID.randomUUID().toString(), model)
         pending = request
         pendingConversation = conversation
         action { service ->

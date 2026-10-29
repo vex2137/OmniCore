@@ -66,10 +66,14 @@ def test_conversation_create_rename_delete_history(desktop, qtbot, monkeypatch):
     )
     w.refresh_messages()
     qtbot.waitUntil(lambda: "Historia zażółć" in w.transcript.toPlainText())
+    w.last_job = {"id": "cached-job", "content": "Cached response to delete"}
+    w.render_messages()
+    assert "Cached response to delete" in w.transcript.toPlainText()
     monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.Yes)
     w.delete_conversation()
     qtbot.waitUntil(lambda: w.conversation_list.count() == 0)
     assert not w.current_id
+    assert "Cached response to delete" not in w.transcript.toPlainText()
 
 
 def test_native_import_and_model_selection_no_ollama(desktop, qtbot, monkeypatch):

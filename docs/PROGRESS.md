@@ -307,3 +307,25 @@ uruchomiony w tym checkpointcie; nie deklarujemy jego testu jako PASS.
 
 Dodatkowa analiza ELF AppImage CI potwierdziła wymagane symbole do **GLIBC 2.35**.
 Wcześniejszy lokalny build Debian wymaga GLIBC 2.39; nie jest tym samym artefaktem.
+
+## Stabilizacja klientów i testów przed integracją
+
+- Rzeczywisty test natywnego Androida na emulatorze API 30 x86_64 wykonał
+  **1 test, 0 błędów, 0 pominiętych** (CI 40828606136). Workflow zatrzymał się
+  dopiero na pobraniu screenshotu z katalogu aplikacji, usuniętego przez cleanup
+  po testach. Przeniesiono zapis testowego screenshotu do Download i poprawiono
+  pobieranie artefaktu. Nie uznajemy całego workflow za SUCCESS przed powtórzeniem.
+- Poprawiono czyszczenie widoku po usunięciu rozmowy w obu klientach. Linux ma
+  jedną linię poprawki i test regresyjny pamięci odpowiedzi; nie przepisano GUI.
+  Nowy AppImage z tą poprawką wymaga własnej weryfikacji i nowej checksumy.
+- Android zapisuje wybór modelu przez istniejący PATCH rozmowy. Generowanie
+  zachowuje parametry rozmowy/backendu zamiast nadpisywać je domyślnymi klienta.
+  Ponowienia zachowują request_key. Dodano testy kontraktu wyboru modelu i braku
+  niezamierzonego nadpisania parametrów.
+- Lokalnie **130 PASS**: 117 backend + 11 Linux GUI + 2 rzeczywiste GGUF/GUI,
+  z poprawkami czyszczenia i testu lifecycle. Android: **18 testów JVM PASS**,
+  lint i oba APK/debug oraz AndroidTest APK zbudowane. Emulator dla końcowej
+  poprawki pozostaje do ponowienia w CI.
+- Błąd backend CI był wyścigiem samego testu /proc: proces zdążył zniknąć między
+  exists/open/read. Odczyt obsługuje teraz ENOENT/ESRCH jako zakończenie procesu,
+  zachowując asercję i limit czasu. Nie wyłączono testu ani nie zmieniono guard.

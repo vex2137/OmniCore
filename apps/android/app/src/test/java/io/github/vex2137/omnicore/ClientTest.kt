@@ -265,4 +265,28 @@ class ClientTest {
             server.shutdown()
         }
     }
+
+    @Test
+    fun generationPreservesBackendConversationParametersByDefault() {
+        val payload = WireJson.encodeToString(GenerationRequest("Hi", "key", "model"))
+        assertFalse(payload.contains("parameters"))
+    }
+
+    @Test
+    fun modelSelectionIsPersistedThroughConversationPatch() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("{}"))
+        server.start()
+        val api = OmniApi(server.url("/").toString().trimEnd('/'), "test-token")
+        try {
+            api.selectModel("c", "m2")
+            val call = server.takeRequest(2, TimeUnit.SECONDS)!!
+            assertEquals("PATCH", call.method)
+            assertEquals("/api/v1/text/conversations/c", call.path)
+            assertEquals("{\"model_id\":\"m2\"}", call.body.readUtf8())
+        } finally {
+            api.close()
+            server.shutdown()
+        }
+    }
 }
