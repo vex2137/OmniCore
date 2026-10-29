@@ -151,4 +151,10 @@ Download this file onto the backend computer?</string>
   <string name="error_context_limit">The prompt exceeds the model context. Shorten the history or explicitly adjust the context within available memory.</string>
   <string name="device">Device</string>
   <string name="cpu_fallback">CPU fallback: GPU unavailable</string>
+  <string name="offloaded_layers">Layers on GPU</string>
+  <string name="processing_backend">Processing on the backend computer</string>
+  <string name="mode_auto">Auto</string>
+  <string name="mode_cpu">CPU</string>
+  <string name="mode_cuda">CUDA</string>
+  <string name="error_gpu">The backend could not use GPU. Select Auto for CPU fallback, or check engine diagnostics on the computer.</string>
 </resources>

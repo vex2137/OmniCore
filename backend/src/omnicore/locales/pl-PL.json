@@ -29,7 +29,7 @@
   "error.engine_rejected_request": "Silnik odrzucił model lub żądanie.",
   "error.unsupported_parameter": "Silnik nie obsługuje wybranego parametru.",
   "error.engine_stream_interrupted": "Strumień silnika został nieoczekiwanie przerwany.",
-  "error.gpu_unavailable": "Wybrana karta GPU jest niedostępna. Wybierz CPU lub silnik z obsługą GPU.",
+  "error.gpu_unavailable": "Nie znaleziono działającego silnika lub urządzenia GPU. Wybierz Auto dla fallback CPU lub sprawdź diagnostykę.",
   "error.model_load_failed": "Nie można wczytać modelu. Sprawdź wersję silnika i zgodność modelu.",
   "error.model_not_loaded": "Model nie jest załadowany.",
   "error.invalid_path": "Ścieżka jest niedozwolona, zawiera dowiązanie lub nie wskazuje zwykłego pliku.",
@@ -54,5 +54,8 @@
   "error.empty_response": "Silnik nie zwrócił końcowej odpowiedzi. Sprawdź szablon rozmowy i powód zakończenia; kontekst nie został automatycznie zwiększony.",
   "error.reasoning_limit_reached": "Limit tokenów został zużyty na rozumowanie przed końcową odpowiedzią. Wyłącz myślenie, jeśli model to obsługuje, lub świadomie zmień limit odpowiedzi.",
   "error.context_limit_exceeded": "Polecenie przekracza kontekst modelu. Skróć rozmowę lub świadomie wybierz kontekst zgodny z modelem i dostępną pamięcią.",
-  "error.engine_invalid_response": "Silnik inferencji zwrócił nieprawidłową odpowiedź."
+  "error.engine_invalid_response": "Silnik inferencji zwrócił nieprawidłową odpowiedź.",
+  "error.gpu_offload_unverified": "Silnik nie potwierdził przeniesienia warstw na GPU. Auto może użyć CPU; sprawdź ustawienia i zgodność silnika.",
+  "error.cuda_runtime_unavailable": "Silnik CUDA nie może wczytać bibliotek runtime lub sterownika. Sprawdź diagnostykę lub wybierz Auto/CPU.",
+  "error.gpu_layers_required": "Wybierz co najmniej jedną warstwę GPU, aby wymagać CUDA."
 }

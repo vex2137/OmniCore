@@ -770,3 +770,15 @@ zarówno enable_thinking=false, jak i reasoning_effort=none do zgodnego llama.cp
 żaden preserve flag nie jest traktowany jako wyłączenie rozumowania. Reasoning-only
 z length nadal kończy się błędem, nie pustą zakończoną odpowiedzią. Regresje oznaczone
 LFM3/Qwen są testami protokołu, nie testami rzeczywistych wag użytkownika.
+
+### 0.1.0 RC — ustawienia klientów i zgodność danych
+
+20 Qt + 1 upgrade Alpha.3 PASS. Podstawowy widok Linux ma Auto/CPU/CUDA; ścieżki,
+warstwy i parametry silników są w rozwijanych opcjach zaawansowanych. Nowy profil
+preferuje Auto/99, istniejący ręczny CPU pozostaje zachowany; CPU zapisuje zero
+warstw. Diagnostyka rozróżnia dostępne GPU i aktualnie potwierdzony offload/VRAM.
+Długie historie tworzą początkowo 60 dymków; starsze można rzeczywiście doładować.
+Test aktualizacji zachowuje oryginalny JSON wiadomości bajt w bajt, ustawienia,
+katalog i eksport/import. Nie zmieniono schematu SQLite.
+Android: 44 JVM i lint PASS; opcje wykonania dotyczą komputera backendu, nie telefonu.
+Dodano wyświetlanie potwierdzonej liczby warstw na GPU i czytelne błędy GPU.

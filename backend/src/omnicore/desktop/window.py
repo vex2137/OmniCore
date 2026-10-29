@@ -68,6 +68,10 @@ class MainWindow(QMainWindow):
     def __init__(self, api, session, config):
         super().__init__()
         self.api, self.session, self.config = api, session, config
+        self.config.parameters.setdefault("device", "auto")
+        self.config.parameters.setdefault(
+            "gpu_layers", 99 if self.config.parameters["device"] != "cpu" else 0
+        )
         self.tr = Translator(config.locale)
         self._texts = []
         self.conversations, self.models, self.messages = [], [], []
@@ -359,6 +363,26 @@ class MainWindow(QMainWindow):
         self.theme.setCurrentIndex(self.theme.findData(self.config.theme))
         self.theme.currentIndexChanged.connect(self.preview_theme)
         form.addRow(self.label("theme"), self.theme)
+        self.device = QComboBox()
+        for key in ("auto", "cpu", "cuda"):
+            self.device.addItem(self.tr("mode_" + key), key)
+        selected = self.config.parameters.get("device", "auto")
+        if selected not in {"auto", "cpu", "cuda"}:
+            self.device.addItem(selected, selected)
+        self.device.setCurrentIndex(self.device.findData(selected))
+        form.addRow(self.label("execution_mode"), self.device)
+        self.engine_summary = self.label("detecting_engines")
+        form.addRow(self.engine_summary)
+        form.addRow(self.button("detect_engines", self.refresh_diagnostics))
+        basic = form
+        self.advanced_settings = QWidget()
+        self.advanced_toggle = self.button("advanced_settings", lambda: None)
+        self.advanced_toggle.setCheckable(True)
+        self.advanced_toggle.toggled.connect(self.advanced_settings.setVisible)
+        basic.addRow(self.advanced_toggle)
+        basic.addRow(self.advanced_settings)
+        self.advanced_settings.hide()
+        form = QFormLayout(self.advanced_settings)
         self.roots = QListWidget()
         self.roots.setMaximumHeight(100)
         self.roots.addItems(self.config.model_roots)
@@ -392,7 +416,7 @@ class MainWindow(QMainWindow):
             "max_tokens": 256,
             "context_size": 2048,
             "seed": 0,
-            "gpu_layers": 0,
+            "gpu_layers": 99,
         }
         ranges = {
             "temperature": (0, 2),
@@ -410,23 +434,24 @@ class MainWindow(QMainWindow):
             if isinstance(default, float):
                 box.setSingleStep(0.05)
             box.setValue(self.config.parameters.get(key, default))
-            form.addRow(self.label(key), box)
+            (basic if key in {"max_tokens", "temperature", "top_p"} else form).addRow(
+                self.label(key), box
+            )
             self.parameter_inputs[key] = box
-        self.device = QLineEdit(self.config.parameters.get("device", "cpu"))
-        form.addRow(self.label("device"), self.device)
+        self.device.currentIndexChanged.connect(self.execution_mode_changed)
         self.thinking = QCheckBox(self.tr("thinking"))
         self.thinking.setChecked(self.config.parameters.get("thinking", False))
         self._texts.append((self.thinking, "thinking"))
-        form.addRow(self.thinking)
+        basic.addRow(self.thinking)
         self.system_prompt = QPlainTextEdit(self.config.parameters.get("system_prompt", ""))
         self.system_prompt.setMaximumHeight(100)
-        form.addRow(self.label("system_prompt"), self.system_prompt)
-        form.addRow(self.label("settings_hint"))
-        form.addRow(self.button("save", self.save_settings, primary=True))
+        basic.addRow(self.label("system_prompt"), self.system_prompt)
+        basic.addRow(self.label("settings_hint"))
+        basic.addRow(self.button("save", self.save_settings, primary=True))
         self.about = QLabel()
         self.about.setWordWrap(True)
         self.about.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        form.addRow(self.about)
+        basic.addRow(self.about)
         scroll.setWidget(page)
         self.pages.addWidget(scroll)
 
@@ -475,6 +500,8 @@ class MainWindow(QMainWindow):
         self.model_tabs.setTabText(1, self.tr("download"))
         for index, key in enumerate(("system", "light", "dark")):
             self.theme.setItemText(index, self.tr(key))
+        for index, key in enumerate(("auto", "cpu", "cuda")):
+            self.device.setItemText(index, self.tr("mode_" + key))
         self.connection.setText(self.tr(self._connection_key))
         self.about.setText(self.tr("about", path=data_path()))
         self.refresh_model_table()
@@ -745,7 +772,7 @@ class MainWindow(QMainWindow):
             {
                 "title": self.tr("untitled"),
                 "model_id": self.model_combo.currentData(),
-                "parameters": self.config.parameters,
+                "parameters": self.request_parameters(),
             },
             success=lambda record: self.refresh_conversations(record["id"]),
         )
@@ -843,6 +870,13 @@ class MainWindow(QMainWindow):
                 {"model_id": self.model_combo.currentData()},
             )
 
+    def request_parameters(self):
+        parameters = dict(self.config.parameters)
+        model = next((m for m in self.models if m["id"] == self.model_combo.currentData()), None)
+        if model and model["backend"] == "ollama":
+            parameters.update(device="cpu", gpu_layers=0)
+        return parameters
+
     def send_message(self):
         if self.active_job or self._submitting or not self.is_connected:
             return
@@ -862,7 +896,7 @@ class MainWindow(QMainWindow):
             "content": content,
             "request_key": uuid.uuid4().hex,
             "model_id": model,
-            "parameters": self.config.parameters,
+            "parameters": self.request_parameters(),
         }
 
         def submitted(record):
@@ -1268,6 +1302,13 @@ class MainWindow(QMainWindow):
         if path:
             self.llama_path.setText(path)
 
+    def execution_mode_changed(self):
+        layers = self.parameter_inputs["gpu_layers"]
+        if self.device.currentData() == "cpu":
+            layers.setValue(0)
+        elif layers.value() == 0:
+            layers.setValue(99)
+
     def choose_llama_cuda(self):
         path, _ = QFileDialog.getOpenFileName(self, self.tr("llama_cuda_server"))
         if path:
@@ -1316,9 +1357,11 @@ class MainWindow(QMainWindow):
         self.config.parameters = {k: box.value() for k, box in self.parameter_inputs.items()}
         self.config.parameters.update(
             system_prompt=self.system_prompt.toPlainText(),
-            device=self.device.text().strip(),
+            device=self.device.currentData(),
             thinking=self.thinking.isChecked(),
         )
+        if self.config.parameters["device"] == "cpu":
+            self.config.parameters["gpu_layers"] = 0
         from omnicore.text.types import GenerationParameters
 
         try:
@@ -1342,6 +1385,17 @@ class MainWindow(QMainWindow):
 
         def received(records):
             self.engines = records
+            llama = next((r for r in records if r["info"]["id"] == "llama.cpp"), {})
+            devices = llama.get("gpu_devices") or []
+            self.engine_summary.setText(
+                self.tr("gpu_detected", devices=", ".join(devices))
+                if devices
+                else self.tr(
+                    "cpu_available"
+                    if llama.get("info", {}).get("available")
+                    else "llama_unavailable"
+                )
+            )
             lines = [
                 f"{self.tr('backend')}: {self.api.base_url}",
                 f"{self.tr('active_task')}: {self.active_job or self.tr('none')}",
@@ -1361,6 +1415,27 @@ class MainWindow(QMainWindow):
                         f"{self.tr('vram')}: {human_size(resources.get('vram_bytes'))}",
                     ]
                 )
+
+                if record.get("execution_device"):
+                    lines.append(
+                        f"{self.tr('execution_device')}: {record['execution_device']} · "
+                        f"{self.tr('offloaded_layers')}: {record.get('gpu_offloaded_layers', 0)}"
+                    )
+                for gpu in record.get("nvidia_devices", []):
+                    lines.append(
+                        f"{gpu['name']} · {self.tr('vram')}: "
+                        f"{human_size(gpu['free_bytes'])}/{human_size(gpu['total_bytes'])}"
+                    )
+                for candidate in record.get("candidates", []):
+                    lines.append(
+                        f"{candidate['path']}: "
+                        + ", ".join(candidate["devices"])
+                        + (
+                            " · " + self.tr(candidate["error_code"])
+                            if candidate.get("error_code")
+                            else ""
+                        )
+                    )
 
             def hardware_received(snapshot):
                 hardware = snapshot["hardware"]

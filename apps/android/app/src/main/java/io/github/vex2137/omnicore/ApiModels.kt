@@ -80,6 +80,7 @@ data class Parameters(
 
 @Serializable
 data class GenerationStatistics(
+    @SerialName("gpu_offloaded_layers") val gpuOffloadedLayers: Int? = null,
     @SerialName("execution_device") val executionDevice: String? = null,
     @SerialName("fallback_reason") val fallbackReason: String? = null,
     @SerialName("input_tokens") val inputTokens: Int? = null,
@@ -103,6 +104,7 @@ data class Generation(
     val sequence: Long = 0,
     @SerialName("error_code") val errorCode: String? = null,
     @SerialName("tokens_per_second") val tokensPerSecond: Double? = null,
+    @SerialName("gpu_offloaded_layers") val gpuOffloadedLayers: Int? = null,
     @SerialName("execution_device") val executionDevice: String? = null,
     @SerialName("fallback_reason") val fallbackReason: String? = null,
     @SerialName("model_name") val modelName: String? = null,
@@ -119,6 +121,7 @@ data class Generation(
 ) {
     fun statistics() =
         GenerationStatistics(
+            gpuOffloadedLayers,
             executionDevice,
             fallbackReason,
             inputTokens,

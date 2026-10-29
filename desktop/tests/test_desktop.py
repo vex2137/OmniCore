@@ -436,3 +436,35 @@ def test_history_search_uses_backend_message_content_without_losing_selection(de
     assert w.current_id == second["id"]
     w.history_search.clear()
     qtbot.waitUntil(lambda: w.conversation_list.count() == 2)
+
+
+def test_processing_selector_hides_technical_paths_and_preserves_manual_choice(desktop, qtbot):
+    w = desktop
+    assert not w.advanced_settings.isVisible()
+    w.navigate(2)
+    w.device.setCurrentIndex(w.device.findData("cpu"))
+    w.save_settings()
+    assert DesktopConfig.load().parameters["device"] == "cpu"
+    assert DesktopConfig.load().parameters["gpu_layers"] == 0
+    w.device.setCurrentIndex(w.device.findData("auto"))
+    assert w.parameter_inputs["gpu_layers"].value() == 99
+    w.save_settings()
+    assert DesktopConfig.load().parameters["device"] == "auto"
+    w.advanced_toggle.click()
+    assert w.advanced_settings.isVisible()
+
+
+def test_long_history_is_incremental_and_earlier_messages_remain_accessible(qtbot):
+    from omnicore.desktop.i18n import Translator
+    from omnicore.desktop.transcript import ChatTranscript
+
+    widget = ChatTranscript()
+    qtbot.addWidget(widget)
+    messages = [{"id": str(i), "role": "user", "content": f"Message {i}"} for i in range(180)]
+    widget.set_messages(messages, Translator("en-US"))
+    assert len(widget.cards) == 60 and widget.cards[0].message["id"] == "120"
+    assert "Message 0" in widget.toPlainText()
+    widget.more.click()
+    assert len(widget.cards) == 120
+    widget.more.click()
+    assert len(widget.cards) == 180

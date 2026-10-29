@@ -186,6 +186,10 @@ private fun ErrorBanner(code: String, dismiss: () -> Unit) {
             "empty_response" -> R.string.error_empty_response
             "reasoning_limit_reached" -> R.string.error_reasoning_limit
             "context_limit_exceeded" -> R.string.error_context_limit
+            "gpu_unavailable",
+            "gpu_offload_unverified",
+            "cuda_runtime_unavailable",
+            "gpu_layers_required" -> R.string.error_gpu
             "out_of_memory" -> R.string.error_memory
             "engine_unavailable" -> R.string.error_engine
             "stream_disconnected" -> R.string.error_stream

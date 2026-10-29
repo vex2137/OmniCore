@@ -151,4 +151,10 @@ Pobrać ten plik na komputer backendu?</string>
   <string name="error_context_limit">Polecenie przekracza kontekst modelu. Skróć historię lub świadomie zmień kontekst w granicach dostępnej pamięci.</string>
   <string name="device">Urządzenie</string>
   <string name="cpu_fallback">Fallback CPU: GPU niedostępne</string>
+  <string name="offloaded_layers">Warstwy na GPU</string>
+  <string name="processing_backend">Przetwarzanie na komputerze backendu</string>
+  <string name="mode_auto">Auto</string>
+  <string name="mode_cpu">CPU</string>
+  <string name="mode_cuda">CUDA</string>
+  <string name="error_gpu">Backend nie mógł użyć GPU. Wybierz Auto dla fallback CPU lub sprawdź diagnostykę silnika na komputerze.</string>
 </resources>

@@ -36,6 +36,7 @@ fun GenerationDetails(s: GenerationStatistics) {
             }
         parts.add("${stringResource(R.string.finish_reason)}: $display")
     }
+    add(stringResource(R.string.offloaded_layers), s.gpuOffloadedLayers)
     s.executionDevice?.let { parts.add("${stringResource(R.string.device)}: $it") }
     if (s.fallbackReason != null) parts.add(stringResource(R.string.cpu_fallback))
     if (parts.isNotEmpty())

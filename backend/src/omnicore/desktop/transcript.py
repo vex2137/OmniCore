@@ -181,6 +181,10 @@ class ChatTranscript(QScrollArea):
         self.column = QVBoxLayout(container)
         self.column.setContentsMargins(6, 10, 6, 10)
         self.column.setSpacing(16)
+        self.limit = 60
+        self.more = QPushButton()
+        self.more.clicked.connect(self.expand_history)
+        self.column.addWidget(self.more)
         self.hint = QLabel()
         self.hint.setWordWrap(True)
         self.column.addWidget(self.hint)
@@ -195,13 +199,23 @@ class ChatTranscript(QScrollArea):
         bar = self.verticalScrollBar()
         bar.setValue(bar.maximum())
 
+    def expand_history(self):
+        self.limit += 60
+        self.set_messages(self.messages, self.translator)
+
     def set_messages(self, messages, tr):
+        self.translator = tr
+        if self.messages and messages and self.messages[0].get("id") != messages[0].get("id"):
+            self.limit = 60
+        visible = messages[-self.limit :]
+        self.more.setText(tr("older_messages", count=max(0, len(messages) - self.limit)))
+        self.more.setVisible(len(messages) > self.limit)
         bar = self.verticalScrollBar()
         at_bottom = bar.value() >= bar.maximum() - 40
         locale = tr("copy")
         self.hint.setText(tr("chat_hint"))
         self.hint.setVisible(not messages)
-        for index, message in enumerate(messages):
+        for index, message in enumerate(visible):
             if (
                 index < len(self.cards)
                 and self.locale == locale
@@ -217,7 +231,7 @@ class ChatTranscript(QScrollArea):
             else:
                 self.column.insertWidget(self.column.count() - 1, card)
                 self.cards.append(card)
-        while len(self.cards) > len(messages):
+        while len(self.cards) > len(visible):
             card = self.cards.pop()
             self.column.removeWidget(card)
             card.deleteLater()
