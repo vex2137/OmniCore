@@ -21,10 +21,13 @@ from omnicore.config import is_loopback
 from omnicore.schemas import BackendInfo, Capability, ResourceUsage
 from omnicore.text import nvidia
 from omnicore.text.native import engine_candidates
+from omnicore.text.reasoning import normalize_stream, sse_data
 from omnicore.text.types import EngineModel, GenerationParameters, TextChunk, TextError, TextMessage
 
 
 def engine_error(error: Exception) -> TextError:
+    if isinstance(error, (ValueError, KeyError, TypeError)):
+        return TextError("engine_invalid_response", 502)
     if isinstance(error, httpx.TimeoutException):
         return TextError("engine_timeout", 504)
     if isinstance(error, httpx.HTTPStatusError):
@@ -187,6 +190,10 @@ class OllamaEngine:
             raise engine_error(exc) from None
 
     async def stream(self, model, messages, parameters):
+        async for chunk in normalize_stream(self._stream(model, messages, parameters)):
+            yield chunk
+
+    async def _stream(self, model, messages, parameters):
         if parameters.gpu_layers or parameters.device != "cpu":
             raise TextError("unsupported_parameter", 422)
         options = {
@@ -566,6 +573,10 @@ class LlamaEngine:
             raise
 
     async def stream(self, model, messages, parameters):
+        async for chunk in normalize_stream(self._stream(model, messages, parameters)):
+            yield chunk
+
+    async def _stream(self, model, messages, parameters):
         if not self.client or self.model != model:
             raise TextError("model_not_loaded", 409)
         self._generation_task = asyncio.current_task()
@@ -585,6 +596,7 @@ class LlamaEngine:
                     "stream_options": {"include_usage": True},
                     "chat_template_kwargs": {"enable_thinking": parameters.thinking},
                     "reasoning_format": "deepseek",
+                    **({"reasoning_effort": "none"} if not parameters.thinking else {}),
                 },
             ) as response:
                 if response.is_error:
@@ -603,10 +615,8 @@ class LlamaEngine:
                     return
                 finished = False
                 seen_text = False
-                async for line in response.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    data = line[5:].strip()
+                async for data in sse_data(response):
+                    data = data.strip()
                     if data == "[DONE]":
                         if seen_text:
                             self._verified_text_models.add(model)

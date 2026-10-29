@@ -758,3 +758,15 @@ VRAM urządzenia i własnego procesu oraz szczegóły kandydatów w diagnostyce 
 30 testów modułu generacji/silników/wykrywania PASS; 5 testów nowego modułu ponownie
 PASS po walidacji wymuszonego CUDA z zerem warstw. Są to kontrolowane testy procesu,
 nie inferencja GPU. Rzeczywisty RTX4060 wymaga testu właściciela przed Stable.
+
+### 0.1.0 RC — reasoning i SSE
+
+44 testy reasoning/transportu/generacji PASS. Nowy parser przyrostowy obsługuje
+podział <think>/</think> między tokenami, oddziela rozumowanie od odpowiedzi i ukrywa
+niekompletne znaczniki przy zakończeniu. Ustrukturyzowane reasoning ma osobny tor.
+Wieloliniowe data: SSE jest składane przed JSON, heartbeat/metadane są ignorowane,
+[DONE]/finish_reason/usage pozostają zachowane. Request thinking=false wysyła
+zarówno enable_thinking=false, jak i reasoning_effort=none do zgodnego llama.cpp;
+żaden preserve flag nie jest traktowany jako wyłączenie rozumowania. Reasoning-only
+z length nadal kończy się błędem, nie pustą zakończoną odpowiedzią. Regresje oznaczone
+LFM3/Qwen są testami protokołu, nie testami rzeczywistych wag użytkownika.
