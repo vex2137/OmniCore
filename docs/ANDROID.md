@@ -4,8 +4,8 @@ Kotlin + Jetpack Compose + Material 3, bez WebView. Aplikacja korzysta z istniej
 FastAPI REST/SSE. SQLite, inferencja, kolejka i modele pozostają na komputerze.
 **Nie ma lokalnej inferencji GGUF na telefonie ani wymaganego komponentu Rust.**
 
-Identyfikator: `io.github.vex2137.omnicore`. Wersja: `0.1.0-alpha.1`, versionCode 1.
-Minimalny Android 8.0/API 26, target/compile SDK 35. Dystrybucyjny plik:
+Identyfikator: `io.github.vex2137.omnicore`. Wersja: `0.1.0-alpha.2`, versionCode 2.
+Minimalny Android 8.0/API 26, target/compile SDK 36. Dystrybucyjny plik:
 `OmniCore-0.1.0-alpha-android-arm64.apk`, ABI arm64-v8a. Jest to build **debug/test**,
 podpisany kluczem testowym, nie oficjalnym kluczem produkcyjnym. W APK nie ma
 adresu prywatnego serwera, tokenów użytkownika ani wag modeli.
@@ -18,6 +18,11 @@ adresu prywatnego serwera, tokenów użytkownika ani wag modeli.
 - Katalog modeli, metadane/licencja/status kompatybilności, dostępność silników;
   load GGUF w backendzie, unload, usunięcie wpisu oraz import ścieżki GGUF
   **na komputerze backendu**, w już dozwolonym katalogu. Bez wysyłania wag z telefonu.
+- Hugging Face przez backend: wyszukiwanie lub owner/repo, lista GGUF, potwierdzenie
+  rozmiaru/licencji, pobranie, postęp, wstrzymanie/wznowienie i import gotowego pliku.
+  SHA-256 sprawdza backend, jeśli źródło podało sumę. Tło telefonu nie przerywa transferu.
+- Parametry rozmowy (temperatura, top-p, kontekst, limit tokenów, system prompt),
+  trwały zapis na backendzie i zachowanie pól GPU/top-k/seed/repeat penalty.
 - Ustawienia połączenia, token, light/dark/system, PL/EN i diagnostyka połączenia,
   wersji silników, GPU zgłoszonego przez silnik i jego pamięci RAM/VRAM.
 - Natywna nawigacja dolna na telefonie, rail na dużym ekranie, przewijane widoki
@@ -79,15 +84,21 @@ Nie ma loggera requestów ani treści rozmów.
 
 Timeouty i błędy auth/sieci/modelu są widoczne w interfejsie. Reconnect odczytuje
 historię i stan zadania zamiast ponownie wysyłać prompt. Ponowienie niezakończonego
-POST używa tego samego request_key. Przejście aplikacji w tło anuluje własną generację;
-zmiana konfiguracji ekranu/języka zachowuje ViewModel. Częściowa odpowiedź pozostaje
+POST używa tego samego request_key. Przejście aplikacji w tło **nie anuluje generacji**. SSE używa istniejącego
+`cancel_on_disconnect=false`; po `onStop` telefon odłącza strumień i polling,
+a backend kontynuuje zadanie z własnym limitem czasu. Powrót pobiera historię
+oraz trwały snapshot i ponownie podpina SSE. Tylko przycisk Stop wysyła cancel.
+Zmiana konfiguracji ekranu/języka zachowuje ViewModel. ID rozmowy i aktywnego
+zadania są zapisane lokalnie, więc po odtworzeniu procesu nie wysyłamy promptu
+ponownie. Automatyczny reconnect używa opóźnień do 8 sekund, odczytu stanu i
+powiadomień sieci Androida; błąd auth wymaga poprawienia tokenu. Częściowa odpowiedź pozostaje
 w historii backendu. Aplikacja nie zatrzymuje obcych procesów serwera.
 
 ## Budowanie i instalacja
 
-Wymagany pełny JDK 17+ (nie sam JRE), Android SDK platform 35 i build-tools 35.0.0.
-Wrapper Gradle 8.11.1 i jego dystrybucja są zweryfikowane oficjalnymi checksumami;
-AGP 8.9.2 / Kotlin 2.1.20 / Compose BOM 2025.04.01. SDK/JDK, cache i klucze podpisu
+Wymagany pełny JDK 17+ (nie sam JRE), Android SDK platform 36 i build-tools 36.0.0.
+Wrapper Gradle 8.13 i jego dystrybucja są zweryfikowane oficjalnymi checksumami;
+AGP 8.13.2 / Kotlin 2.1.20 / Compose BOM 2025.04.01. SDK/JDK, cache i klucze podpisu
 pozostają poza Git. Ustaw ANDROID_HOME i, gdy potrzebne, JAVA_HOME.
 
 ```sh
@@ -101,6 +112,7 @@ adb install dist/OmniCore-0.1.0-alpha-android-arm64.apk
 
 Budowanie tworzy oddzielne APK arm64-v8a i x86_64 do emulatora. Skrypt pakowania
 sprawdza podpis apksigner, application ID, wersję, minSdk i ABI przez aapt;
+sprawdza także targetSdk 36, ZIP alignment i ELF LOAD alignment >=16 KiB;
 następnie zapisuje rzeczywiste APK, SHA-256 i manifest budowania w dist.
 Nie oznacza to samo w sobie testu instalacji lub działania na urządzeniu ARM64.
 Kolejne debug buildy z innym kluczem testowym mogą wymagać odinstalowania starej
@@ -116,10 +128,61 @@ aplikacji przed instalacją; historia pozostaje na serwerze, token trzeba wprowa
   diagnostyka, język/motyw i zrzut prawdziwego ekranu. Backend jest kontrolowanym
   fixture protokołu; to nie jest test inferencji modelu.
 - Workflow **Native Android APK** buduje paczki, uruchamia unit/lint i emulator
-  Android API 30 x86_64 z KVM, po czym wysyła APK ARM64, SHA-256, manifest, screenshot
+  Android API 30 i 36 x86_64 z KVM, po czym wysyła APK ARM64, SHA-256, manifest, screenshot
   i raporty testów. Gdy emulator nie przejdzie, workflow nie oznacza testu jako PASS.
 - Lokalna chmura nie ma KVM/telefonu. Instalacji na fizycznym ARM64 nie należy
   deklarować bez osobnego testu. Rzeczywisty GGUF jest sprawdzany na Linuxie,
   Android jest wyłącznie klientem API.
 
 Aktualne, wykonane wyniki oraz linki do paczek: [PROGRESS.md](PROGRESS.md).
+
+## Android 16, POCO i Xiaomi
+
+Build używa compile/target 36 (Android 16), obsługuje edge-to-edge, IME i systemowy
+Wstecz, bez blokady orientacji i bez usług Google Play. Minimalny system to API 26.
+Jedynymi uprawnieniami są INTERNET i ACCESS_NETWORK_STATE. Natywna biblioteka
+AndroidX (nie silnik AI) musi przejść sprawdzenie stron 16 KiB w pakowaniu.
+Macierz emulatorów CI obejmuje API 30 i 36. Nie jest to test fizycznego telefonu
+ani firmware HyperOS: instalację ARM64, klawiaturę i zachowanie po ubiciu procesu
+przez oszczędzanie baterii trzeba dodatkowo sprawdzić na POCO/Xiaomi. Backend
+kontynuuje generację niezależnie od życia procesu telefonu.
+
+## Podział kodu
+
+Compose (`OmniCoreApp`, `ModelDownloads`, `GenerationSettings`) obserwuje StateFlow
+z `OmniViewModel`. Zastępowalny `OmniRepository` definiuje granicę danych i Flow
+snapshotów; `OmniApi` realizuje REST oraz SSE OkHttp. `ClientSettings` oddziela
+lokalne preferencje od Keystore (`SecureSettings`). Nie ma logiki inferencji,
+SQLite ani uruchamiania silnika w telefonie. Przyszły lokalny silnik wymaga osobnej
+implementacji tej granicy i osobnych testów, a nie przełącznika udającego działanie.
+
+## Dystrybucja
+
+Opublikowane wcześniej `v0.1.0-alpha.1` pozostaje bez zmian. Nowy APK wersji
+`0.1.0-alpha.2` jest artefaktem Actions; szkic `v0.1.0-alpha.2` zostaje opublikowany po weryfikacji plików
+na wyraźne polecenie właściciela. Workflow `Attach tested Android APK to draft` wymaga udanego runu,
+pełnego zgodnego SHA i draft=true; odrzuca publiczne wydanie. Nie wolno podmieniać
+starego publicznego pliku o tej samej nazwie. Podpis debug w różnych CI może być
+inny: przed deinstalacją starej aplikacji zapisz adres backendu, a token wprowadź
+ponownie. Historia pozostaje na backendzie. Docelowy stały klucz podpisu wymaga
+odrębnej konfiguracji sekretów właściciela.
+
+## Rzeczywista inferencja a test UI
+
+Normalne testy JVM i instrumentacja używają kontrolowanych odpowiedzi protokołu.
+Oddzielny scenariusz uruchamia **rzeczywisty kod klienta Kotlin** przeciwko
+izolowanemu FastAPI i istniejącemu llama.cpp/GGUF na CPU:
+
+```sh
+# JDK/SDK/cache tak jak dla builda APK; istniejące wagi, bez automatycznego downloadu:
+export OMNICORE_TEST_LLAMA_SERVER=/absolute/llama-server
+export OMNICORE_TEST_GGUF=/absolute/model.gguf
+uv run --frozen python scripts/test_android_real.py
+```
+
+Scenariusz wymaga faktycznych plików i nie ma fallbacku do fixture. Sprawdza import,
+load, rozmowę, kilka snapshotów SSE i niepustą odpowiedź, odłączenie streamu bez
+cancel, jawne cancel drugiej generacji, historię przez nowy klient oraz unload.
+To dowód integracji kodu transportu z AI, **nie instalacji/UI na telefonie**.
+`RealBackendTest` jest jawnie wyłączony ze zwykłych testów; uruchamia go wyłącznie
+`-PrealBackend=true` z poprawnymi zmiennymi procesu. Brak wag kończy scenariusz błędem.

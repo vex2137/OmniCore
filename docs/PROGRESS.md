@@ -1,5 +1,22 @@
 # OmniCore — PROGRESS
 
+## Aktualizacja — Android, część 2 (2026-10-29)
+
+Audyt: czysty main `2e78daa0035ff0858c33fc387468b078100e3fd8`, PR #3 scalony,
+brak otwartych PR na starcie. GUI Linux i AppImage zachowane. Publiczna Alpha.1
+została opublikowana po późniejszej, wyraźnej zgodzie właściciela; historyczne
+opisy szkicu poniżej odnoszą się do wcześniejszego punktu kontrolnego.
+
+Gałąź: `feature/android-part-2`. Rozwijamy istniejącego klienta, nie tworzymy go
+od nowa. Implementacja: granica OmniRepository + Flow/StateFlow, odłączenie SSE
+bez cancel w tle, ponowne obserwowanie zadania/historii, HF download manager,
+parametry rozmowy zachowujące GPU, target/compile 36 i kontrola stron 16 KiB.
+
+Regresja wykonana w tej sesji: **130 PASS** (backend/Qt i dwie rzeczywiste
+integracje GGUF/GUI), 56.54 s. Android: **34 JVM PASS**, lint/build PASS; rzeczywisty Kotlin/FastAPI/GGUF: **1 PASS**.
+CI emulatorów pozostaje w weryfikacji. Właściciel zezwolił na publiczną Alpha.2.
+Telefon fizyczny, POCO/Xiaomi i lokalna inferencja telefonu pozostają niezweryfikowane.
+
 ## Project Status
 
 - **Wersja:** `0.1.0-alpha.1`, natywny Linux + natywny Android jako klient API.
@@ -423,3 +440,108 @@ Test fizycznego ARM64 i CachyOS/RTX 4060, macierz CUDA/Wayland/Ollama oraz osobn
 procedura produkcyjnego podpisu APK. Image AI i Web pozostają dalszym zakresem,
 nie rozpoczęto ich w tym zadaniu. Publiczna publikacja wymaga osobnego potwierdzenia.
 Rust pozostaje opcjonalny zgodnie z pomiarami i native/README.md.
+
+### Android część 2 — moduł danych i cyklu życia
+
+Nowy zestaw JVM: **33 PASS**, 0 FAIL/error/skip (17 dotychczasowych transportu,
+12 ViewModel, 3 download/parametry/SSE, 1 zgodności zasobów). Regresja Python/Qt:
+130 PASS. Testy potwierdzają odłączenie bez cancel, jawny Stop, ponowne odczytanie
+zadania, idempotency key, wybór modelu i brak utraty zaawansowanych parametrów.
+Toolchain zaktualizowany do API 36 / AGP 8.13.2 / Gradle 8.13 ze zweryfikowanym
+wrapperem i sumą dystrybucji. Lint, pakowanie i emulator pozostają w weryfikacji.
+
+### Android część 2 — GUI, narzędzia i APK
+
+Pełny lokalny build API 36: **BUILD SUCCESSFUL**, lint PASS, assembleDebug i
+assembleDebugAndroidTest PASS. Skrypt pakowania potwierdził application ID,
+versionCode 2/versionName Alpha.2, target 36, podpis debug, ARM64 oraz ZIP/ELF
+alignment >=16 KiB. Lokalny plik jest rzeczywistym APK, nie dowodem instalacji
+na telefonie. Dystrybucja końcowa będzie wskazywać osobny, zweryfikowany plik CI.
+
+GUI: działające HF search/files/confirmation/download/progress/pause/resume/import,
+edycja parametrów rozmowy, filtrowanie silników, diagnostyka API/zadań, systemowy
+Wstecz i animowana nawigacja. Dodano test UI powrotu z tła/rekreacji oraz transferu.
+Workflow CI obejmuje emulatory API 30 i 36; wyników jeszcze nie potwierdzono.
+
+### Android część 2 — rzeczywisty klient i odzyskanie połączenia
+
+Checkout i commity zachowane po przerwie środowiska. Rerun JVM: **34 PASS**,
+0 fail/error/skip (w tym SSE reconnect i nowy ViewModel odtworzony ze stanu).
+`RealBackendTest` przez `scripts/test_android_real.py`: **1 PASS**, 22 s Gradle,
+bez fixture inferencji. Kotlin połączył się z prawdziwym FastAPI/llama.cpp CPU
+oraz SmolLM2 Q4_K_M: import/load, wiele snapshotów, niepusta odpowiedź,
+odłączenie bez cancel, jawny cancel, trwała historia przez nowy klient i unload.
+To test transportu z rzeczywistym AI, nie test instalacji na telefonie.
+Ruff/format/contracts/diff check PASS. Moduły `2eafa86` i `da3a557` zachowane;
+push `da3a55783658121c5f464aec34fa404a4a7c3abf` potwierdzony, PR #4 jako draft.
+Emulatory 30/36 są w weryfikacji, fizyczny POCO/Xiaomi pozostaje nietestowany.
+
+Właściciel polecił publikację Alpha.2. Najpierw zostanie przygotowany draft
+z faktycznie przesłanym APK/checksum, następnie publikacja po sprawdzeniu paczki.
+Publiczna Alpha.1 pozostaje bez zmian. Linux AppImage nie wymaga przebudowy:
+Alpha.2 może załączyć identyczny, wcześniej sprawdzony plik z jawną informacją.
+
+### Poprawka pierwszego połączenia wykryta przez emulator
+
+Run `40856903928` dla `9f560d8`: build/lint/JVM i pakowanie PASS, oba natywne UI
+FAIL na pierwszym połączeniu. Przyczyną był warunek enabled przycisku konfiguracji
+wymagający już connected=true. Naprawiono go: pierwszy connect/reconnect jest
+aktywny, gdy klient nie jest busy i nie zmienia aktywnej połączonej generacji.
+Test UI sprawdza teraz assertIsEnabled przed kliknięciem. Nie osłabiono auth,
+Keystore ani polityki LAN/HTTPS. Publikację zatrzymano; wymagany nowy poprawny CI.
+
+### Synchronizacja testu automatycznego przewijania
+
+Push run `40865054040` dla `909bcf0`: oba emulatory 30/36 PASS. PR run
+`40865061582`: API 36 PASS, API 30 FAIL na natychmiastowym assertIsDisplayed
+po statusie Completed. Treść była już w drzewie; animacja przewijania nie zakończyła
+się w tej samej klatce. Test oczekuje teraz (maks. 10 s) rzeczywistej widoczności
+odpowiedzi, zachowując końcową asercję i sprawdzanie automatycznego przewijania.
+Nie dodano sleep, nie usunięto asercji i nie zmieniono aplikacji. Wymagany nowy CI.
+
+### Stabilizacja istniejącego testu backendu
+
+PR backend run `40866059597` ujawnił wyścig w istniejącym teście idempotencji:
+po await drugiego submit zadanie mogło już zakończyć się i zniknąć z manager.tasks.
+Test zachowuje teraz Task natychmiast po pierwszym submit i oczekuje tej samej
+referencji. Wszystkie asercje trwałości, treści, metryk i idempotencji zachowano.
+Kod backendu i kontrakty nie zostały zmienione. Push backend run `40866050449`
+dla tego samego kodu wcześniej PASS; wymagamy ponownej walidacji poprawki testu.
+
+### Poprawka widoku czatu przy zmianie rozmiaru klawiatury
+
+Run `40866050470`: API 36 PASS, API 30 FAIL na widoczności odpowiedzi mimo
+oczekiwania. Samo oczekiwanie na animację nie rozwiązało problemu. Kontener
+Scaffold konsumuje teraz własne insets, aby imePadding nie naliczał ponownie
+wysokości dolnego paska, a automatyczne przewijanie reaguje również na zmianę
+wysokości viewportu (IME/orientacja), nie tylko liczbę wiadomości/sekwencję.
+Ustawienia mają imePadding, więc pola i przycisk połączenia pozostają osiągalne
+przy otwartej klawiaturze. Test wciąż wymaga rzeczywistej widoczności odpowiedzi;
+CI zachowuje zrzut i geometrię fixture także przy błędzie, bez tokenów/headers.
+
+### Budżet testu częściowej odpowiedzi przy timeout
+
+Linux CI `40866965677`: 127 PASS, 1 FAIL w starym teście partial-history/timeout.
+Budżet 100 ms obejmował także rzeczywiste SQLite i thread-pool; na runnerze wygasł
+przed pierwszym chunkiem, dlatego nie było częściowej treści. Ustawiono 3 s,
+zgodnie z domyślnym budżetem fixture. Test nadal rzeczywiście doprowadza do
+engine_timeout i wymaga dokładnej częściowej odpowiedzi, właściwego stanu historii
+oraz wszystkich dotychczasowych asercji. Bez sleep, pomijania ani zmiany backendu.
+
+### Obserwacja viewportu bez pętli rekompozycji
+
+Run `40866959073`, API 30: Compose zgłosił stale oczekujące rekompozycje po
+wprowadzeniu odczytu layoutInfo w kompozycji. Wysokość viewportu jest teraz
+obserwowana przez derivedStateOf, więc nowe obiekty layoutInfo przy każdym kroku
+scroll nie unieważniają całego widoku. Klucz efektu zależy wyłącznie od faktycznej
+zmiany wysokości. Diagnostyka testu najpierw robi zrzut i nie maskuje pierwotnego
+wyjątku, jeśli zapytanie o semantykę nie może czekać na idle.
+
+### Zachowanie statusu testu w skrypcie emulatora
+
+Raport XML source `523133f`, API 30: **1 PASS, 0 fail/error/skip**. Poprawki
+widoku przeszły pełny natywny przepływ. Krok workflow zgłosił błąd po teście:
+android-emulator-runner uruchamia linie script w osobnych powłokach, więc zmienna
+test_status nie przechodziła do końcowego exit. Przeniesiono ten krok do jednego
+scripts/test_android_emulator.sh. Skrypt zachowuje kod Gradle, zbiera dostępne
+zrzuty również przy błędzie i zwraca pierwotny status. bash -n PASS; nowy CI wymagany.

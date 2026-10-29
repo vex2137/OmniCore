@@ -42,7 +42,7 @@ biblioteki. Rust pozostaje opcjonalny z fallback Python i bramkami opisanymi ni�
 ## Rozszerzenie: natywny klient Android
 
 Właściciel dopuścił Android po dostarczeniu Linux AppImage. Osobny projekt
-`apps/android` używa Kotlin 2.1.20, Compose/Material 3, AGP 8.9.2 i Gradle 8.11.1.
+`apps/android` używa Kotlin 2.1.20, Compose/Material 3, AGP 8.13.2 i Gradle 8.13.
 OmniApi wywołuje to samo `/api/v1`, a OmniViewModel przechowuje projekcję stanu
 serwera. Backend pozostaje jedynym właścicielem SQLite, GGUF, pobierania i inferencji.
 Nie ma WebView, NDK do inferencji, własnego JNI/Rust ani lokalnych modeli telefonu.
@@ -55,11 +55,35 @@ Niesekretne preferencje są lokalne; token AES-GCM używa Android Keystore, back
 wyłączono, redirecty nie przekazują auth. HTTP wymaga świadomego zaufanego LAN,
 publiczny adres wymaga HTTPS. Token nie jest ponownie używany dla innego origin.
 
-MinSdk 26, target/compile 35. ARM64 i x86_64 są osobnymi split APK; x86_64 służy
+MinSdk 26, target/compile 36. ARM64 i x86_64 są osobnymi split APK; x86_64 służy
 emulatorowi CI. Sam build/podpis nie potwierdza instalacji na fizycznym ARM64.
 Zasoby UI PL/EN i Material 3 reagują na system/light/dark. Rust pozostaje opcjonalną
 warstwą backendu dopiero po pomiarach, bez kosztu toolchainu dla klienta Android.
 Instrukcje LAN, TLS, tokenu, budowania i granice testów: [ANDROID.md](ANDROID.md).
+
+### Android — część 2
+
+`OmniRepository` definiuje warstwę danych i Flow snapshotów; `OmniApi` realizuje
+REST/SSE, `OmniViewModel` zarządza StateFlow i projekcją stanu serwera, Compose
+renderuje ekrany. `ClientSettings` oddziela lokalne preferencje i zaszyfrowany token
+od ViewModel, co umożliwia testy cyklu życia bez Android runtime.
+
+SSE jawnie wybiera `cancel_on_disconnect=false`. Tło/utrata sieci odłącza transport,
+nie zadanie. Po powrocie trwałe ID rozmowy/zadania pozwala pobrać snapshot/historię
+i ponownie obserwować bez POST promptu. Retry streamu ma backoff 0.5–8 s;
+reconnect po błędzie sieci i powiadomienia systemowe nie ponawiają inferencji.
+Tylko jawny Stop wysyła cancel. Limit czasu zadania nadal egzekwuje backend.
+
+Hugging Face i GGUF pozostają operacjami backendu: telefon wybiera repo/plik,
+potwierdza rozmiar/licencję, obserwuje/pauzuje/wznawia transfer i importuje gotowy
+plik przez istniejące API. Parametry rozmowy zapisywane są przez PATCH z pełnym
+zachowaniem istniejących pól GPU/top-k/seed. Lokalne defaults dotyczą nowych rozmów.
+Build target/compile 36, AGP 8.13.2 i Gradle 8.13 umożliwia walidację Androida 16;
+ZIP/ELF alignment >=16 KiB jest obowiązkowym sprawdzeniem pakowania ARM64.
+Nie ma nowego ABI backendu, migracji SQLite ani kosztu Rust dla Androida.
+
+Poniższy audyt i opisy etapów zachowują historyczny kontekst; bieżące wykonane
+wyniki oraz ograniczenia opisuje PROGRESS.md.
 
 ## Audyt wejściowy
 
@@ -229,7 +253,7 @@ pozostają poza 0.1.0. Nie implementować ich jako pustych endpointów lub przyc
 
 ## Opcjonalna warstwa Rust — decyzja architektoniczna
 
-**Status: zaprojektowana, bez implementacji i bez wyników benchmarków.**
+**Status: zaprojektowana, bez własnej implementacji Rust; pomiary w `benchmarks/` nie uzasadniły wdrożenia.**
 Python 3.12+/FastAPI pozostaje hostem aplikacji i publicznego API; SQLite,
 REST/WebSocket, formaty danych i działające funkcje Etapu 1 pozostają zachowane.
 Rust ma uzupełniać wybrane operacje, gdy pomiary uzasadnią koszt dodatkowej warstwy.

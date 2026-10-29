@@ -2,6 +2,8 @@
 
 package io.github.vex2137.omnicore
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -45,6 +47,7 @@ fun OmniCoreApp(vm: OmniViewModel, onLanguage: (String) -> Unit) {
         else lightColorScheme(primary = Color(0xFF6957D9), background = Color(0xFFF5F6FA))
     MaterialTheme(colorScheme = colors) {
         var page by rememberSaveable { mutableIntStateOf(0) }
+        BackHandler(enabled = page != 0) { page = 0 }
         val labels =
             listOf(
                 R.string.home,
@@ -127,17 +130,21 @@ fun OmniCoreApp(vm: OmniViewModel, onLanguage: (String) -> Unit) {
                             }
                     },
                 ) { padding ->
-                    Column(Modifier.padding(padding).fillMaxSize()) {
+                    Column(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize()) {
                         if (state.busy)
                             LinearProgressIndicator(Modifier.fillMaxWidth().testTag("busy"))
                         state.error?.let { ErrorBanner(it, vm::dismissError) }
+                        if (state.reconnecting)
+                            Text(stringResource(R.string.reconnecting), Modifier.padding(12.dp))
                         Box(Modifier.weight(1f).fillMaxWidth()) {
-                            when (page) {
-                                0 -> HomeScreen(state, vm) { page = it }
-                                1 -> ChatScreen(state, vm)
-                                2 -> ModelsScreen(state, vm)
-                                3 -> SettingsScreen(state, vm, onLanguage)
-                                4 -> DiagnosticsScreen(state, vm)
+                            Crossfade(targetState = page, label = "navigation") { selectedPage ->
+                                when (selectedPage) {
+                                    0 -> HomeScreen(state, vm) { page = it }
+                                    1 -> ChatScreen(state, vm)
+                                    2 -> ModelsScreen(state, vm)
+                                    3 -> SettingsScreen(state, vm, onLanguage)
+                                    4 -> DiagnosticsScreen(state, vm)
+                                }
                             }
                         }
                     }
@@ -159,6 +166,7 @@ private fun ErrorBanner(code: String, dismiss: () -> Unit) {
             "https_required" -> R.string.error_https
             "invalid_token" -> R.string.error_token
             "token_unavailable" -> R.string.error_keystore
+            "invalid_parameters" -> R.string.error_parameters
             "model_required" -> R.string.error_model
             "conversation_required" -> R.string.error_conversation
             "out_of_memory" -> R.string.error_memory
@@ -293,7 +301,9 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
         val messages =
             s.messages.filterNot { it.generationId != null && it.generationId == s.generation?.id }
         val scroll = androidx.compose.foundation.lazy.rememberLazyListState()
-        LaunchedEffect(messages.size, s.generation?.sequence) {
+        val viewportHeight by
+            remember(scroll) { derivedStateOf { scroll.layoutInfo.viewportSize.height } }
+        LaunchedEffect(messages.size, s.generation?.sequence, viewportHeight) {
             val count = messages.size + if (s.generation != null) 1 else 0
             if (count > 0) scroll.animateScrollToItem(count - 1)
         }
@@ -402,10 +412,10 @@ private fun MessageBubble(role: String, content: String) {
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                 )
-                if (role != "user" && content.isNotBlank())
+                if (content.isNotBlank())
                     IconButton(
                         onClick = { clipboard.setText(AnnotatedString(content)) },
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(48.dp),
                     ) {
                         Icon(
                             Icons.Default.ContentCopy,
@@ -461,6 +471,7 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
     var importing by remember { mutableStateOf(false) }
     var path by remember { mutableStateOf("") }
     var removing by remember { mutableStateOf<ModelInfo?>(null) }
+    var engine by rememberSaveable { mutableStateOf("all") }
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
         contentPadding = PaddingValues(vertical = 16.dp),
@@ -486,8 +497,20 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
                 Text(stringResource(R.string.import_model))
             }
         }
+        item { ModelDownloads(s, vm) }
+        item {
+            Choice(
+                listOf("all" to stringResource(R.string.all_engines)) +
+                    s.engines.map { it.info.id to it.info.id },
+                engine,
+                stringResource(R.string.engines),
+                { engine = it },
+                Modifier.fillMaxWidth(),
+            )
+        }
         if (s.models.isEmpty()) item { Text(stringResource(R.string.no_models)) }
-        items(s.models, key = { it.id }) { model ->
+        items(s.models.filter { engine == "all" || it.backend == engine }, key = { it.id }) { model
+            ->
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(model.name, style = MaterialTheme.typography.titleMedium)
@@ -510,12 +533,15 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
                             (model.license ?: stringResource(R.string.unknown))
                     )
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton(onClick = { vm.selectModel(model.id) }) {
+                        TextButton(
+                            onClick = { vm.selectModel(model.id) },
+                            enabled = s.connected && !s.busy && !s.generating,
+                        ) {
                             Text(stringResource(R.string.choose_model))
                         }
                         IconButton(
                             onClick = { removing = model },
-                            enabled = !s.busy && (!s.generating || !s.connected),
+                            enabled = s.connected && !s.busy && !s.generating,
                         ) {
                             Icon(Icons.Default.Delete, stringResource(R.string.remove_entry))
                         }
@@ -524,13 +550,13 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
                         if (model.backend == "llama.cpp")
                             TextButton(
                                 onClick = { vm.loadModel(model.id) },
-                                enabled = !s.busy && (!s.generating || !s.connected),
+                                enabled = s.connected && !s.busy && !s.generating,
                             ) {
                                 Text(stringResource(R.string.load))
                             }
                         TextButton(
                             onClick = { vm.unloadModel(model.id) },
-                            enabled = !s.busy && (!s.generating || !s.connected),
+                            enabled = s.connected && !s.busy && !s.generating,
                         ) {
                             Text(stringResource(R.string.unload))
                         }
@@ -539,6 +565,22 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
             }
         }
         item { Text(stringResource(R.string.engines), style = MaterialTheme.typography.titleLarge) }
+        item {
+            Text(
+                stringResource(
+                    R.string.api_version,
+                    s.health?.version.orEmpty(),
+                    s.health?.databaseVersion ?: 0,
+                )
+            )
+        }
+        items(s.diagnostics.jobs) { job ->
+            Text(
+                stringResource(R.string.current_job) +
+                    ": ${job.id} · ${job.state}" +
+                    (job.errorCode?.let { " · $it" } ?: "")
+            )
+        }
         items(s.engines) { EngineCard(it) }
     }
     if (importing)
@@ -587,7 +629,7 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
     var clear by remember { mutableStateOf(false) }
     var trusted by remember(s.trustedLan) { mutableStateOf(s.trustedLan) }
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineSmall)
@@ -652,6 +694,7 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
             onLanguage,
             Modifier.fillMaxWidth(),
         )
+        GenerationSettings(s, vm)
         Text(stringResource(R.string.about), style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(30.dp))
     }
@@ -681,6 +724,22 @@ private fun DiagnosticsScreen(s: UiState, vm: OmniViewModel) {
         }
         s.generation?.let { record ->
             item { Text(stringResource(R.string.current_job) + ": ${record.id} · ${record.state}") }
+        }
+        item {
+            Text(
+                stringResource(
+                    R.string.api_version,
+                    s.health?.version.orEmpty(),
+                    s.health?.databaseVersion ?: 0,
+                )
+            )
+        }
+        items(s.diagnostics.jobs) { job ->
+            Text(
+                stringResource(R.string.current_job) +
+                    ": ${job.id} · ${job.state}" +
+                    (job.errorCode?.let { " · $it" } ?: "")
+            )
         }
         items(s.engines) { EngineCard(it) }
     }

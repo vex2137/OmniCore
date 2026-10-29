@@ -14,6 +14,7 @@ val WireJson = Json {
 data class Conversation(
     val id: String,
     val title: String = "",
+    val parameters: Parameters = Parameters(),
     @SerialName("model_id") val modelId: String? = null,
 )
 
@@ -66,6 +67,11 @@ data class Parameters(
     @SerialName("max_tokens") val maxTokens: Int = 256,
     @SerialName("context_size") val context: Int = 2048,
     @SerialName("system_prompt") val systemPrompt: String = "",
+    @SerialName("top_k") val topK: Int = 40,
+    @SerialName("repeat_penalty") val repeatPenalty: Double = 1.1,
+    val seed: Int = 0,
+    @SerialName("gpu_layers") val gpuLayers: Int = 0,
+    val device: String = "cpu",
 )
 
 @Serializable
@@ -85,6 +91,7 @@ data class Generation(
 @Serializable
 data class CreateConversation(
     val title: String,
+    val parameters: Parameters? = null,
     @SerialName("model_id") val modelId: String? = null,
 )
 
@@ -106,3 +113,66 @@ data class GenerationRequest(
 
 fun acceptSnapshot(previous: Generation?, next: Generation): Boolean =
     previous == null || previous.id != next.id || next.sequence >= previous.sequence
+
+@Serializable data class ParameterSelection(val parameters: Parameters)
+
+@Serializable
+data class Health(
+    val status: String,
+    val version: String = "",
+    @SerialName("database_version") val databaseVersion: Int = 0,
+)
+
+@Serializable
+data class HubRepository(@SerialName("repository") val id: String, val license: String? = null)
+
+@Serializable
+data class RemoteFile(
+    val repository: String,
+    val revision: String,
+    val filename: String,
+    @SerialName("size_bytes") val sizeBytes: Long,
+    val license: String? = null,
+    val sha256: String? = null,
+)
+
+@Serializable
+data class Download(
+    val id: String,
+    val source: RemoteFile,
+    val state: String,
+    val percent: Double = 0.0,
+    @SerialName("received_bytes") val receivedBytes: Long = 0,
+    val path: String? = null,
+    @SerialName("error_code") val errorCode: String? = null,
+    @SerialName("integrity_verified") val integrityVerified: Boolean = false,
+)
+
+@Serializable
+data class DownloadRequest(
+    val repository: String,
+    val filename: String,
+    val revision: String,
+    @SerialName("expected_size") val expectedSize: Long,
+    val confirmed: Boolean = true,
+)
+
+@Serializable
+data class DiagnosticJob(
+    val id: String,
+    val state: String,
+    @SerialName("error_code") val errorCode: String? = null,
+)
+
+@Serializable
+data class Diagnostics(@SerialName("generations") val jobs: List<DiagnosticJob> = emptyList())
+
+fun Parameters.valid(): Boolean =
+    temperature.isFinite() &&
+        temperature in 0.0..2.0 &&
+        topP.isFinite() &&
+        topP > 0 &&
+        topP <= 1 &&
+        maxTokens in 1..32768 &&
+        context in 128..131072 &&
+        systemPrompt.length <= 16384

@@ -75,7 +75,7 @@
   <string name="max_tokens">Tokeny odpowiedzi</string>
   <string name="context">Rozmiar kontekstu</string>
   <string name="system_prompt">Instrukcja systemowa</string>
-  <string name="about">OmniCore 0.1.0-alpha.1 · build testowy
+  <string name="about">OmniCore 0.1.0-alpha.2 · build testowy
 Kotlin / Compose / Material 3
 Klient API; bez inferencji na telefonie.</string>
   <string name="diagnostics_hint">Diagnostyka połączenia i silników. Tokeny i treść rozmów nie trafiają do logów.</string>
@@ -101,4 +101,30 @@ Klient API; bez inferencji na telefonie.</string>
   <string name="error_parameters">Sprawdź zakresy parametrów generowania.</string>
   <string name="models_count">Zarejestrowane modele: %1$d</string>
   <string name="error_new_host">Wpisz token dla nowego backendu lub jawnie usuń zapisany token. Zapisany token nie jest używany dla innego hosta.</string>
+  <string name="huggingface">Hugging Face · GGUF</string>
+  <string name="hub_hint">Pobieranie odbywa się na komputerze backendu. Telefon nie instaluje kodu ani wag modelu.</string>
+  <string name="hub_query">Wyszukaj lub wpisz właściciel/repozytorium</string>
+  <string name="search">Szukaj</string>
+  <string name="list_files">Pliki GGUF</string>
+  <string name="download">Pobierz…</string>
+  <string name="downloads">Pobrania backendu</string>
+  <string name="downloading">Pobieranie…</string>
+  <string name="cancel_download">Wstrzymaj pobieranie</string>
+  <string name="resume_download">Wznów pobieranie</string>
+  <string name="import_download">Importuj pobrany GGUF</string>
+  <string name="confirm_download">Potwierdź pobieranie na backendzie</string>
+  <string name="download_consent">Repozytorium: %1$s
+Plik: %2$s
+Rozmiar: %3$d B
+Licencja: %4$s
+Pobrać ten plik na komputer backendu?</string>
+  <string name="integrity_verified">SHA-256 zweryfikowane przez backend</string>
+  <string name="integrity_unavailable">Źródło nie udostępniło sumy; backend sprawdził rozmiar i strukturę GGUF.</string>
+  <string name="all_engines">Wszystkie silniki</string>
+  <string name="top_p">Top-p</string>
+  <string name="save_parameters">Zapisz parametry generowania</string>
+  <string name="parameters_conversation">Dotyczy wybranej rozmowy. Parametry GPU i zaawansowane ustawienia backendu są zachowane.</string>
+  <string name="parameters_defaults">Domyślne parametry nowych rozmów na tym telefonie.</string>
+  <string name="reconnecting">Ponowne łączenie… Zadanie backendu trwa.</string>
+  <string name="api_version">Backend %1$s · API /v1 · baza %2$d</string>
 </resources>

@@ -2,7 +2,7 @@
 
 GUI Linux przesunięto przed Image AI na polecenie właściciela. PySide6/Qt6 jest
 osobnym klientem HTTP/SSE istniejącego backendu, bez duplikowania inferencji.
-Web, Android i Image AI pozostają poza tym zadaniem.
+Web i Image AI pozostają planowane. Android jest osobnym natywnym klientem tego samego API; zobacz [ANDROID.md](ANDROID.md).
 
 ## Uruchomienie ze źródeł
 
@@ -86,4 +86,4 @@ OMNICORE_TEST_LLAMA_SERVER=/absolute/llama-server OMNICORE_TEST_GGUF=/absolute/m
 Sprawdzono Linux CPU i X11/Xvfb. Fizyczne CachyOS/RTX 4060, CUDA i natywna sesja
 Wayland nie są jeszcze potwierdzone. Rzeczywista Ollama nie była dostępna do testu.
 Nie wszystkie GGUF i architektury są zgodne z wybranym silnikiem. Alpha nie ma
-jeszcze edycji/generowania obrazów, załączników multimodalnych ani klientów Web/Android.
+jeszcze edycji/generowania obrazów, załączników multimodalnych ani klienta Web. Android działa jako osobny klient API.

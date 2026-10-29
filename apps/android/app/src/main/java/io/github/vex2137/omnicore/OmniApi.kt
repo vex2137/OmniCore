@@ -16,7 +16,7 @@ import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 
 /** No inference, model-file access or database logic. Only the public versioned API. */
-class OmniApi(private val base: String, private val token: String) {
+class OmniApi(private val base: String, private val token: String) : OmniRepository {
     private val client =
         OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
@@ -96,34 +96,38 @@ class OmniApi(private val base: String, private val token: String) {
         }
     }
 
-    suspend fun health() {
-        val health = WireJson.parseToJsonElement(exchange("GET", "/api/v1/health")).jsonObject
-        if (health["status"]?.jsonPrimitive?.content != "ok")
-            throw ApiFailure("incompatible_backend")
+    override suspend fun health(): Health {
+        val health = WireJson.decodeFromString<Health>(exchange("GET", "/api/v1/health"))
+        if (health.status != "ok") throw ApiFailure("incompatible_backend")
+        return health
     }
 
-    suspend fun conversations(): List<Conversation> =
+    override suspend fun conversations(): List<Conversation> =
         WireJson.decodeFromString(exchange("GET", "/api/v1/text/conversations"))
 
-    suspend fun models(): List<ModelInfo> =
+    override suspend fun models(): List<ModelInfo> =
         WireJson.decodeFromString(exchange("GET", "/api/v1/text/models"))
 
-    suspend fun engines(): List<EngineDiagnostic> =
+    override suspend fun engines(): List<EngineDiagnostic> =
         WireJson.decodeFromString(exchange("GET", "/api/v1/text/engines"))
 
-    suspend fun messages(id: String): List<Message> =
+    override suspend fun messages(id: String): List<Message> =
         WireJson.decodeFromString(exchange("GET", "/api/v1/text/conversations/$id/messages"))
 
-    suspend fun create(title: String, model: String?): Conversation =
+    override suspend fun create(
+        title: String,
+        model: String?,
+        parameters: Parameters?,
+    ): Conversation =
         WireJson.decodeFromString(
             exchange(
                 "POST",
                 "/api/v1/text/conversations",
-                WireJson.encodeToString(CreateConversation(title, model)),
+                WireJson.encodeToString(CreateConversation(title, parameters, model)),
             )
         )
 
-    suspend fun rename(id: String, title: String) {
+    override suspend fun rename(id: String, title: String) {
         exchange(
             "PATCH",
             "/api/v1/text/conversations/$id",
@@ -131,7 +135,7 @@ class OmniApi(private val base: String, private val token: String) {
         )
     }
 
-    suspend fun selectModel(conversationId: String, modelId: String) {
+    override suspend fun selectModel(conversationId: String, modelId: String) {
         exchange(
             "PATCH",
             "/api/v1/text/conversations/$conversationId",
@@ -139,11 +143,11 @@ class OmniApi(private val base: String, private val token: String) {
         )
     }
 
-    suspend fun delete(id: String) {
+    override suspend fun delete(id: String) {
         exchange("DELETE", "/api/v1/text/conversations/$id")
     }
 
-    suspend fun generate(id: String, payload: GenerationRequest): Generation =
+    override suspend fun generate(id: String, payload: GenerationRequest): Generation =
         WireJson.decodeFromString(
             exchange(
                 "POST",
@@ -152,70 +156,120 @@ class OmniApi(private val base: String, private val token: String) {
             )
         )
 
-    suspend fun generation(id: String): Generation =
+    override suspend fun generation(id: String): Generation =
         WireJson.decodeFromString(exchange("GET", "/api/v1/text/generations/$id"))
 
-    suspend fun cancel(id: String): Generation =
+    override suspend fun cancel(id: String): Generation =
         WireJson.decodeFromString(exchange("POST", "/api/v1/text/generations/$id/cancel"))
 
-    suspend fun load(id: String, parameters: Parameters) {
+    override suspend fun load(id: String, parameters: Parameters) {
         exchange("POST", "/api/v1/text/models/$id/load", WireJson.encodeToString(parameters))
     }
 
-    suspend fun unload(id: String) {
+    override suspend fun unload(id: String) {
         exchange("POST", "/api/v1/text/models/$id/unload")
     }
 
-    suspend fun removeModel(id: String) {
+    override suspend fun removeModel(id: String) {
         exchange("DELETE", "/api/v1/text/models/$id", WireJson.encodeToString(ModelDelete()))
     }
 
-    suspend fun importModel(path: String) {
+    override suspend fun importModel(path: String) {
         exchange("POST", "/api/v1/text/models/import", WireJson.encodeToString(ModelImport(path)))
     }
 
-    fun watch(id: String, snapshot: (Generation) -> Unit, failure: (String) -> Unit): EventSource {
-        return EventSources.createFactory(client)
-            .newEventSource(
-                request("/api/v1/text/generations/$id/stream").build(),
-                object : EventSourceListener() {
-                    override fun onEvent(
-                        eventSource: EventSource,
-                        id: String?,
-                        type: String?,
-                        data: String,
-                    ) {
-                        if (data.length > 2_000_000) {
-                            eventSource.cancel()
-                            failure("response_too_large")
-                            return
-                        }
-                        try {
-                            snapshot(WireJson.decodeFromString(data))
-                        } catch (_: Exception) {
-                            eventSource.cancel()
-                            failure("invalid_response")
-                        }
-                    }
-
-                    override fun onClosed(eventSource: EventSource) {
-                        failure("stream_disconnected")
-                    }
-
-                    override fun onFailure(
-                        eventSource: EventSource,
-                        t: Throwable?,
-                        response: Response?,
-                    ) {
-                        failure(
-                            if (response != null) errorCode(response) else "stream_disconnected"
-                        )
-                    }
-                },
-            )
+    override suspend fun saveParameters(id: String, parameters: Parameters) {
+        exchange(
+            "PATCH",
+            "/api/v1/text/conversations/$id",
+            WireJson.encodeToString(ParameterSelection(parameters)),
+        )
     }
 
-    fun close() {
+    private fun query(value: String) = java.net.URLEncoder.encode(value, "UTF-8")
+
+    override suspend fun search(query: String): List<HubRepository> =
+        WireJson.decodeFromString(
+            exchange("GET", "/api/v1/text/huggingface/search?query=${query(query)}")
+        )
+
+    override suspend fun files(repository: String): List<RemoteFile> =
+        WireJson.decodeFromString(
+            exchange("GET", "/api/v1/text/huggingface/files?repository=${query(repository)}")
+        )
+
+    override suspend fun downloads(): List<Download> =
+        WireJson.decodeFromString(exchange("GET", "/api/v1/text/downloads"))
+
+    override suspend fun download(file: RemoteFile): Download =
+        WireJson.decodeFromString(
+            exchange(
+                "POST",
+                "/api/v1/text/downloads",
+                WireJson.encodeToString(
+                    DownloadRequest(file.repository, file.filename, file.revision, file.sizeBytes)
+                ),
+            )
+        )
+
+    override suspend fun cancelDownload(id: String): Download =
+        WireJson.decodeFromString(exchange("POST", "/api/v1/text/downloads/$id/cancel"))
+
+    override suspend fun resumeDownload(id: String): Download =
+        WireJson.decodeFromString(exchange("POST", "/api/v1/text/downloads/$id/resume"))
+
+    override suspend fun diagnostics(): Diagnostics =
+        WireJson.decodeFromString(exchange("GET", "/api/v1/text/diagnostics"))
+
+    override fun watch(
+        id: String,
+        snapshot: (Generation) -> Unit,
+        failure: (String) -> Unit,
+    ): StreamHandle {
+        val source =
+            EventSources.createFactory(client)
+                .newEventSource(
+                    request("/api/v1/text/generations/$id/stream?cancel_on_disconnect=false")
+                        .build(),
+                    object : EventSourceListener() {
+                        override fun onEvent(
+                            eventSource: EventSource,
+                            id: String?,
+                            type: String?,
+                            data: String,
+                        ) {
+                            if (data.length > 2_000_000) {
+                                eventSource.cancel()
+                                failure("response_too_large")
+                                return
+                            }
+                            try {
+                                snapshot(WireJson.decodeFromString(data))
+                            } catch (_: Exception) {
+                                eventSource.cancel()
+                                failure("invalid_response")
+                            }
+                        }
+
+                        override fun onClosed(eventSource: EventSource) {
+                            failure("stream_disconnected")
+                        }
+
+                        override fun onFailure(
+                            eventSource: EventSource,
+                            t: Throwable?,
+                            response: Response?,
+                        ) {
+                            failure(
+                                if (response != null) errorCode(response) else "stream_disconnected"
+                            )
+                        }
+                    },
+                )
+        return StreamHandle { source.cancel() }
+    }
+
+    override fun close() {
         client.dispatcher.cancelAll()
         client.connectionPool.evictAll()
     }

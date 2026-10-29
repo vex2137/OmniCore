@@ -4,23 +4,40 @@ import hashlib
 import json
 import os
 import shutil
+import struct
 import subprocess
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
-    sdk = Path(os.environ["ANDROID_HOME"]) / "build-tools/35.0.0"
+    sdk = Path(os.environ["ANDROID_HOME"]) / "build-tools/36.0.0"
     apk = ROOT / "apps/android/app/build/outputs/apk/debug/app-arm64-v8a-debug.apk"
     if not apk.is_file():
         raise SystemExit("Build apps/android :app:assembleDebug before packaging")
+    # Android 15/16 devices may use 16 KiB pages. Check both ZIP and ELF alignment.
+    subprocess.run([str(sdk / "zipalign"), "-c", "-P", "16", "4", str(apk)], check=True)  # noqa: S603
+    with zipfile.ZipFile(apk) as archive:
+        for name in archive.namelist():
+            if not name.endswith(".so"):
+                continue
+            binary = archive.read(name)
+            assert binary[:6] == b"\x7fELF\x02\x01", name
+            offset = struct.unpack_from("<Q", binary, 32)[0]
+            stride, count = struct.unpack_from("<HH", binary, 54)
+            for index in range(count):
+                position = offset + index * stride
+                if struct.unpack_from("<I", binary, position)[0] == 1:
+                    assert struct.unpack_from("<Q", binary, position + 48)[0] >= 16384, name
     subprocess.run([str(sdk / "apksigner"), "verify", str(apk)], check=True)  # noqa: S603
     metadata = subprocess.check_output(  # noqa: S603
         [str(sdk / "aapt"), "dump", "badging", str(apk)], text=True
     )
     assert "name='io.github.vex2137.omnicore'" in metadata
-    assert "versionName='0.1.0-alpha.1'" in metadata
+    assert "versionName='0.1.0-alpha.2'" in metadata
+    assert "targetSdkVersion:'36'" in metadata
     assert "sdkVersion:'26'" in metadata
     assert "native-code: 'arm64-v8a'" in metadata
     output = ROOT / "dist"
@@ -33,12 +50,12 @@ def main():
     (output / "android-build.json").write_text(
         json.dumps(
             {
-                "version": "0.1.0-alpha.1",
+                "version": "0.1.0-alpha.2",
                 "application_id": "io.github.vex2137.omnicore",
                 "build_type": "debug, test signing key; not a production signature",
                 "abi": "arm64-v8a",
                 "min_sdk": 26,
-                "target_sdk": 35,
+                "target_sdk": 36,
                 "sha256": digest,
                 "source_commit": subprocess.check_output(  # noqa: S603,S607 — local Git metadata.
                     [shutil.which("git") or "/usr/bin/git", "rev-parse", "HEAD"],
@@ -46,6 +63,7 @@ def main():
                     text=True,
                 ).strip(),
                 "inference_on_phone": False,
+                "native_page_alignment_bytes": 16384,
             },
             indent=2,
         )

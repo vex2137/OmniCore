@@ -1,17 +1,18 @@
 package io.github.vex2137.omnicore
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.sse.EventSource
 
 // All durable chat/model data belongs to the backend. This is a transient API projection.
 data class UiState(
@@ -32,13 +33,22 @@ data class UiState(
     val generation: Generation? = null,
     val draft: String = "",
     val parameters: Parameters = Parameters(),
+    val repositories: List<HubRepository> = emptyList(),
+    val remoteFiles: List<RemoteFile> = emptyList(),
+    val downloads: List<Download> = emptyList(),
+    val health: Health? = null,
+    val diagnostics: Diagnostics = Diagnostics(),
+    val reconnecting: Boolean = false,
 ) {
     val generating: Boolean
         get() = generation?.terminal == false
 }
 
-class OmniViewModel(application: Application) : AndroidViewModel(application) {
-    private val settings = SecureSettings(application)
+class OmniViewModel(
+    private val settings: ClientSettings,
+    private val repository: (String, String) -> OmniRepository = ::OmniApi,
+    private val io: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
+) : ViewModel() {
     private val mutable =
         MutableStateFlow(
             UiState(
@@ -46,13 +56,17 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
                 trustedLan = settings.trustedLan,
                 theme = settings.theme,
                 language = settings.language,
+                selectedConversation = settings.conversationId,
+                parameters = settings.parameters,
             )
         )
     val state = mutable.asStateFlow()
-    private var api: OmniApi? = null
-    private var events: EventSource? = null
+    private var api: OmniRepository? = null
+    private var events: Job? = null
     private var epoch = 0
     private var paused = false
+    private var downloadUpdates: Job? = null
+    private var recovery: Job? = null
     private var pending: GenerationRequest? = null
     private var pendingConversation: String? = null
 
@@ -75,7 +89,7 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
         mutable.update { it.copy(error = null) }
     }
 
-    private fun action(block: suspend (OmniApi) -> Unit) {
+    private fun action(block: suspend (OmniRepository) -> Unit) {
         val service =
             api
                 ?: run {
@@ -99,6 +113,8 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
         epoch++
         events?.cancel()
         events = null
+        downloadUpdates?.cancel()
+        recovery?.cancel()
         api?.close()
         api = null
     }
@@ -106,22 +122,34 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
     fun connect() {
         if (mutable.value.busy) return
         closeTransport()
-        mutable.update { it.copy(busy = true, connected = false, error = null) }
+        mutable.update {
+            it.copy(busy = true, connected = false, error = null, reconnecting = false)
+        }
         viewModelScope.launch {
-            var candidate: OmniApi? = null
+            var candidate: OmniRepository? = null
             try {
-                val token = withContext(Dispatchers.IO) { settings.readToken() }
+                val token = withContext(io) { settings.readToken() }
                 val base = ConnectionPolicy.validatedUrl(settings.url, settings.trustedLan)
-                val service = OmniApi(base, token)
+                val service = repository(base, token)
                 candidate = service
-                service.health()
+                val health = service.health()
                 api = service
                 candidate = null
                 mutable.update {
-                    it.copy(url = base, hasToken = token.isNotEmpty(), connected = true)
+                    it.copy(
+                        url = base,
+                        hasToken = token.isNotEmpty(),
+                        connected = true,
+                        health = health,
+                        reconnecting = false,
+                    )
                 }
                 refresh(service)
-                mutable.value.generation?.takeIf { !it.terminal }?.let { watch(service, it) }
+                recoverGeneration(service)
+                if (!paused) {
+                    mutable.value.generation?.takeIf { !it.terminal }?.let { watch(service, it) }
+                    pollDownloads(service)
+                }
             } catch (e: Exception) {
                 candidate?.close()
                 closeTransport()
@@ -129,8 +157,31 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
                 error(e)
             } finally {
                 mutable.update { it.copy(busy = false) }
+                if (!mutable.value.connected) scheduleReconnect()
             }
         }
+    }
+
+    private fun scheduleReconnect() {
+        if (
+            paused ||
+                settings.url.isBlank() ||
+                mutable.value.error == "unauthorized" ||
+                recovery?.isActive == true
+        )
+            return
+        recovery =
+            viewModelScope.launch {
+                mutable.update { it.copy(reconnecting = true) }
+                delay(3000)
+                recovery = null
+                if (!mutable.value.busy) connect() else scheduleReconnect()
+            }
+    }
+
+    fun networkAvailable() {
+        if (!paused && !mutable.value.connected && !mutable.value.busy && settings.url.isNotBlank())
+            connect()
     }
 
     fun saveConnection(raw: String, newToken: String, clearToken: Boolean, trustedLan: Boolean) {
@@ -151,12 +202,14 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
                         (!newToken.matches(Regex("[A-Za-z0-9]{32,}")) || newToken.length > 4096)
                 )
                     throw ApiFailure("invalid_token")
-                withContext(Dispatchers.IO) {
+                withContext(io) {
                     if (newToken.isNotEmpty() || clearToken) settings.storeToken(newToken)
                     settings.url = url
                     settings.trustedLan = trustedLan
                 }
                 if (url != mutable.value.url) {
+                    settings.conversationId = null
+                    settings.generationId = null
                     pending = null
                     pendingConversation = null
                     mutable.update {
@@ -189,7 +242,22 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun parameters(value: Parameters) {
-        mutable.update { it.copy(parameters = value) }
+        if (!value.valid()) {
+            mutable.update { it.copy(error = "invalid_parameters") }
+            return
+        }
+        if (mutable.value.generating || mutable.value.busy) return
+        val id = mutable.value.selectedConversation
+        if (id == null) {
+            settings.parameters = value
+            mutable.update { it.copy(parameters = value) }
+        } else
+            action { service ->
+                service.saveParameters(id, value)
+                settings.parameters = value
+                mutable.update { it.copy(parameters = value) }
+                refresh(service)
+            }
     }
 
     fun draft(value: String) {
@@ -215,25 +283,42 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
             }
     }
 
-    fun refresh() = action { refresh(it) }
+    fun refresh() = action {
+        refresh(it)
+        recoverGeneration(it)
+    }
 
-    private suspend fun refresh(service: OmniApi) {
+    private suspend fun refresh(service: OmniRepository) {
         val conversations = service.conversations()
         val models = service.models()
         val engines = service.engines()
+        val downloads = service.downloads()
+        val diagnostics = service.diagnostics()
         mutable.update { previous ->
             previous.copy(
                 conversations = conversations,
                 models = models,
                 engines = engines,
+                downloads = downloads,
+                diagnostics = diagnostics,
                 selectedModel =
                     previous.selectedModel?.takeIf { id -> models.any { it.id == id } }
                         ?: models.firstOrNull()?.id,
             )
         }
         mutable.value.selectedConversation?.let { id ->
-            if (conversations.any { it.id == id }) loadMessages(service, id)
-            else
+            if (conversations.any { it.id == id }) {
+                val conversation = conversations.first { it.id == id }
+                mutable.update {
+                    it.copy(
+                        selectedModel = conversation.modelId ?: it.selectedModel,
+                        parameters = conversation.parameters,
+                    )
+                }
+                loadMessages(service, id)
+            } else {
+                settings.conversationId = null
+                settings.generationId = null
                 mutable.update {
                     it.copy(
                         selectedConversation = null,
@@ -242,12 +327,16 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
                         draft = "",
                     )
                 }
+            }
         }
         mutable.value.generation?.takeIf { !it.terminal }?.let { accept(service.generation(it.id)) }
     }
 
     fun createConversation(title: String) = action { service ->
-        val conversation = service.create(title.take(256), mutable.value.selectedModel)
+        val conversation =
+            service.create(title.take(256), mutable.value.selectedModel, settings.parameters)
+        settings.conversationId = conversation.id
+        settings.generationId = null
         mutable.update {
             it.copy(
                 conversations = listOf(conversation) + it.conversations,
@@ -255,15 +344,20 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
                 messages = emptyList(),
                 generation = null,
                 draft = "",
+                parameters = conversation.parameters,
             )
         }
     }
 
     fun openConversation(id: String) {
         if (mutable.value.generating || mutable.value.busy) return
+        settings.conversationId = id
+        settings.generationId = null
         mutable.update { previous ->
             previous.copy(
                 selectedConversation = id,
+                parameters =
+                    previous.conversations.find { it.id == id }?.parameters ?: previous.parameters,
                 messages = emptyList(),
                 generation = null,
                 selectedModel =
@@ -271,10 +365,13 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
                 draft = "",
             )
         }
-        action { loadMessages(it, id) }
+        action {
+            loadMessages(it, id)
+            recoverGeneration(it)
+        }
     }
 
-    private suspend fun loadMessages(service: OmniApi, id: String) {
+    private suspend fun loadMessages(service: OmniRepository, id: String) {
         val messages = service.messages(id)
         mutable.update { if (it.selectedConversation == id) it.copy(messages = messages) else it }
     }
@@ -318,50 +415,76 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
             pendingConversation = null
             mutable.update { it.copy(draft = "", generation = record) }
             loadMessages(service, conversation)
-            if (paused) {
-                accept(service.cancel(record.id))
-                return@action
-            }
-            watch(service, record)
+            settings.generationId = record.id
+            if (!paused) watch(service, record)
         }
     }
 
-    private fun watch(service: OmniApi, record: Generation) {
+    private suspend fun recoverGeneration(service: OmniRepository) {
+        val id =
+            settings.generationId
+                ?: mutable.value.messages.lastOrNull { it.generationId != null }?.generationId
+                ?: return
+        try {
+            val record = service.generation(id)
+            if (record.conversationId != mutable.value.selectedConversation) return
+            mutable.update { it.copy(generation = record) }
+            settings.generationId = if (record.terminal) null else record.id
+        } catch (e: ApiFailure) {
+            if (e.code == "not_found") settings.generationId = null else throw e
+        }
+    }
+
+    private fun watch(service: OmniRepository, record: Generation) {
         epoch++
         val current = epoch
         events?.cancel()
-        if (record.terminal || mutable.value.generation?.terminal == true) return
+        if (paused || record.terminal) return
         events =
-            service.watch(
-                record.id,
-                snapshot = { snapshot ->
-                    viewModelScope.launch { if (epoch == current) accept(snapshot) }
-                },
-                failure = { code ->
-                    viewModelScope.launch {
-                        if (epoch == current && mutable.value.generation?.terminal == false) {
-                            mutable.update { it.copy(error = code) }
-                            try {
-                                val next = service.generation(record.id)
-                                if (epoch == current) accept(next)
-                                if (epoch == current && !next.terminal) {
-                                    kotlinx.coroutines.delay(500)
-                                    val final = service.generation(record.id)
-                                    if (epoch == current) accept(final)
+            viewModelScope.launch {
+                var backoff = 500L
+                while (
+                    isActive &&
+                        !paused &&
+                        epoch == current &&
+                        mutable.value.generation?.terminal == false
+                ) {
+                    try {
+                        service.snapshots(record.id).collect { snapshot ->
+                            if (epoch == current && snapshot.id == record.id) {
+                                mutable.update {
+                                    it.copy(connected = true, reconnecting = false, error = null)
                                 }
-                            } catch (e: Exception) {
-                                if (epoch == current) error(e)
+                                accept(snapshot)
                             }
                         }
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        if ((e as? ApiFailure)?.code == "unauthorized") {
+                            error(e)
+                            return@launch
+                        }
                     }
-                },
-            )
+                    if (epoch != current || mutable.value.generation?.terminal != false) break
+                    mutable.update { it.copy(reconnecting = true) }
+                    delay(backoff)
+                    backoff = (backoff * 2).coerceAtMost(8000)
+                    try {
+                        val next = service.generation(record.id)
+                        if (epoch == current) accept(next)
+                    } catch (e: Exception) {
+                        error(e)
+                        if ((e as? ApiFailure)?.code == "unauthorized") return@launch
+                    }
+                }
+            }
     }
 
     private fun accept(record: Generation) {
         val previous = mutable.value.generation
         if (previous?.id != record.id || !acceptSnapshot(previous, record)) return
         mutable.update { it.copy(generation = record) }
+        settings.generationId = if (record.terminal) null else record.id
         if (record.terminal) {
             epoch++
             events?.cancel()
@@ -393,14 +516,62 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
 
     fun pause() {
         paused = true
-        cancel()
+        recovery?.cancel()
+        downloadUpdates?.cancel()
         epoch++
         events?.cancel()
         events = null
     }
 
     fun resume() {
+        val wasPaused = paused
         paused = false
+        if (wasPaused && settings.url.isNotBlank()) connect()
+    }
+
+    private fun pollDownloads(service: OmniRepository) {
+        downloadUpdates?.cancel()
+        downloadUpdates =
+            viewModelScope.launch {
+                while (isActive && !paused) {
+                    delay(2000)
+                    try {
+                        val records = service.downloads()
+                        mutable.update { it.copy(downloads = records) }
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                    }
+                }
+            }
+    }
+
+    fun searchHub(query: String) = action { service ->
+        if (query.isBlank() || query.length > 256) throw ApiFailure("invalid_model_source")
+        val records = service.search(query.trim())
+        mutable.update { it.copy(repositories = records, remoteFiles = emptyList()) }
+    }
+
+    fun hubFiles(repository: String) = action { service ->
+        val files = service.files(repository.trim())
+        mutable.update { it.copy(remoteFiles = files) }
+    }
+
+    fun download(file: RemoteFile) = action { service ->
+        service.download(file)
+        val records = service.downloads()
+        mutable.update { it.copy(downloads = records) }
+    }
+
+    fun cancelDownload(id: String) = action { service ->
+        service.cancelDownload(id)
+        val records = service.downloads()
+        mutable.update { it.copy(downloads = records) }
+    }
+
+    fun resumeDownload(id: String) = action { service ->
+        service.resumeDownload(id)
+        val records = service.downloads()
+        mutable.update { it.copy(downloads = records) }
     }
 
     fun loadModel(id: String) = action { service ->
@@ -426,6 +597,8 @@ class OmniViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         epoch++
         events?.cancel()
+        downloadUpdates?.cancel()
+        recovery?.cancel()
         api?.close()
     }
 }

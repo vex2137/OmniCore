@@ -1,0 +1,58 @@
+name: Attach tested Android APK to draft
+on:
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: Successful Native Android APK run ID
+        required: true
+        type: string
+      expected_sha:
+        description: Full verified source commit of that run
+        required: true
+        type: string
+      release_tag:
+        description: Existing draft only; published releases are rejected
+        required: true
+        default: v0.1.0-alpha.2
+        type: string
+permissions:
+  contents: write
+  actions: read
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify successful source run and private destination
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_RUN: ${{ inputs.source_run }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          [[ "$SOURCE_RUN" =~ ^[0-9]+$ ]]
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN" --jq .name)" = 'Native Android APK'
+          test "$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN" --jq .conclusion)" = success
+          test "$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN" --jq .head_sha)" = "$EXPECTED_SHA"
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+      - uses: actions/download-artifact@v4
+        with:
+          name: OmniCore-0.1.0-alpha-android-arm64
+          run-id: ${{ inputs.source_run }}
+          github-token: ${{ github.token }}
+          path: package
+      - name: Verify and attach without publishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          cd package
+          test "$(jq -r .source_commit android-build.json)" = "$EXPECTED_SHA"
+          sha256sum -c OmniCore-0.1.0-alpha-android-arm64.apk.sha256
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          gh release upload "$RELEASE_TAG" OmniCore-0.1.0-alpha-android-arm64.apk OmniCore-0.1.0-alpha-android-arm64.apk.sha256 android-build.json --clobber
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
