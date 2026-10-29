@@ -75,7 +75,8 @@ zdalny sprawdzaj poleceniami Git; nie próbuj wpisać hasha commita do niego sam
 Bieżące zadanie przesuwa natywne GUI Linux przed Image AI: klient PySide6/Qt6,
 istniejący backend, AppImage, testy, integracja main po weryfikacji i szkic wydania.
 Nie publikuj publicznego release bez osobnego potwierdzenia. Nie omijaj ochrony gałęzi.
-Nie implementuj teraz Image AI, Android ani Web GUI. Rust wymaga pomiarów
+Bieżące rozszerzenie zadania obejmuje natywnego Androida Kotlin/Compose jako klienta API.
+Nie implementuj teraz Image AI, Web GUI ani lokalnej inferencji Android. Rust wymaga pomiarów
 i mierzalnej potrzeby; bez pustych crate'ów lub przepisywania backendu.
 Nie deklaruj działania inferencji, klientów ani zgodności modeli na podstawie
 samych interfejsów adapterów lub testów bez rzeczywistego silnika.

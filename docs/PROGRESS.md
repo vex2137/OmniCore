@@ -239,3 +239,23 @@ są w native/README.md. Nie utworzono pustych crate'ów.
 Test zmian remount/CDN i GUI: 20 PASS. Dokumentacja Linux/AppImage, README,
 architektura i roadmapa zaktualizowane. Kolejny krok: pełny zestaw, końcowy obraz,
 ruch GitHub/PR, CI, integracja main dopiero po weryfikacji oraz szkic wydania.
+
+## Checkpoint Linux / początek Android
+
+- Checkout przy wznowieniu był czysty; engines.py nie miał niezapisanych zmian.
+  Dispatcher frozen/Python i guard zostały zapisane w 27a61e3; późniejsze commity
+  Linux: 81e524e, 8ee0fe4, 9b241e3.
+- Poprawione CI: Backend foundation oraz Linux desktop and AppImage **SUCCESS**
+  dla 9b241e3. Run Linux: 40762926217; artefakt jest rzeczywiście na GitHubie.
+- Pobrano paczkę CI Ubuntu 22.04 i wykonano dodatkowy rzeczywisty test GGUF
+  przez X11: GUI/backend/dołączony llama.cpp CPU, streaming, historia, PL/EN,
+  light/dark/system, restart i zamknięcie własnego backendu **PASS**.
+- AppImage do dystrybucji to **paczka CI**, nie wcześniejszy lokalny build Debian:
+  SHA-256 `07397174bcbc7cf6e9f14b8193881cb71b4b04ab5c30c3c908ce053cd3dab2c2`.
+- Szkic wydania v0.1.0-alpha.1 istnieje (ID 427506837), draft=true. Bezpośredni
+  upload z cloud zwrócił 401 mimo działającego API; nie zadeklarowano załączników.
+  Przygotowano workflow przesyłania istniejącego artefaktu przez GITHUB_TOKEN Actions,
+  z obowiązkowym sprawdzeniem draft=true; bez publikacji wydania.
+- Właściciel rozszerzył zakres o natywnego Androida Kotlin/Compose jako klienta
+  istniejącego API. Bez WebView i bez inferencji na telefonie. Image AI/Web nadal
+  nie są realizowane; Rust nadal wyłącznie po uzasadnionych pomiarach.
