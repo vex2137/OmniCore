@@ -151,7 +151,7 @@ class NativeClientTest {
             compose.onNodeWithTag("url").performTextInput(server.url("/").toString().trimEnd('/'))
             compose.onNodeWithTag("token").performTextInput(token)
             compose.onNodeWithTag("trusted_lan").performScrollTo().performClick()
-            compose.onNodeWithTag("connect").performScrollTo().performClick()
+            compose.onNodeWithTag("connect").performScrollTo().assertIsEnabled().performClick()
             compose.waitUntil(15000) {
                 compose.onAllNodesWithText("Connected").fetchSemanticsNodes().isNotEmpty() &&
                     compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty()

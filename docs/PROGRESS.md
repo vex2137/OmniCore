@@ -480,3 +480,12 @@ Właściciel polecił publikację Alpha.2. Najpierw zostanie przygotowany draft
 z faktycznie przesłanym APK/checksum, następnie publikacja po sprawdzeniu paczki.
 Publiczna Alpha.1 pozostaje bez zmian. Linux AppImage nie wymaga przebudowy:
 Alpha.2 może załączyć identyczny, wcześniej sprawdzony plik z jawną informacją.
+
+### Poprawka pierwszego połączenia wykryta przez emulator
+
+Run `40856903928` dla `9f560d8`: build/lint/JVM i pakowanie PASS, oba natywne UI
+FAIL na pierwszym połączeniu. Przyczyną był warunek enabled przycisku konfiguracji
+wymagający już connected=true. Naprawiono go: pierwszy connect/reconnect jest
+aktywny, gdy klient nie jest busy i nie zmienia aktywnej połączonej generacji.
+Test UI sprawdza teraz assertIsEnabled przed kliknięciem. Nie osłabiono auth,
+Keystore ani polityki LAN/HTTPS. Publikację zatrzymano; wymagany nowy poprawny CI.

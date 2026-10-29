@@ -667,7 +667,7 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
                 token = ""
                 clear = false
             },
-            enabled = s.connected && !s.busy && !s.generating,
+            enabled = !s.busy && (!s.generating || !s.connected),
             modifier = Modifier.fillMaxWidth().testTag("connect"),
         ) {
             Text(stringResource(R.string.connect))
