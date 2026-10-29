@@ -16,14 +16,25 @@ import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 
 /** No inference, model-file access or database logic. Only the public versioned API. */
-class OmniApi(private val base: String, private val token: String) : OmniRepository {
-    private val client =
+class OmniApi(
+    private val base: String,
+    private val token: String,
+    private val client: OkHttpClient =
         OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(45, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .followRedirects(false)
             .followSslRedirects(false)
+            .build(),
+) : OmniRepository {
+    // A cold model load can legitimately outlast the ordinary 45s read timeout.
+    // Share the pool/dispatcher so close() cancels both kinds of request.
+    private val loadingClient =
+        client
+            .newBuilder()
+            .readTimeout(180, TimeUnit.SECONDS)
+            .callTimeout(180, TimeUnit.SECONDS)
             .build()
 
     private fun request(path: String): Request.Builder =
@@ -31,13 +42,22 @@ class OmniApi(private val base: String, private val token: String) : OmniReposit
             if (token.isNotEmpty()) header("Authorization", "Bearer $token")
         }
 
-    internal suspend fun exchange(method: String, path: String, json: String? = null): String =
+    internal suspend fun exchange(
+        method: String,
+        path: String,
+        json: String? = null,
+        loading: Boolean = false,
+    ): String =
         kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
             val body =
                 if (method in setOf("POST", "PUT", "PATCH", "DELETE"))
                     (json ?: "{}").toRequestBody("application/json".toMediaType())
                 else null
-            val call = client.newCall(request(path).method(method, body).build())
+            val call =
+                (if (loading) loadingClient else client).newCall(
+                    request(path).method(method, body).build()
+                )
+            call.timeout().timeout(if (loading) 180 else 60, TimeUnit.SECONDS)
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(
                 object : okhttp3.Callback {
@@ -163,7 +183,12 @@ class OmniApi(private val base: String, private val token: String) : OmniReposit
         WireJson.decodeFromString(exchange("POST", "/api/v1/text/generations/$id/cancel"))
 
     override suspend fun load(id: String, parameters: Parameters) {
-        exchange("POST", "/api/v1/text/models/$id/load", WireJson.encodeToString(parameters))
+        exchange(
+            "POST",
+            "/api/v1/text/models/$id/load",
+            WireJson.encodeToString(parameters),
+            loading = true,
+        )
     }
 
     override suspend fun unload(id: String) {

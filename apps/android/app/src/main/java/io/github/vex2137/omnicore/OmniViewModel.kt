@@ -167,7 +167,7 @@ class OmniViewModel(
                 refresh(service)
                 recoverGeneration(service)
                 if (!paused) {
-                    mutable.value.generation?.takeIf { !it.terminal }?.let { watch(service, it) }
+                    resumeStream(service)
                     pollDownloads(service)
                 }
             } catch (e: Exception) {
@@ -327,6 +327,7 @@ class OmniViewModel(
         action {
             refresh(it)
             recoverGeneration(it)
+            resumeStream(it)
         }
     }
 
@@ -410,6 +411,7 @@ class OmniViewModel(
         action {
             loadMessages(it, id)
             recoverGeneration(it)
+            resumeStream(it)
         }
     }
 
@@ -486,6 +488,12 @@ class OmniViewModel(
             settings.generationId = if (record.terminal) null else record.id
         } catch (e: ApiFailure) {
             if (e.code == "not_found") settings.generationId = null else throw e
+        }
+    }
+
+    private fun resumeStream(service: OmniRepository) {
+        if (!paused && events?.isActive != true) {
+            mutable.value.generation?.takeIf { !it.terminal }?.let { watch(service, it) }
         }
     }
 

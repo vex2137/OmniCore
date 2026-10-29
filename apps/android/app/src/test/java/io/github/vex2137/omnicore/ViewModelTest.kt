@@ -247,6 +247,37 @@ class ViewModelTest {
     }
 
     @Test
+    fun openingChatStartedByAnotherClientResumesItsLiveStream() = runVmTest {
+        runCurrent()
+        repo.history =
+            listOf(Message(role = "user", content = "Desktop prompt", generationId = "g"))
+        vm.openConversation("c")
+        runCurrent()
+        assertEquals(1, repo.watched)
+        repo.stream.emit(repo.current.copy(content = "Live answer", sequence = 2))
+        runCurrent()
+        assertEquals("Live answer", vm.state.value.generation?.content)
+        assertEquals(0, repo.sent)
+        assertEquals(0, repo.cancelled)
+    }
+
+    @Test
+    fun refreshingSharedChatAttachesOnceAndContinuesReceivingSnapshots() = runVmTest {
+        runCurrent()
+        repo.history =
+            listOf(Message(role = "user", content = "Desktop prompt", generationId = "g"))
+        vm.refresh()
+        runCurrent()
+        vm.refresh()
+        runCurrent()
+        assertEquals(1, repo.watched)
+        repo.stream.emit(repo.current.copy(content = "Another client", sequence = 2))
+        runCurrent()
+        assertEquals("Another client", vm.state.value.generation?.content)
+        assertEquals(0, repo.sent)
+    }
+
+    @Test
     fun reconnectAfterOfflineStartupKeepsHistoryAndNeverSendsPrompt() = runVmTest {
         repo.offline = true
         runCurrent()

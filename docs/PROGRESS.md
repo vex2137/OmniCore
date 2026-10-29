@@ -886,3 +886,15 @@ health becomes ready: bounded output, preserved offload and process/reader clean
 Targeted native/adapter/parent-death suite: 23 PASS. Real SmolLM2 GGUF CPU and Auto:
 2 PASS (the first invocation lacked the test-specific executable variable; corrected
 configuration passed). No GPU hardware is present in Cloud; no CUDA claim from mocks.
+
+### Stable hardening — P0, Android shared streams and cold loading
+
+Opening or refreshing a shared conversation now attaches to its recovered active
+SSE task exactly once, without resubmitting the prompt or cancelling the backend.
+Previously these paths only retrieved a snapshot and could leave a static answer.
+Model loading has a separate bounded 180s HTTP timeout instead of the ordinary
+45s read timeout. Ordinary REST exchanges also have a 60s total deadline; SSE
+retains heartbeat/read semantics. Loading shares the dispatcher/pool and cancellation.
+Targeted Android JVM: ClientTest 18 + ViewModelTest 19 = 37 PASS, 0 skipped/errors.
+Tests include another client's task, repeated refresh without duplicate stream,
+and a delayed HTTP load that exceeds the ordinary read timeout. No phone test.
