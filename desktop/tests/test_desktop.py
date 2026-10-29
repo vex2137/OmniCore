@@ -4,6 +4,7 @@ import struct
 from importlib.resources import files
 
 import httpx
+import pytest
 from PySide6.QtCore import QProcess, Qt
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
 
@@ -173,7 +174,8 @@ def test_reuse_external_backend_never_stops_its_process(desktop, qtbot, monkeypa
     client.close()
 
 
-def test_async_transport_sse_handles_fragmented_frames_and_errors(qtbot):
+@pytest.mark.parametrize("ending", [b"\n", b"\r\n"])
+def test_async_transport_sse_handles_fragmented_frames_and_errors(qtbot, ending):
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -185,13 +187,18 @@ def test_async_transport_sse_handles_fragmented_frames_and_errors(qtbot):
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
             # Controlled transport test only. These are not model responses.
-            for fragment in (
-                b"da",
-                b'ta: {"state":"running","content":"a"}\n',
-                b"\ndata: ",
-                b'{"state":"completed","content":"ab"}\n\n',
-            ):
-                self.wfile.write(fragment)
+            data = ending.join(
+                (
+                    b'data:{"state":"running",',
+                    b'data:"content":"a"}',
+                    b"",
+                    b'data: {"state":"completed","content":"ab"}',
+                    b"",
+                    b"",
+                )
+            )
+            for byte in data:
+                self.wfile.write(bytes([byte]))
                 self.wfile.flush()
 
         def log_message(self, *_):
@@ -208,6 +215,49 @@ def test_async_transport_sse_handles_fragmented_frames_and_errors(qtbot):
         with qtbot.waitSignal(api.stream_closed, timeout=5000):
             api.watch("controlled-job")
         assert [r["content"] for r in records] == ["a", "ab"]
+    finally:
+        api.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+@pytest.mark.parametrize(
+    "status,body,code",
+    [
+        (401, b"private server body", "unauthorized"),
+        (200, b"data: []\n\n", "invalid_stream"),
+    ],
+)
+def test_stream_rejects_auth_errors_and_non_object_snapshots(qtbot, status, body, code):
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from omnicore.desktop.api import ApiClient
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(status)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    api = ApiClient()
+    api.configure(f"http://127.0.0.1:{server.server_port}")
+    errors, records = [], []
+    api.error.connect(errors.append)
+    api.snapshot.connect(records.append)
+    try:
+        api.watch("controlled-job")
+        qtbot.waitUntil(lambda: bool(errors), timeout=5000)
+        assert errors == [code]
+        assert not records
     finally:
         api.close()
         server.shutdown()

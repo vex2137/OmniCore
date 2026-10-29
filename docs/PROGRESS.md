@@ -907,3 +907,12 @@ matching Linux/AppImage's existing SVG; no new logo or branding was invented.
 Legacy vector geometry remains available. Full local JVM suite: 47 PASS, lintDebug,
 assembleDebug and assembleDebugAndroidTest PASS. Resource compilation validates
 both launcher layers; launcher appearance on POCO/HyperOS still needs a phone.
+
+### Stable hardening — P0, Linux SSE transport
+
+Qt joins bytes before normalizing CRLF and assembles multiline data fields per
+SSE event. It rejects non-object snapshots instead of passing them into a dict
+signal, and maps HTTP401/403 on streaming connections to unauthorized without
+exposing server bodies. Four actual Qt HTTP transport tests PASS (LF/CRLF,
+multiline snapshots, malformed object and authentication). The earlier complete
+backend/Qt run passed 178 tests before these three new parametrized cases.
