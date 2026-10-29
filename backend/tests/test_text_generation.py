@@ -129,7 +129,7 @@ def test_cancel_partial_generation_and_queued_job(tmp_path):
 def test_failure_preserves_partial_history(tmp_path, wait, error, expected):
     async def exercise():
         manager, conversation = create_manager(
-            tmp_path, ProtocolTestEngine(wait=wait, error=error), timeout=0.1
+            tmp_path, ProtocolTestEngine(wait=wait, error=error), timeout=3
         )
         record = await manager.submit(
             conversation.id, GenerationRequest(content="hi", request_key="failure")

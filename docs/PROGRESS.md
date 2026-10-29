@@ -518,3 +518,12 @@ wysokości viewportu (IME/orientacja), nie tylko liczbę wiadomości/sekwencję.
 Ustawienia mają imePadding, więc pola i przycisk połączenia pozostają osiągalne
 przy otwartej klawiaturze. Test wciąż wymaga rzeczywistej widoczności odpowiedzi;
 CI zachowuje zrzut i geometrię fixture także przy błędzie, bez tokenów/headers.
+
+### Budżet testu częściowej odpowiedzi przy timeout
+
+Linux CI `40866965677`: 127 PASS, 1 FAIL w starym teście partial-history/timeout.
+Budżet 100 ms obejmował także rzeczywiste SQLite i thread-pool; na runnerze wygasł
+przed pierwszym chunkiem, dlatego nie było częściowej treści. Ustawiono 3 s,
+zgodnie z domyślnym budżetem fixture. Test nadal rzeczywiście doprowadza do
+engine_timeout i wymaga dokładnej częściowej odpowiedzi, właściwego stanu historii
+oraz wszystkich dotychczasowych asercji. Bez sleep, pomijania ani zmiany backendu.
