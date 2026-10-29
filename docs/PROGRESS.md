@@ -1,5 +1,22 @@
 # OmniCore — PROGRESS
 
+## Alpha.3 — stabilizacja w toku
+
+Audyt: czysty lokalny i zdalny main `b1c9a520441c2a785daad32e8b8a4591c3f28bce`,
+brak otwartych PR; Alpha.2 publiczna z pięcioma faktycznymi assetami. Nowa gałąź
+`feature/alpha-3-stability`, bez resetu lub dodatkowego checkoutu.
+
+Zakres: Android (pierwszy język, nawigacja, konfiguracja, status/reconnect/retry),
+Linux (pierwszy start, QPA X11/Wayland, diagnostyka i lifecycle), synchronizacja
+klientów i wyścigi backendu. Osobne commity, regresja/realny GGUF, paczki Alpha.3
+i CI oraz **szkic** wydania. Zgoda na publiczną Alpha.2 nie obejmuje Alpha.3.
+Nie wdrażamy Image AI ani nowego silnika/Rust.
+
+Ryzyka: wyścig kolejki ze sprzątaniem engine, blokady mutacji rozmowy względem
+submit, niedostępny fizyczny ARM64/HyperOS i natywna sesja CachyOS. Wayland/Arch
+będą raportowane tylko po faktycznym uruchomieniu w opisanym środowisku.
+
+
 ## Alpha.2 — dostarczone i opublikowane (2026-10-29)
 
 [Publiczne wydanie v0.1.0-alpha.2](https://github.com/vex2137/OmniCore/releases/tag/v0.1.0-alpha.2)
@@ -603,3 +620,17 @@ android-emulator-runner uruchamia linie script w osobnych powłokach, więc zmie
 test_status nie przechodziła do końcowego exit. Przeniesiono ten krok do jednego
 scripts/test_android_emulator.sh. Skrypt zachowuje kod Gradle, zbiera dostępne
 zrzuty również przy błędzie i zwraca pierwotny status. bash -n PASS; nowy CI wymagany.
+
+### Alpha.3 — moduł synchronizacji backendu
+
+Implementacja: semafor obejmuje także cleanup/unload po błędzie/anulowaniu;
+serialized cancel i shield zakończenia chronią cleanup przed kolejnym klientem
+lub odłączeniem żądania. Mutacje rozmów/modelu są blokowane względem submit.
+Publiczne trasy, schematy i SQLite pozostają kompatybilne.
+
+Wykonane: **123 backend PASS**, 0 FAIL (117 dotychczasowych + 5 deterministycznych
+przypadków konkurencji + 1 przypadek dwóch rzeczywistych transportów HTTP).
+Test dwóch klientów obejmuje wspólną historię, detach SSE bez cancel, odrzucenie
+mutacji aktywnej rozmowy/modelu, cancel obserwowany przez drugi strumień i zapis
+częściowej historii. Kontrolowany silnik nie dowodzi inferencji.
+OpenAPI/JSON Schema snapshots: export_contracts.py --check PASS, bez zmian.

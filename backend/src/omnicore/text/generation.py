@@ -51,6 +51,7 @@ class GenerationManager:
         self.timeout = timeout
         self.semaphore = asyncio.Semaphore(1)
         self.submission_lock = asyncio.Lock()
+        self.cancellation_lock = asyncio.Lock()
         self.tasks: dict[str, asyncio.Task] = {}
 
     def record(self, job_id):
@@ -211,8 +212,11 @@ class GenerationManager:
         record = self.record(job_id)
         engine = None
         unload_name = None
+        acquired = False
         try:
-            async with self.semaphore, asyncio.timeout(self.timeout):
+            await self.semaphore.acquire()
+            acquired = True
+            async with asyncio.timeout(self.timeout):
                 record.state = "running"
                 await self._persist(record)
                 model = await asyncio.to_thread(self.store.model, record.model_id)
@@ -283,6 +287,10 @@ class GenerationManager:
             if engine:
                 await engine.unload(unload_name)
         finally:
+            # Cleanup owns the same engine as inference. A queued client must not load it
+            # while cancellation/error handling is still unloading the previous model.
+            if acquired:
+                self.semaphore.release()
             self.tasks.pop(job_id, None)
 
     async def _consume(self, engine, model, messages, record):
@@ -297,18 +305,25 @@ class GenerationManager:
             await self._persist(record)
 
     async def cancel(self, job_id):
-        record = self.record(job_id)
-        if record.state in TERMINAL:
+        # Simultaneous clients must not repeatedly cancel the worker during cleanup.
+        async with self.cancellation_lock:
+            record = self.record(job_id)
+            if record.state in TERMINAL:
+                return record
+            task = self.tasks.get(job_id)
+            if task:
+                task.cancel()
+                completion = asyncio.gather(task, return_exceptions=True)
+                try:
+                    await asyncio.shield(completion)
+                except asyncio.CancelledError:
+                    await completion
+                    raise
+            record = self.record(job_id)
+            if record.state not in TERMINAL:
+                record.state = "cancelled"
+                await self._persist(record)
             return record
-        task = self.tasks.get(job_id)
-        if task:
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
-        record = self.record(job_id)
-        if record.state not in TERMINAL:
-            record.state = "cancelled"
-            await self._persist(record)
-        return record
 
     async def close(self):
         for job_id in list(self.tasks):

@@ -203,15 +203,17 @@ def routes(service: TextService):
         return service.store.model(model_id)
 
     @router.put("/models/{model_id}/parameters", response_model=ModelRecord)
-    def model_parameters(model_id: str, body: GenerationParameters):
-        record = service.store.model(model_id)
-        record.parameters = body.model_dump(mode="json")
-        return service.store.update_model(record)
+    async def model_parameters(model_id: str, body: GenerationParameters):
+        async with service.generations.submission_lock:
+            service.require_idle(model_id=model_id)
+            record = await run_in_threadpool(service.store.model, model_id)
+            record.parameters = body.model_dump(mode="json")
+            return await run_in_threadpool(service.store.update_model, record)
 
     @router.post("/models/{model_id}/load", response_model=ModelRecord)
     async def load(model_id: str, body: GenerationParameters):
         service.require_idle()
-        async with service.generations.semaphore:
+        async with service.generations.submission_lock, service.generations.semaphore:
             service.require_idle()
             record = await run_in_threadpool(service.store.model, model_id)
             path = await run_in_threadpool(service.models.validated_reference, model_id)
@@ -226,7 +228,7 @@ def routes(service: TextService):
     @router.post("/models/{model_id}/unload", response_model=dict[str, str])
     async def unload(model_id: str):
         service.require_idle()
-        async with service.generations.semaphore:
+        async with service.generations.submission_lock, service.generations.semaphore:
             service.require_idle()
             record = await run_in_threadpool(service.store.model, model_id)
             engine = service.engines.get(record.backend)
@@ -237,7 +239,7 @@ def routes(service: TextService):
     @router.delete("/models/{model_id}", response_model=dict[str, str])
     async def delete_model(model_id: str, body: ModelDelete):
         service.require_idle()
-        async with service.generations.semaphore:
+        async with service.generations.submission_lock, service.generations.semaphore:
             service.require_idle()
             record = await run_in_threadpool(service.store.model, model_id)
             if service.llama.model == record.location:
@@ -308,17 +310,21 @@ def routes(service: TextService):
         return service.history.get(conversation_id)
 
     @router.patch("/conversations/{conversation_id}", response_model=Conversation)
-    def update_conversation(conversation_id: str, body: ConversationUpdate):
-        service.require_idle(conversation_id=conversation_id)
-        if body.model_id:
-            service.store.model(body.model_id)
-        return service.history.update(conversation_id, **body.model_dump(exclude_unset=True))
+    async def update_conversation(conversation_id: str, body: ConversationUpdate):
+        async with service.generations.submission_lock:
+            service.require_idle(conversation_id=conversation_id)
+            if body.model_id:
+                await run_in_threadpool(service.store.model, body.model_id)
+            return await run_in_threadpool(
+                service.history.update, conversation_id, **body.model_dump(exclude_unset=True)
+            )
 
     @router.delete("/conversations/{conversation_id}", response_model=dict[str, str])
-    def delete_conversation(conversation_id: str):
-        service.require_idle(conversation_id=conversation_id)
-        service.history.delete(conversation_id)
-        return {"status": "removed"}
+    async def delete_conversation(conversation_id: str):
+        async with service.generations.submission_lock:
+            service.require_idle(conversation_id=conversation_id)
+            await run_in_threadpool(service.history.delete, conversation_id)
+            return {"status": "removed"}
 
     @router.get("/conversations/{conversation_id}/messages", response_model=list[MessageRecord])
     def messages(conversation_id: str, query: str = Query(default="", max_length=256)):
@@ -327,9 +333,12 @@ def routes(service: TextService):
     @router.post(
         "/conversations/{conversation_id}/messages", response_model=MessageRecord, status_code=201
     )
-    def add_message(conversation_id: str, body: MessageCreate):
-        service.require_idle(conversation_id=conversation_id)
-        return service.history.add_message(conversation_id, **body.model_dump())
+    async def add_message(conversation_id: str, body: MessageCreate):
+        async with service.generations.submission_lock:
+            service.require_idle(conversation_id=conversation_id)
+            return await run_in_threadpool(
+                service.history.add_message, conversation_id, **body.model_dump()
+            )
 
     @router.get("/conversations/{conversation_id}/export", response_model=ConversationExport)
     def export_conversation(conversation_id: str):
