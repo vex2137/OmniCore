@@ -1,5 +1,22 @@
 # OmniCore — PROGRESS
 
+## Aktualizacja — Android, część 2 (2026-10-29)
+
+Audyt: czysty main `2e78daa0035ff0858c33fc387468b078100e3fd8`, PR #3 scalony,
+brak otwartych PR na starcie. GUI Linux i AppImage zachowane. Publiczna Alpha.1
+została opublikowana po późniejszej, wyraźnej zgodzie właściciela; historyczne
+opisy szkicu poniżej odnoszą się do wcześniejszego punktu kontrolnego.
+
+Gałąź: `feature/android-part-2`. Rozwijamy istniejącego klienta, nie tworzymy go
+od nowa. Implementacja: granica OmniRepository + Flow/StateFlow, odłączenie SSE
+bez cancel w tle, ponowne obserwowanie zadania/historii, HF download manager,
+parametry rozmowy zachowujące GPU, target/compile 36 i kontrola stron 16 KiB.
+
+Regresja wykonana w tej sesji: **130 PASS** (backend/Qt i dwie rzeczywiste
+integracje GGUF/GUI), 56.54 s. Nowy zestaw Androida i CI pozostają w weryfikacji;
+nie oznaczamy ich zaliczenia na podstawie kodu. Nowy APK Alpha.2 nie jest publiczny.
+Telefon fizyczny, POCO/Xiaomi i lokalna inferencja telefonu pozostają niezweryfikowane.
+
 ## Project Status
 
 - **Wersja:** `0.1.0-alpha.1`, natywny Linux + natywny Android jako klient API.
@@ -423,3 +440,12 @@ Test fizycznego ARM64 i CachyOS/RTX 4060, macierz CUDA/Wayland/Ollama oraz osobn
 procedura produkcyjnego podpisu APK. Image AI i Web pozostają dalszym zakresem,
 nie rozpoczęto ich w tym zadaniu. Publiczna publikacja wymaga osobnego potwierdzenia.
 Rust pozostaje opcjonalny zgodnie z pomiarami i native/README.md.
+
+### Android część 2 — moduł danych i cyklu życia
+
+Nowy zestaw JVM: **33 PASS**, 0 FAIL/error/skip (17 dotychczasowych transportu,
+12 ViewModel, 3 download/parametry/SSE, 1 zgodności zasobów). Regresja Python/Qt:
+130 PASS. Testy potwierdzają odłączenie bez cancel, jawny Stop, ponowne odczytanie
+zadania, idempotency key, wybór modelu i brak utraty zaawansowanych parametrów.
+Toolchain zaktualizowany do API 36 / AGP 8.13.2 / Gradle 8.13 ze zweryfikowanym
+wrapperem i sumą dystrybucji. Lint, pakowanie i emulator pozostają w weryfikacji.

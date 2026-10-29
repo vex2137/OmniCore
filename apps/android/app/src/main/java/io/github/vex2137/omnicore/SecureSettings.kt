@@ -11,31 +11,59 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /** API token is AES-GCM ciphertext. Its non-exportable key stays in Android Keystore. */
-class SecureSettings(context: Context) {
+class SecureSettings(context: Context) : ClientSettings {
     private val preferences = context.getSharedPreferences("omnicore", Context.MODE_PRIVATE)
     private val alias = "omnicore.api.token.v1"
-    var url: String
+    override var url: String
         get() = preferences.getString("url", "") ?: ""
         set(value) {
             preferences.edit().putString("url", value).apply()
         }
 
-    var trustedLan: Boolean
+    override var trustedLan: Boolean
         get() = preferences.getBoolean("trusted_lan", false)
         set(value) {
             preferences.edit().putBoolean("trusted_lan", value).apply()
         }
 
-    var theme: String
+    override var theme: String
         get() = preferences.getString("theme", "system") ?: "system"
         set(value) {
             preferences.edit().putString("theme", value).apply()
         }
 
-    var language: String
+    override var language: String
         get() = preferences.getString("language", "en-US") ?: "en-US"
         set(value) {
             preferences.edit().putString("language", value).apply()
+        }
+
+    override var conversationId: String?
+        get() = preferences.getString("conversation", null)
+        set(value) {
+            preferences.edit().putString("conversation", value).apply()
+        }
+
+    override var generationId: String?
+        get() = preferences.getString("generation", null)
+        set(value) {
+            preferences.edit().putString("generation", value).apply()
+        }
+
+    override var parameters: Parameters
+        get() =
+            try {
+                WireJson.decodeFromString<Parameters>(
+                    preferences.getString("parameters", "{}") ?: "{}"
+                )
+            } catch (_: Exception) {
+                Parameters()
+            }
+        set(value) {
+            preferences
+                .edit()
+                .putString("parameters", WireJson.encodeToString(Parameters.serializer(), value))
+                .apply()
         }
 
     private fun key(): SecretKey {
@@ -59,7 +87,7 @@ class SecureSettings(context: Context) {
             .generateKey()
     }
 
-    fun storeToken(token: String) {
+    override fun storeToken(token: String) {
         if (token.isEmpty()) {
             preferences.edit().remove("token_cipher").remove("token_iv").apply()
             return
@@ -74,7 +102,7 @@ class SecureSettings(context: Context) {
             .apply()
     }
 
-    fun readToken(): String {
+    override fun readToken(): String {
         val encrypted = preferences.getString("token_cipher", null) ?: return ""
         val iv = preferences.getString("token_iv", null) ?: throw ApiFailure("token_unavailable")
         return try {
