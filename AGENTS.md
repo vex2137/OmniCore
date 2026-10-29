@@ -12,8 +12,9 @@
 
 ## Początek każdej sesji i nowego zadania
 
-1. Przeczytaj ten plik, [docs/ROADMAP.md](docs/ROADMAP.md)
-   i [docs/PROGRESS.md](docs/PROGRESS.md).
+1. Przeczytaj ten plik. Z [docs/ROADMAP.md](docs/ROADMAP.md) i
+   [docs/PROGRESS.md](docs/PROGRESS.md) czytaj tylko sekcje potrzebne do
+   bieżącego zadania; pełny przegląd wykonuj przy zmianie etapu lub zakresu.
 2. Sprawdź gałąź, remote, status Git i istniejący kod. Zachowaj cudze zmiany.
 3. Porównaj dokumentację z rzeczywistym stanem kodu i dostępnymi wynikami testów.
 4. Kontynuuj od ostatniego potwierdzonego etapu. Zapis w dokumentacji sam w sobie
@@ -36,6 +37,51 @@
 - Nie umieszczaj sekretów, tokenów ani wag modeli w repozytorium.
   Nie używaj tokenów znalezionych w plikach projektu; korzystaj z autoryzacji
   dostarczonej przez środowisko i bezpiecznych ustawień sekretów.
+
+## Oszczędna praca i wykorzystanie limitu Codexa
+
+### Eksploracja i kontekst
+
+- Ogranicz analizę do plików, modułów i dokumentacji związanych z bieżącym zadaniem.
+- Nie skanuj całego repozytorium ani historii Git bez uzasadnienia.
+- Nie odczytuj ponownie niezmienionych plików i nie powtarzaj zakończonych analiz.
+- Ogranicz wyniki komend, logi i diffy do fragmentów potrzebnych do decyzji.
+- Sprawdzenia Git i zgodności dokumentacji z kodem wykonuj proporcjonalnie do
+  zakresu zadania; nie powtarzaj ich bez zmiany stanu.
+
+### Implementacja
+
+- Wprowadzaj najmniejszą kompletną zmianę spełniającą wymagania.
+- Nie wykonuj niezleconych refaktoryzacji, nowych funkcji ani napraw pobocznych.
+- Dziel duże zadania na etapy i wykonuj tylko aktualnie zlecony zakres.
+- Zachowaj wymagania bezpieczeństwa, kompatybilności, jakości i istniejące
+  ograniczenia wydawnicze; oszczędność limitu nie usprawiedliwia ich pominięcia.
+
+### Testy i diagnostyka
+
+- Najpierw zakończ powiązane zmiany, następnie uruchom najwęższe testy
+  adekwatne do ryzyka; nie testuj po każdej pojedynczej edycji.
+- Pełną baterię testów, lintowanie i kompilację wielu platform wykonuj wtedy,
+  gdy wymaga tego zakres zmiany, ryzyko regresji lub bramka wydania.
+- Nie powtarzaj udanych testów przy niezmienionym kodzie i warunkach.
+- Po błędzie przeanalizuj jego przyczynę przed ponowieniem; nie uruchamiaj
+  identycznej komendy ponownie bez uzasadnienia.
+- Dla zmian w bezpieczeństwie, API, migracjach, inferencji i wydaniach
+  zachowaj niezbędne testy integracyjne i sprzętowe.
+- Nigdy nie przedstawiaj pominiętych testów jako zaliczonych.
+
+### Narzędzia, internet i raportowanie
+
+- Nie uruchamiaj dodatkowych agentów, równoległych analiz ani długich
+  diagnostyk bez konkretnej korzyści.
+- Korzystaj z internetu tylko gdy potrzebny jest aktualny zewnętrzny materiał
+  lub zależność; dostęp do wszystkich domen nie oznacza obowiązku ich przeglądania.
+- Nie generuj rozbudowanych raportów pośrednich; informuj zwięźle o istotnych
+  etapach i przeszkodach.
+- Aktualizuj PROGRESS.md i ROADMAP.md zgodnie z zasadami projektu, ale nie
+  przepisuj niezmienionych sekcji ani nie powielaj tych samych informacji.
+- Po spełnieniu kryteriów zadania zakończ pracę. Raport końcowy ma krótko
+  wskazać zmiany, rzeczywiście wykonane testy, ograniczenia i stan Git/PR.
 
 ## Zasady Git
 
