@@ -527,3 +527,12 @@ przed pierwszym chunkiem, dlatego nie było częściowej treści. Ustawiono 3 s,
 zgodnie z domyślnym budżetem fixture. Test nadal rzeczywiście doprowadza do
 engine_timeout i wymaga dokładnej częściowej odpowiedzi, właściwego stanu historii
 oraz wszystkich dotychczasowych asercji. Bez sleep, pomijania ani zmiany backendu.
+
+### Obserwacja viewportu bez pętli rekompozycji
+
+Run `40866959073`, API 30: Compose zgłosił stale oczekujące rekompozycje po
+wprowadzeniu odczytu layoutInfo w kompozycji. Wysokość viewportu jest teraz
+obserwowana przez derivedStateOf, więc nowe obiekty layoutInfo przy każdym kroku
+scroll nie unieważniają całego widoku. Klucz efektu zależy wyłącznie od faktycznej
+zmiany wysokości. Diagnostyka testu najpierw robi zrzut i nie maskuje pierwotnego
+wyjątku, jeśli zapytanie o semantykę nie może czekać na idle.

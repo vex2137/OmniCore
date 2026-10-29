@@ -301,11 +301,9 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
         val messages =
             s.messages.filterNot { it.generationId != null && it.generationId == s.generation?.id }
         val scroll = androidx.compose.foundation.lazy.rememberLazyListState()
-        LaunchedEffect(
-            messages.size,
-            s.generation?.sequence,
-            scroll.layoutInfo.viewportSize.height,
-        ) {
+        val viewportHeight by
+            remember(scroll) { derivedStateOf { scroll.layoutInfo.viewportSize.height } }
+        LaunchedEffect(messages.size, s.generation?.sequence, viewportHeight) {
             val count = messages.size + if (s.generation != null) 1 else 0
             if (count > 0) scroll.animateScrollToItem(count - 1)
         }
