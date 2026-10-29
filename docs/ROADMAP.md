@@ -1,7 +1,7 @@
 # OmniCore — ROADMAP
 
 Plan rozwoju lokalnej platformy AI. Wersja rozwojowa: **0.1.0 Alpha**.
-Ostatnia aktualizacja: **2026-10-28**.
+Ostatnia aktualizacja: **2026-10-29**.
 
 ## Status i sposób realizacji
 
@@ -22,7 +22,7 @@ macierzy sprzętowej. Testy fundamentu nie potwierdzają zgodności modeli.
 Na polecenie właściciela realizujemy teraz natywny klient PySide6/Qt6 i AppImage.
 Pierwszy przepływ GGUF/llama.cpp bez Ollamy przeszedł rzeczywisty test backendu
 i GUI na CPU. Pozostają testy rozszerzone, pakowanie, stabilizacja oraz weryfikacja
-integracji main i szkicu wydania. Image AI, Web i Android nie są teraz wdrażane.
+integracji main i szkicu wydania. Image AI i Web nie są teraz wdrażane. Natywny Android jest bieżącym rozszerzeniem.
 
 ## Android — klient API po dostarczeniu AppImage
 
@@ -33,6 +33,20 @@ integracji main i szkicu wydania. Image AI, Web i Android nie są teraz wdrażan
 - [x] Zweryfikować test interfejsu w emulatorze CI i udokumentować wynik (API 30 x86_64).
 - [ ] Osobno sprawdzić instalację i działanie na fizycznym ARM64.
 - [ ] Lokalna inferencja Android pozostaje przyszłym, odrębnym zakresem.
+
+### Android — część 2: rozwinięcie klienta API
+
+- [x] Oddzielna granica repozytorium, Flow/StateFlow i testowalny ViewModel.
+- [x] Zachowanie zadania w tle, jawny Stop, odczyt po restarcie i reconnect bez nowego promptu.
+- [x] HF: search/pliki, potwierdzenie rozmiaru/licencji, download/progress/pause/resume/import.
+- [x] Parametry rozmowy bez utraty ustawień GPU, filtrowanie silników i diagnostyka wersji API/zadań.
+- [x] Target/compile Android 16/API 36; kontrola ZIP/ELF 16 KiB, wersja APK Alpha.2.
+- [ ] Potwierdzić nowy pełny zestaw JVM/lint/emulatory 30/36 i opublikować wyniki.
+- [ ] Fizyczny ARM64 POCO/Xiaomi Android 16: instalacja, IME, orientacja i tło/HyperOS.
+- [ ] Stały klucz podpisu i publiczna Alpha.2 wymagają odrębnej konfiguracji/zgody.
+
+Publiczna Alpha.1 zachowuje swoje pliki i sumy. Nowe paczki trafiają do Actions
+oraz osobnego szkicu Alpha.2, bez automatycznej publicznej publikacji.
 
 ## Przekrojowo — Python i opcjonalny Rust
 

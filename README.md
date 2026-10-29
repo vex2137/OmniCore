@@ -1,7 +1,7 @@
 # OmniCore
 OmniCore is an open-source local AI platform. This Alpha provides native Linux and Android clients for text models; image generation and other modules are planned.
 
-## Stan: 0.1.0 Alpha — natywna aplikacja Linux
+## Stan: 0.1.0 Alpha — natywne aplikacje Linux i Android
 
 OmniCore ma działające GUI Qt6/PySide6: czat ze streamingiem i historią, menedżer
 GGUF/Hugging Face, ustawienia PL/EN i motywów oraz diagnostykę. GUI Linux zostało
@@ -23,6 +23,18 @@ Backend FastAPI/SQLite i dotychczasowe API pozostają zachowane. Rust jest
 przygotowaną możliwością architektoniczną; [pomiary i decyzja](native/README.md)
 nie uzasadniają teraz nowej implementacji. Android ma osobnego natywnego klienta Kotlin/Compose ([instrukcja](docs/ANDROID.md));
 Image AI i Web pozostają planowane. To rozwojowa Alpha; publiczny release wymaga osobnego potwierdzenia.
+
+Android Kotlin/Compose korzysta z tego samego API: czat i historia, SSE, modele
+llama.cpp bez Ollamy, pobieranie GGUF przez backend, ustawienia generowania,
+PL/EN, motywy i Keystore. Przejście do tła odłącza podgląd, zachowując generację
+na serwerze. Build Androida używa API 36 (Android 16) i sprawdza zgodność bibliotek
+ze stronami 16 KiB. Nie ma WebView, usług Google Play ani inferencji telefonu.
+Fizyczne POCO/Xiaomi wymaga osobnego testu; wyniki emulatorów są w PROGRESS.
+
+Publiczna wersja [v0.1.0-alpha.1](https://github.com/vex2137/OmniCore/releases/tag/v0.1.0-alpha.1)
+została opublikowana za zgodą właściciela. Dalszy Android ma versionCode 2,
+wersję `0.1.0-alpha.2` i osobne artefakty Actions/szkic; nie podmieniamy plików
+publicznego wydania. Kolejna publiczna publikacja wymaga osobnej zgody.
 
 - [Architektura, audyt, plan i ryzyka](docs/ARCHITECTURE.md)
 - [Roadmapa](docs/ROADMAP.md)

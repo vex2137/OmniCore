@@ -13,8 +13,8 @@ bez cancel w tle, ponowne obserwowanie zadania/historii, HF download manager,
 parametry rozmowy zachowujące GPU, target/compile 36 i kontrola stron 16 KiB.
 
 Regresja wykonana w tej sesji: **130 PASS** (backend/Qt i dwie rzeczywiste
-integracje GGUF/GUI), 56.54 s. Nowy zestaw Androida i CI pozostają w weryfikacji;
-nie oznaczamy ich zaliczenia na podstawie kodu. Nowy APK Alpha.2 nie jest publiczny.
+integracje GGUF/GUI), 56.54 s. Android: **34 JVM PASS**, lint/build PASS; rzeczywisty Kotlin/FastAPI/GGUF: **1 PASS**.
+CI emulatorów pozostaje w weryfikacji. Właściciel zezwolił na publiczną Alpha.2.
 Telefon fizyczny, POCO/Xiaomi i lokalna inferencja telefonu pozostają niezweryfikowane.
 
 ## Project Status
@@ -462,3 +462,21 @@ GUI: działające HF search/files/confirmation/download/progress/pause/resume/im
 edycja parametrów rozmowy, filtrowanie silników, diagnostyka API/zadań, systemowy
 Wstecz i animowana nawigacja. Dodano test UI powrotu z tła/rekreacji oraz transferu.
 Workflow CI obejmuje emulatory API 30 i 36; wyników jeszcze nie potwierdzono.
+
+### Android część 2 — rzeczywisty klient i odzyskanie połączenia
+
+Checkout i commity zachowane po przerwie środowiska. Rerun JVM: **34 PASS**,
+0 fail/error/skip (w tym SSE reconnect i nowy ViewModel odtworzony ze stanu).
+`RealBackendTest` przez `scripts/test_android_real.py`: **1 PASS**, 22 s Gradle,
+bez fixture inferencji. Kotlin połączył się z prawdziwym FastAPI/llama.cpp CPU
+oraz SmolLM2 Q4_K_M: import/load, wiele snapshotów, niepusta odpowiedź,
+odłączenie bez cancel, jawny cancel, trwała historia przez nowy klient i unload.
+To test transportu z rzeczywistym AI, nie test instalacji na telefonie.
+Ruff/format/contracts/diff check PASS. Moduły `2eafa86` i `da3a557` zachowane;
+push `da3a55783658121c5f464aec34fa404a4a7c3abf` potwierdzony, PR #4 jako draft.
+Emulatory 30/36 są w weryfikacji, fizyczny POCO/Xiaomi pozostaje nietestowany.
+
+Właściciel polecił publikację Alpha.2. Najpierw zostanie przygotowany draft
+z faktycznie przesłanym APK/checksum, następnie publikacja po sprawdzeniu paczki.
+Publiczna Alpha.1 pozostaje bez zmian. Linux AppImage nie wymaga przebudowy:
+Alpha.2 może załączyć identyczny, wcześniej sprawdzony plik z jawną informacją.

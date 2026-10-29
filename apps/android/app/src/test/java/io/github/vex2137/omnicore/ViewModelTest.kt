@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.test.*
 import org.junit.After
 import org.junit.Assert.*
@@ -35,6 +36,7 @@ private class FakeRepository : OmniRepository {
     var sent = 0
     var cancelled = 0
     var watched = 0
+    var streamFailures = 0
     var offline = false
     var rejected = false
     var throwAfterSubmit = false
@@ -136,7 +138,13 @@ private class FakeRepository : OmniRepository {
 
     override fun snapshots(id: String): Flow<Generation> {
         watched++
-        return stream
+        return kotlinx.coroutines.flow.flow {
+            if (streamFailures > 0) {
+                streamFailures--
+                throw ApiFailure("stream_disconnected")
+            }
+            emitAll(stream)
+        }
     }
 
     override fun close() {}
@@ -248,6 +256,26 @@ class ViewModelTest {
         runCurrent()
         assertTrue(vm.state.value.connected)
         assertEquals(0, repo.sent)
+    }
+
+    @Test
+    fun streamFailureReconnectsWithoutResubmission() = runVmTest {
+        runCurrent()
+        repo.streamFailures = 1
+        vm.draft("Hi")
+        vm.send()
+        runCurrent()
+        assertTrue(vm.state.value.reconnecting)
+        advanceTimeBy(600)
+        runCurrent()
+        assertTrue(repo.watched >= 2)
+        repo.stream.emit(
+            repo.current.copy(state = "completed", content = "Recovered", sequence = 9)
+        )
+        runCurrent()
+        assertEquals("Recovered", vm.state.value.generation?.content)
+        assertEquals(1, repo.sent)
+        assertEquals(0, repo.cancelled)
     }
 
     @Test
