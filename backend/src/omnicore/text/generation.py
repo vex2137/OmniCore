@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import os
+import time
 import uuid
 from typing import Literal
 
@@ -13,12 +14,12 @@ from omnicore.schemas import ServerEvent, WireModel
 from omnicore.text.conversations import Conversations, MessageRecord
 from omnicore.text.models import ModelManager
 from omnicore.text.store import TextStore, timestamp
-from omnicore.text.types import GenerationParameters, TextError, TextMessage
+from omnicore.text.types import GenerationParameters, GenerationStatistics, TextError, TextMessage
 
 TERMINAL = {"completed", "cancelled", "failed", "interrupted"}
 
 
-class GenerationRecord(WireModel):
+class GenerationRecord(GenerationStatistics):
     id: str
     conversation_id: str
     model_id: str
@@ -26,11 +27,11 @@ class GenerationRecord(WireModel):
         "queued"
     )
     parameters: GenerationParameters
+    model_name: str | None = Field(default=None, max_length=1024)
     content: str = ""
+    reasoning_content: str = Field(default="", max_length=1_000_000)
     sequence: int = 0
     error_code: str | None = None
-    output_tokens: int | None = None
-    tokens_per_second: float | None = None
     created_at: str
     updated_at: str
 
@@ -77,6 +78,12 @@ class GenerationManager:
                     record.content,
                     "interrupted",
                     record.parameters,
+                    model_id=record.model_id,
+                    model_name=record.model_name,
+                    reasoning_content=record.reasoning_content,
+                    statistics=GenerationStatistics(
+                        **{key: getattr(record, key) for key in GenerationStatistics.model_fields}
+                    ),
                 )
 
     def active_for(self, *, model_id=None, conversation_id=None):
@@ -93,15 +100,19 @@ class GenerationManager:
             model_id = request.model_id or conversation.model_id
             if not model_id:
                 raise TextError("model_required", 422)
-            await asyncio.to_thread(self.store.model, model_id)
+            model = await asyncio.to_thread(self.store.model, model_id)
             parameters = request.parameters or conversation.parameters
+            parameter_fingerprint = parameters.model_dump()
+            # Preserve idempotency keys created by Alpha.1/2 before thinking was a field.
+            if not parameters.thinking:
+                parameter_fingerprint.pop("thinking")
             fingerprint = hashlib.sha256(
                 json.dumps(
                     {
                         "conversation": conversation_id,
                         "model": model_id,
                         "content": request.content,
-                        "parameters": parameters.model_dump(),
+                        "parameters": parameter_fingerprint,
                     },
                     sort_keys=True,
                 ).encode()
@@ -126,6 +137,8 @@ class GenerationManager:
                         id=uuid.uuid4().hex,
                         conversation_id=conversation_id,
                         model_id=model_id,
+                        model_name=model.name,
+                        context_limit_tokens=parameters.context_size,
                         parameters=parameters,
                         created_at=timestamp(),
                         updated_at=timestamp(),
@@ -135,6 +148,8 @@ class GenerationManager:
                         conversation_id=conversation_id,
                         role="user",
                         content=request.content,
+                        model_id=model_id,
+                        model_name=model.name,
                         created_at=timestamp(),
                     )
                     connection.execute(
@@ -182,6 +197,11 @@ class GenerationManager:
                 )
                 message.content, message.status = snapshot.content, snapshot.state
                 message.parameters = snapshot.parameters
+                message.model_id, message.model_name = snapshot.model_id, snapshot.model_name
+                message.reasoning_content = snapshot.reasoning_content
+                message.statistics = GenerationStatistics(
+                    **{key: getattr(snapshot, key) for key in GenerationStatistics.model_fields}
+                )
                 connection.execute(
                     "INSERT INTO text_messages(id,conversation_id,generation_id,record) "
                     "VALUES(?,?,?,?) "
@@ -213,9 +233,11 @@ class GenerationManager:
         engine = None
         unload_name = None
         acquired = False
+        started = None
         try:
             await self.semaphore.acquire()
             acquired = True
+            started = time.monotonic()
             async with asyncio.timeout(self.timeout):
                 record.state = "running"
                 await self._persist(record)
@@ -243,10 +265,16 @@ class GenerationManager:
                         info = os.fstat(stream.fileno())
                         if (info.st_dev, info.st_ino) != self.store.model_identity(model.id):
                             raise TextError("model_file_changed", 409)
-                        await engine.load(path, record.parameters, file_descriptor=stream.fileno())
-                        await self._consume(engine, str(path), messages, record)
+                        loading = time.monotonic()
+                        try:
+                            await engine.load(
+                                path, record.parameters, file_descriptor=stream.fileno()
+                            )
+                        finally:
+                            record.model_load_seconds = time.monotonic() - loading
+                        await self._consume(engine, str(path), messages, record, started)
                 else:
-                    await self._consume(engine, model.location, messages, record)
+                    await self._consume(engine, model.location, messages, record, started)
                 if record.content.strip():
                     model.compatibility = "tested"
                     model.capabilities = list(
@@ -263,26 +291,43 @@ class GenerationManager:
                         else "engine-managed",
                     }
                     await asyncio.to_thread(self.store.update_model, model)
+                else:
+                    raise TextError(
+                        "reasoning_limit_reached"
+                        if record.reasoning_content and record.finish_reason == "length"
+                        else "empty_response",
+                        502,
+                    )
                 record.state = "completed"
+                record.generation_seconds = time.monotonic() - started
+                record.finish_reason = record.finish_reason or "stop"
                 await self._persist(record)
         except asyncio.CancelledError:
             record.state, record.error_code = "cancelled", None
+            record.finish_reason = "cancelled"
+            record.generation_seconds = time.monotonic() - started if started is not None else None
             await self._persist(record)
             if engine:
                 await engine.unload(unload_name)
             raise
         except TimeoutError:
             record.state, record.error_code = "failed", "engine_timeout"
+            record.generation_seconds = time.monotonic() - started if started is not None else None
+            record.finish_reason = record.finish_reason or "error"
             await self._persist(record)
             if engine:
                 await engine.unload(unload_name)
         except TextError as exc:
             record.state, record.error_code = "failed", exc.code
+            record.generation_seconds = time.monotonic() - started if started is not None else None
+            record.finish_reason = record.finish_reason or "error"
             await self._persist(record)
             if engine:
                 await engine.unload(unload_name)
         except Exception:
             record.state, record.error_code = "failed", "generation_failed"
+            record.generation_seconds = time.monotonic() - started if started is not None else None
+            record.finish_reason = record.finish_reason or "error"
             await self._persist(record)
             if engine:
                 await engine.unload(unload_name)
@@ -293,15 +338,30 @@ class GenerationManager:
                 self.semaphore.release()
             self.tasks.pop(job_id, None)
 
-    async def _consume(self, engine, model, messages, record):
+    async def _consume(self, engine, model, messages, record, started):
         async for chunk in engine.stream(model, messages, record.parameters):
-            if len(record.content) + len(chunk.content) > 1_000_000:
+            if (
+                len(record.content)
+                + len(record.reasoning_content)
+                + len(chunk.content)
+                + len(chunk.reasoning_content)
+                > 1_000_000
+            ):
                 raise TextError("generation_limit_exceeded", 422)
+            elapsed = time.monotonic() - started
+            if (chunk.content or chunk.reasoning_content) and record.ttft_seconds is None:
+                record.ttft_seconds = elapsed
+            if chunk.content and record.first_answer_seconds is None:
+                record.first_answer_seconds = elapsed
             record.content += chunk.content
-            if chunk.output_tokens is not None:
-                record.output_tokens = chunk.output_tokens
-            if chunk.tokens_per_second is not None:
-                record.tokens_per_second = chunk.tokens_per_second
+            record.reasoning_content += chunk.reasoning_content
+            record.generation_seconds = elapsed
+            for field in ("input_tokens", "output_tokens", "tokens_per_second", "finish_reason"):
+                value = getattr(chunk, field)
+                if value is not None:
+                    setattr(record, field, value)
+            if record.input_tokens is not None and record.output_tokens is not None:
+                record.context_used_tokens = record.input_tokens + record.output_tokens
             await self._persist(record)
 
     async def cancel(self, job_id):

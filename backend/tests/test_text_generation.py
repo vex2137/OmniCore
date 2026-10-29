@@ -175,3 +175,107 @@ def test_restart_marks_durable_running_job_interrupted(tmp_path):
         await manager.close()
 
     asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("reasoning", [False, True])
+def test_empty_or_reasoning_only_response_is_explicit_failure(tmp_path, reasoning):
+    class EmptyEngine(ProtocolTestEngine):
+        async def stream(self, model, messages, parameters):
+            yield TextChunk(
+                reasoning_content="Thinking" if reasoning else "",
+                output_tokens=256,
+                finish_reason="length",
+            )
+
+    async def exercise():
+        manager, conversation = create_manager(tmp_path, EmptyEngine())
+        record = await manager.submit(
+            conversation.id, GenerationRequest(content="A long request", request_key="empty")
+        )
+        await manager.tasks[record.id]
+        result = manager.record(record.id)
+        assert result.state == "failed" and result.content == ""
+        assert result.error_code == ("reasoning_limit_reached" if reasoning else "empty_response")
+        assert result.finish_reason == "length" and result.output_tokens == 256
+        assert result.context_limit_tokens == 2048  # No silent context inflation.
+        assert manager.store.model(result.model_id).compatibility == "unverified"
+        message = manager.history.messages(conversation.id)[-1]
+        assert message.status == "failed"
+        assert message.reasoning_content == result.reasoning_content
+        assert message.statistics.finish_reason == "length"
+        await manager.close()
+
+    asyncio.run(exercise())
+
+
+def test_model_snapshot_statistics_export_and_old_idempotency_survive_restart(tmp_path):
+    import hashlib
+    import json
+
+    class ReasoningEngine(ProtocolTestEngine):
+        async def stream(self, model, messages, parameters):
+            yield TextChunk(reasoning_content="Consider")
+            await asyncio.sleep(0.002)
+            yield TextChunk(
+                content="Answer",
+                input_tokens=11,
+                output_tokens=4,
+                tokens_per_second=20,
+                finish_reason="stop",
+            )
+
+    async def exercise():
+        manager, conversation = create_manager(tmp_path, ReasoningEngine())
+        request = GenerationRequest(content="hi", request_key="metadata")
+        record = await manager.submit(conversation.id, request)
+        await manager.tasks[record.id]
+        result = manager.record(record.id)
+        stats = manager.history.messages(conversation.id)[-1].statistics
+        assert result.model_name == manager.store.model(result.model_id).name
+        assert stats.ttft_seconds < stats.first_answer_seconds <= stats.generation_seconds
+        assert stats.model_load_seconds >= 0
+        assert stats.context_used_tokens == 15 and stats.context_limit_tokens == 2048
+        assert stats.tokens_per_second == 20
+        original_name = result.model_name
+        manager.history.update(conversation.id, model_id="a-different-model")
+        model = manager.store.model(result.model_id)
+        model.name = "Renamed after generation"
+        manager.store.update_model(model)
+        exported = manager.history.export(conversation.id)
+        copied = manager.history.import_json(exported)
+        messages = manager.history.messages(copied.id)
+        assert messages[-1].model_name == original_name
+        assert messages[-1].statistics == stats
+        assert messages[-1].reasoning_content == "Consider"
+        # Alpha.2 persisted hashes lack the new optional thinking field.
+        old_parameters = result.parameters.model_dump(exclude={"thinking"})
+        old_hash = hashlib.sha256(
+            json.dumps(
+                {
+                    "conversation": conversation.id,
+                    "model": result.model_id,
+                    "content": "hi",
+                    "parameters": old_parameters,
+                },
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+        with manager.store.db.connect() as db:
+            assert (
+                db.execute(
+                    "SELECT fingerprint FROM text_generation_keys WHERE request_key=?",
+                    (request.request_key,),
+                ).fetchone()[0]
+                == old_hash
+            )
+        restarted = GenerationManager(manager.store, manager.models, {}, EventHub())
+        restarted.initialize()
+        assert restarted.record(result.id).model_name == original_name
+        assert (
+            await restarted.submit(
+                conversation.id, request.model_copy(update={"model_id": result.model_id})
+            )
+        ).id == result.id
+        await manager.close()
+
+    asyncio.run(exercise())

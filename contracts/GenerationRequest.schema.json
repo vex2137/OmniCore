@@ -57,6 +57,11 @@
           "title": "Temperature",
           "type": "number"
         },
+        "thinking": {
+          "default": false,
+          "title": "Thinking",
+          "type": "boolean"
+        },
         "top_k": {
           "default": 40,
           "maximum": 1000,

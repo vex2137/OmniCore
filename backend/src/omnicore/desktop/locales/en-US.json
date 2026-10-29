@@ -148,5 +148,9 @@
   "report_saved": "Diagnostic report saved without tokens, paths or conversation content.",
   "report_failed": "Cannot save the diagnostic report. Choose a writable location.",
   "unknown_error": "Unexpected backend error. Reconnect or check diagnostics.",
-  "disconnected": "Disconnected"
+  "disconnected": "Disconnected",
+  "empty_response": "The engine returned no final answer. Check the chat template and finish reason; the context was not increased automatically.",
+  "reasoning_limit_reached": "The token limit was used for reasoning before a final answer. Disable thinking if the model supports it, or explicitly adjust the answer limit.",
+  "context_limit_exceeded": "The prompt exceeds the model context. Shorten the conversation or explicitly choose a context supported by the model and available memory.",
+  "engine_invalid_response": "The inference engine returned an invalid response."
 }

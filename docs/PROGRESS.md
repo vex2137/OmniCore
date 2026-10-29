@@ -660,3 +660,20 @@ schemacie (bez tokenów, ścieżek i treści), plik 0600. Logi odrzucają niezna
 Wybór QPA respektuje jawny override i wybiera Wayland/X11 według sesji; test
 wyboru nie jest testem natywnego CachyOS/Wayland. AppRun izoluje hostowe pluginy Qt.
 Backend 123 PASS zapisany wcześniej w 5e25533, Android 42 JVM PASS w 99a5b27.
+
+### Alpha.3 — odpowiedzi, tożsamość modelu i statystyki
+
+129 backend PASS (123 poprzednie + 6 przypadków regresji). Rzeczywisty test
+SmolLM2-135M-Instruct-Q4_K_M przez llama.cpp na CPU: 1 PASS, bez Ollamy;
+potwierdzono treść, liczniki wejścia/wyjścia, TTFT, czas, kontekst, finish_reason
+oraz zapis metadanych w historii. Nie testowano wag LFM3/Qwen użytkownika.
+Parser zachowuje reasoning oddzielnie, rozpoznaje odpowiedź JSON i SSE, usage oraz
+finish_reason. Domyślnie żąda wyłączenia thinking przez opcje szablonu (zależne od
+modelu). Brak finalnej odpowiedzi jest błędem, reasoning-only z length ma własny
+komunikat; nie zwiększamy automatycznie kontekstu ani limitu. Błąd przekroczenia
+kontekstu jest odróżniony od OOM. Nowe pola kontraktów są opcjonalne/defaultowane;
+stare dane i odciski idempotency pozostają zgodne. Nazwa modelu jest snapshotem
+wiadomości, zachowanym przy zmianie nazwy/modelu, restarcie i eksporcie/importcie.
+TTFT mierzony od rozpoczęcia wykonania (bez kolejki, z ładowaniem), osobno czas
+ładowania i pierwszego tekstu odpowiedzi. Liczby tokenów i tok./s pochodzą z silnika;
+brak danych pozostaje null, wykorzystanie kontekstu = raportowane wejście+wyjście.

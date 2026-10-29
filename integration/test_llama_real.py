@@ -64,7 +64,17 @@ def test_gguf_without_ollama(tmp_path):
             time.sleep(0.1)
         assert record["state"] == "completed", record
         assert record["content"].strip(), "The real model must generate actual text"
+        assert record["model_name"] == imported.json()["name"]
+        assert record["output_tokens"] > 0 and record["input_tokens"] > 0
+        assert record["ttft_seconds"] > 0
+        assert record["first_answer_seconds"] >= record["ttft_seconds"]
+        assert record["generation_seconds"] >= record["first_answer_seconds"]
+        assert record["context_used_tokens"] == record["input_tokens"] + record["output_tokens"]
+        assert record["context_limit_tokens"] == 512
+        assert record["finish_reason"] in {"stop", "length"}
         messages = client.get(f"/api/v1/text/conversations/{conversation['id']}/messages").json()
         assert messages[-1]["role"] == "assistant" and messages[-1]["content"] == record["content"]
+        assert messages[-1]["model_name"] == record["model_name"]
+        assert messages[-1]["statistics"]["output_tokens"] == record["output_tokens"]
         assert client.post(f"/api/v1/text/models/{model_id}/unload").status_code == 200
         assert app.state.text.llama.process is None and process.returncode is not None

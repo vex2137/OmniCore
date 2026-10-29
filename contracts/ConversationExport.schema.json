@@ -57,6 +57,11 @@
           "title": "Temperature",
           "type": "number"
         },
+        "thinking": {
+          "default": false,
+          "title": "Thinking",
+          "type": "boolean"
+        },
         "top_k": {
           "default": 40,
           "maximum": 1000,
@@ -73,6 +78,144 @@
         }
       },
       "title": "GenerationParameters",
+      "type": "object"
+    },
+    "GenerationStatistics": {
+      "additionalProperties": false,
+      "properties": {
+        "context_limit_tokens": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context Limit Tokens"
+        },
+        "context_used_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context Used Tokens"
+        },
+        "finish_reason": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "pattern": "^[a-zA-Z0-9_.-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finish Reason"
+        },
+        "first_answer_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First Answer Seconds"
+        },
+        "generation_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Generation Seconds"
+        },
+        "input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Tokens"
+        },
+        "model_load_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Load Seconds"
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Tokens"
+        },
+        "tokens_per_second": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tokens Per Second"
+        },
+        "ttft_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ttft Seconds"
+        }
+      },
+      "title": "GenerationStatistics",
       "type": "object"
     },
     "MessageRecord": {
@@ -108,6 +251,32 @@
           "title": "Id",
           "type": "string"
         },
+        "model_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Id"
+        },
+        "model_name": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Name"
+        },
         "parameters": {
           "anyOf": [
             {
@@ -119,6 +288,12 @@
           ],
           "default": null
         },
+        "reasoning_content": {
+          "default": "",
+          "maxLength": 1000000,
+          "title": "Reasoning Content",
+          "type": "string"
+        },
         "role": {
           "enum": [
             "system",
@@ -127,6 +302,17 @@
           ],
           "title": "Role",
           "type": "string"
+        },
+        "statistics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GenerationStatistics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "status": {
           "default": "completed",

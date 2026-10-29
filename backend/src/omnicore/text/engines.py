@@ -26,10 +26,62 @@ def engine_error(error: Exception) -> TextError:
         return TextError("engine_timeout", 504)
     if isinstance(error, httpx.HTTPStatusError):
         body = error.response.text.lower()[:8192]
-        if any(word in body for word in ["out of memory", "insufficient memory", "cuda error"]):
+        if any(
+            word in body for word in ["out of memory", "insufficient memory", "cudamalloc failed"]
+        ):
             return TextError("out_of_memory", 503)
+        if any(
+            word in body
+            for word in [
+                "context size",
+                "context window",
+                "prompt is too long",
+                "exceeds the available context",
+            ]
+        ):
+            return TextError("context_limit_exceeded", 422)
         return TextError("engine_rejected_request", 502)
     return TextError("engine_unavailable", 503)
+
+
+def _text(value):
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "".join(
+            part.get("text", "")
+            for part in value
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
+        )
+    raise TextError("engine_invalid_response", 502)
+
+
+def openai_chunk(item):
+    if not isinstance(item, dict):
+        raise TextError("engine_invalid_response", 502)
+    if item.get("error"):
+        raise TextError("engine_rejected_request", 502)
+    choices = item.get("choices") or []
+    text, reasoning, finish = "", "", None
+    # A single requested completion; never concatenate unrelated n>1 choices.
+    for choice in choices:
+        if choice.get("index", 0) != 0:
+            continue
+        delta = choice.get("delta") or choice.get("message") or {}
+        text += _text(delta.get("content"))
+        reasoning += _text(delta.get("reasoning_content") or delta.get("reasoning"))
+        finish = choice.get("finish_reason") or finish
+    usage, timing = item.get("usage") or {}, item.get("timings") or {}
+    return TextChunk(
+        content=text,
+        reasoning_content=reasoning,
+        input_tokens=usage.get("prompt_tokens"),
+        output_tokens=usage.get("completion_tokens"),
+        tokens_per_second=timing.get("predicted_per_second"),
+        finish_reason=finish,
+    )
 
 
 def client_for(url: str, timeout: float = 30) -> httpx.AsyncClient:
@@ -151,6 +203,7 @@ class OllamaEngine:
                     "model": model,
                     "messages": [item.model_dump() for item in messages],
                     "stream": True,
+                    "think": parameters.thinking,
                     "options": options,
                 },
             ) as response:
@@ -172,7 +225,12 @@ class OllamaEngine:
                             raise TextError(code, 502)
                         count, duration = item.get("eval_count"), item.get("eval_duration")
                         yield TextChunk(
-                            content=item.get("message", {}).get("content", ""),
+                            content=_text(item.get("message", {}).get("content")),
+                            reasoning_content=_text(item.get("message", {}).get("thinking")),
+                            finish_reason=item.get("done_reason") if item.get("done") else None,
+                            input_tokens=item.get("prompt_eval_count")
+                            if item.get("done")
+                            else None,
                             output_tokens=count if item.get("done") else None,
                             tokens_per_second=count / (duration / 1e9)
                             if count and duration
@@ -425,11 +483,24 @@ class LlamaEngine:
                     "max_tokens": parameters.max_tokens,
                     "seed": parameters.seed,
                     "stream_options": {"include_usage": True},
+                    "chat_template_kwargs": {"enable_thinking": parameters.thinking},
+                    "reasoning_format": "deepseek",
                 },
             ) as response:
                 if response.is_error:
                     await response.aread()
                     response.raise_for_status()
+                if response.headers.get("content-type", "").startswith("application/json"):
+                    body = bytearray()
+                    async for part in response.aiter_bytes():
+                        body.extend(part)
+                        if len(body) > 2_000_000:
+                            raise TextError("generation_limit_exceeded", 502)
+                    chunk = openai_chunk(json.loads(body))
+                    yield chunk
+                    if chunk.content:
+                        self._verified_text_models.add(model)
+                    return
                 finished = False
                 seen_text = False
                 async for line in response.aiter_lines():
@@ -440,20 +511,10 @@ class LlamaEngine:
                         if seen_text:
                             self._verified_text_models.add(model)
                         return
-                    item = json.loads(data)
-                    if item.get("error"):
-                        raise TextError("engine_rejected_request", 502)
-                    choices = item.get("choices", [])
-                    text = "".join(
-                        choice.get("delta", {}).get("content") or "" for choice in choices
-                    )
-                    seen_text |= bool(text)
-                    finished |= any(choice.get("finish_reason") for choice in choices)
-                    yield TextChunk(
-                        content=text,
-                        output_tokens=item.get("usage", {}).get("completion_tokens"),
-                        tokens_per_second=item.get("timings", {}).get("predicted_per_second"),
-                    )
+                    chunk = openai_chunk(json.loads(data))
+                    seen_text |= bool(chunk.content)
+                    finished |= chunk.finish_reason is not None
+                    yield chunk
                 if not finished:
                     raise TextError("engine_stream_interrupted", 502)
                 if seen_text:

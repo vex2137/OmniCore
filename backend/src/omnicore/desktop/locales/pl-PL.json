@@ -148,5 +148,9 @@
   "report_saved": "Zapisano raport bez tokenów, ścieżek i treści rozmów.",
   "report_failed": "Nie można zapisać raportu. Wybierz dostępny katalog.",
   "unknown_error": "Nieoczekiwany błąd backendu. Połącz ponownie lub sprawdź diagnostykę.",
-  "disconnected": "Rozłączono"
+  "disconnected": "Rozłączono",
+  "empty_response": "Silnik nie zwrócił końcowej odpowiedzi. Sprawdź szablon rozmowy i powód zakończenia; kontekst nie został automatycznie zwiększony.",
+  "reasoning_limit_reached": "Limit tokenów został zużyty na rozumowanie przed końcową odpowiedzią. Wyłącz myślenie, jeśli model to obsługuje, lub świadomie zmień limit odpowiedzi.",
+  "context_limit_exceeded": "Polecenie przekracza kontekst modelu. Skróć rozmowę lub świadomie wybierz kontekst zgodny z modelem i dostępną pamięcią.",
+  "engine_invalid_response": "Silnik inferencji zwrócił nieprawidłową odpowiedź."
 }

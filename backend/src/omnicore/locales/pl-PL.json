@@ -50,5 +50,9 @@
   "error.conversation_busy": "Generowanie jest aktywne. Anuluj je przed zmianą tego zasobu.",
   "error.generation_failed": "Generowanie nie powiodło się. Sprawdź model i silnik.",
   "error.generation_limit_exceeded": "Generowana odpowiedź przekracza limit bezpieczeństwa.",
-  "error.backend_restarted": "Backend został ponownie uruchomiony przed zakończeniem zadania."
+  "error.backend_restarted": "Backend został ponownie uruchomiony przed zakończeniem zadania.",
+  "error.empty_response": "Silnik nie zwrócił końcowej odpowiedzi. Sprawdź szablon rozmowy i powód zakończenia; kontekst nie został automatycznie zwiększony.",
+  "error.reasoning_limit_reached": "Limit tokenów został zużyty na rozumowanie przed końcową odpowiedzią. Wyłącz myślenie, jeśli model to obsługuje, lub świadomie zmień limit odpowiedzi.",
+  "error.context_limit_exceeded": "Polecenie przekracza kontekst modelu. Skróć rozmowę lub świadomie wybierz kontekst zgodny z modelem i dostępną pamięcią.",
+  "error.engine_invalid_response": "Silnik inferencji zwrócił nieprawidłową odpowiedź."
 }

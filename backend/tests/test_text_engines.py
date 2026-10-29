@@ -92,6 +92,8 @@ def test_llama_sse_transport_and_stream_termination():
     def handler(request):
         body = json.loads(request.content)
         assert body["stream"] and body["max_tokens"] == 4
+        assert body["chat_template_kwargs"] == {"enable_thinking": False}
+        assert body["reasoning_format"] == "deepseek"
         return httpx.Response(
             200,
             content='data: {"choices":[{"delta":{"content":"hello"}}]}\n\n'
@@ -115,6 +117,75 @@ def test_llama_sse_transport_and_stream_termination():
         ]
         assert chunks[0].content == "hello"
         assert chunks[-1].output_tokens == 1
+        await engine.stop()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("json_response", [False, True])
+def test_llama_reasoning_usage_and_json_fallback(json_response):
+    def handler(request):
+        assert json.loads(request.content)["chat_template_kwargs"]["enable_thinking"]
+        if json_response:
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {"content": "Answer", "reasoning_content": "Consider"},
+                            "finish_reason": "length",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 12, "completion_tokens": 8},
+                    "timings": {"predicted_per_second": 7.5},
+                },
+            )
+        return httpx.Response(
+            200,
+            content=(
+                'data: {"choices":[{"delta":{"reasoning_content":"Consider","content":null}}]}\n\n'
+                'data: {"choices":[{"delta":{"content":[{"type":"text","text":"Answer"}]}},'
+                '{"index":1,"delta":{"content":"ignore"}}]}\n\n'
+                'data: {"choices":[{"delta":{},"finish_reason":"length"}],'
+                '"usage":{"prompt_tokens":12,"completion_tokens":8},'
+                '"timings":{"predicted_per_second":7.5}}\n\ndata: [DONE]\n\n'
+            ),
+        )
+
+    async def exercise():
+        engine = LlamaEngine()
+        engine.client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), base_url="http://localhost"
+        )
+        engine.model = "test-model"
+        chunks = [
+            chunk
+            async for chunk in engine.stream("test-model", [], GenerationParameters(thinking=True))
+        ]
+        assert "".join(c.content for c in chunks) == "Answer"
+        assert "".join(c.reasoning_content for c in chunks) == "Consider"
+        assert chunks[-1].finish_reason == "length"
+        assert chunks[-1].input_tokens == 12 and chunks[-1].output_tokens == 8
+        assert chunks[-1].tokens_per_second == 7.5
+        await engine.stop()
+
+    asyncio.run(exercise())
+
+
+def test_context_rejection_is_not_an_empty_success():
+    async def exercise():
+        engine = LlamaEngine()
+        engine.client = httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    400, text="request exceeds the available context size"
+                )
+            ),
+            base_url="http://localhost",
+        )
+        engine.model = "test-model"
+        with pytest.raises(TextError, match="context_limit_exceeded"):
+            _ = [chunk async for chunk in engine.stream("test-model", [], GenerationParameters())]
         await engine.stop()
 
     asyncio.run(exercise())
