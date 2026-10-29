@@ -1,0 +1,52 @@
+{
+  "$defs": {
+    "InterfaceMode": {
+      "enum": [
+        "simple",
+        "advanced"
+      ],
+      "title": "InterfaceMode",
+      "type": "string"
+    },
+    "Locale": {
+      "enum": [
+        "en-US",
+        "pl-PL"
+      ],
+      "title": "Locale",
+      "type": "string"
+    },
+    "Theme": {
+      "enum": [
+        "system",
+        "light",
+        "dark"
+      ],
+      "title": "Theme",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "locale": {
+      "$ref": "#/$defs/Locale",
+      "default": "en-US"
+    },
+    "mode": {
+      "$ref": "#/$defs/InterfaceMode",
+      "default": "simple"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "theme": {
+      "$ref": "#/$defs/Theme",
+      "default": "system"
+    }
+  },
+  "title": "Preferences",
+  "type": "object"
+}

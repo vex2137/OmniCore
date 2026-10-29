@@ -1,0 +1,133 @@
+{
+  "$defs": {
+    "ErrorDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "ErrorDetail",
+      "type": "object"
+    },
+    "InterfaceMode": {
+      "enum": [
+        "simple",
+        "advanced"
+      ],
+      "title": "InterfaceMode",
+      "type": "string"
+    },
+    "Locale": {
+      "enum": [
+        "en-US",
+        "pl-PL"
+      ],
+      "title": "Locale",
+      "type": "string"
+    },
+    "Preferences": {
+      "additionalProperties": false,
+      "properties": {
+        "locale": {
+          "$ref": "#/$defs/Locale",
+          "default": "en-US"
+        },
+        "mode": {
+          "$ref": "#/$defs/InterfaceMode",
+          "default": "simple"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "theme": {
+          "$ref": "#/$defs/Theme",
+          "default": "system"
+        }
+      },
+      "title": "Preferences",
+      "type": "object"
+    },
+    "Theme": {
+      "enum": [
+        "system",
+        "light",
+        "dark"
+      ],
+      "title": "Theme",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ErrorDetail"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "settings": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Preferences"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "task": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task"
+    },
+    "type": {
+      "enum": [
+        "hello",
+        "settings.updated",
+        "pong",
+        "error",
+        "generation.updated"
+      ],
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type"
+  ],
+  "title": "ServerEvent",
+  "type": "object"
+}

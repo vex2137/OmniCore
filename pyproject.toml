@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "omnicore"
+version = "0.1.0a0"
+description = "Local AI platform with a native Linux desktop client"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+  "httpx>=0.28,<0.29",
+  "fastapi>=0.115,<1",
+  "pydantic>=2.10,<3",
+  "uvicorn>=0.34,<1",
+  "websockets>=14,<17",
+]
+
+[project.scripts]
+omnicore = "omnicore.cli:main"
+omnicore-desktop = "omnicore.desktop.main:main"
+
+[project.optional-dependencies]
+desktop = ["PySide6-Essentials==6.8.3"]
+
+[dependency-groups]
+dev = [
+  "build>=1.2,<2",
+  "httpx2>=2,<3",
+  "jsonschema>=4.23,<5",
+  "pytest>=8.3,<10",
+  "ruff>=0.11,<1",
+]
+gui-test = ["pytest-qt>=4.4,<5", "PySide6-Essentials==6.8.3"]
+packaging = ["pyinstaller>=6.13,<7"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend/src/omnicore"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/tests/*" = ["S104", "S105", "S106"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["omnicore"]

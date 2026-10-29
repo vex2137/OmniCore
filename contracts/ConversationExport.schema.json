@@ -1,0 +1,198 @@
+{
+  "$defs": {
+    "GenerationParameters": {
+      "additionalProperties": false,
+      "properties": {
+        "context_size": {
+          "default": 2048,
+          "maximum": 131072,
+          "minimum": 128,
+          "title": "Context Size",
+          "type": "integer"
+        },
+        "device": {
+          "default": "cpu",
+          "pattern": "^(cpu|auto|[A-Za-z0-9][A-Za-z0-9_.:-]{0,63})$",
+          "title": "Device",
+          "type": "string"
+        },
+        "gpu_layers": {
+          "default": 0,
+          "maximum": 999,
+          "minimum": 0,
+          "title": "Gpu Layers",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "default": 256,
+          "maximum": 32768,
+          "minimum": 1,
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "repeat_penalty": {
+          "default": 1.1,
+          "exclusiveMinimum": 0,
+          "maximum": 3,
+          "title": "Repeat Penalty",
+          "type": "number"
+        },
+        "seed": {
+          "default": 0,
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "system_prompt": {
+          "default": "",
+          "maxLength": 16384,
+          "title": "System Prompt",
+          "type": "string"
+        },
+        "temperature": {
+          "default": 0.7,
+          "maximum": 2,
+          "minimum": 0,
+          "title": "Temperature",
+          "type": "number"
+        },
+        "top_k": {
+          "default": 40,
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Top K",
+          "type": "integer"
+        },
+        "top_p": {
+          "default": 0.9,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Top P",
+          "type": "number"
+        }
+      },
+      "title": "GenerationParameters",
+      "type": "object"
+    },
+    "MessageRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "default": "",
+          "maxLength": 1000000,
+          "title": "Content",
+          "type": "string"
+        },
+        "conversation_id": {
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "generation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Generation Id"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "parameters": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GenerationParameters"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "role": {
+          "enum": [
+            "system",
+            "user",
+            "assistant"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "status": {
+          "default": "completed",
+          "enum": [
+            "completed",
+            "running",
+            "cancelled",
+            "failed",
+            "interrupted"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "conversation_id",
+        "role",
+        "created_at"
+      ],
+      "title": "MessageRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "messages": {
+      "items": {
+        "$ref": "#/$defs/MessageRecord"
+      },
+      "maxItems": 10000,
+      "title": "Messages",
+      "type": "array"
+    },
+    "model_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Id"
+    },
+    "parameters": {
+      "$ref": "#/$defs/GenerationParameters"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "title": {
+      "maxLength": 256,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "parameters",
+    "messages"
+  ],
+  "title": "ConversationExport",
+  "type": "object"
+}

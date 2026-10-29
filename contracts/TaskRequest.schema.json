@@ -1,0 +1,47 @@
+{
+  "$defs": {
+    "Capability": {
+      "enum": [
+        "text",
+        "vision",
+        "text_to_image",
+        "image_to_image",
+        "inpaint",
+        "upscale",
+        "lora"
+      ],
+      "title": "Capability",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "capability": {
+      "$ref": "#/$defs/Capability"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "model_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Model Id",
+      "type": "string"
+    },
+    "parameters": {
+      "additionalProperties": true,
+      "title": "Parameters",
+      "type": "object"
+    }
+  },
+  "required": [
+    "id",
+    "model_id",
+    "capability"
+  ],
+  "title": "TaskRequest",
+  "type": "object"
+}

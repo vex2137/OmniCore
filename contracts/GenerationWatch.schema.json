@@ -1,0 +1,27 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "cancel_on_disconnect": {
+      "default": true,
+      "title": "Cancel On Disconnect",
+      "type": "boolean"
+    },
+    "job_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Job Id",
+      "type": "string"
+    },
+    "type": {
+      "const": "generation.watch",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "job_id"
+  ],
+  "title": "GenerationWatch",
+  "type": "object"
+}

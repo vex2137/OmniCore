@@ -1,0 +1,44 @@
+name: Attach assets to private release draft
+
+on:
+  push:
+    branches: [feature/0.1.0-alpha]
+    paths: [.github/workflows/draft-assets.yml]
+  workflow_dispatch:
+    inputs:
+      linux_run_id:
+        description: Successful Linux AppImage run whose verified artifact should be attached
+        default: '40762926217'
+        required: true
+      release_tag:
+        description: Existing draft release tag (this workflow never publishes)
+        default: v0.1.0-alpha.1
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  attach-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: OmniCore-0.1.0-alpha-x86_64
+          run-id: ${{ inputs.linux_run_id || '40762926217' }}
+          github-token: ${{ github.token }}
+          path: package
+      - name: Verify checksum and attach only to an existing draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag || 'v0.1.0-alpha.1' }}
+        run: |
+          cd package
+          sha256sum -c OmniCore-0.1.0-alpha-x86_64.AppImage.sha256
+          draft=$(gh api "repos/$GH_REPO/releases" --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .draft")
+          test "$draft" = true
+          gh release upload "$RELEASE_TAG" OmniCore-0.1.0-alpha-x86_64.AppImage OmniCore-0.1.0-alpha-x86_64.AppImage.sha256 --clobber
+          gh api "repos/$GH_REPO/releases" --jq '.[] | select(.draft) | {id,tag_name,draft,assets:[.assets[]|{name,size,state,digest}]}'

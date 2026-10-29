@@ -1,0 +1,136 @@
+{
+  "$defs": {
+    "RemoteFile": {
+      "additionalProperties": false,
+      "properties": {
+        "filename": {
+          "title": "Filename",
+          "type": "string"
+        },
+        "license": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "License"
+        },
+        "repository": {
+          "title": "Repository",
+          "type": "string"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[a-fA-F0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "size_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "repository",
+        "revision",
+        "filename",
+        "size_bytes"
+      ],
+      "title": "RemoteFile",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Code"
+    },
+    "etag": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Etag"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "integrity_verified": {
+      "default": false,
+      "title": "Integrity Verified",
+      "type": "boolean"
+    },
+    "path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Path"
+    },
+    "percent": {
+      "default": 0,
+      "title": "Percent",
+      "type": "number"
+    },
+    "received_bytes": {
+      "default": 0,
+      "title": "Received Bytes",
+      "type": "integer"
+    },
+    "source": {
+      "$ref": "#/$defs/RemoteFile"
+    },
+    "state": {
+      "default": "queued",
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "source",
+    "created_at"
+  ],
+  "title": "DownloadRecord",
+  "type": "object"
+}
