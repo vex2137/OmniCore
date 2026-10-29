@@ -29,6 +29,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: linux-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   linux-appimage:
     runs-on: ubuntu-22.04
@@ -68,10 +72,10 @@ jobs:
         run: xvfb-run -a uv run --frozen python scripts/test_appimage.py
       - uses: actions/upload-artifact@v4
         with:
-          name: OmniCore-0.1.0-alpha.3-x86_64
+          name: OmniCore-linux-x86_64
           path: |
-            dist/OmniCore-0.1.0-alpha.3-x86_64.AppImage
-            dist/OmniCore-0.1.0-alpha.3-x86_64.AppImage.sha256
+            dist/OmniCore-*.AppImage
+            dist/OmniCore-*.AppImage.sha256
             dist/build-manifest.json
             dist/appimage-test.json
             dist/appimage-test.png

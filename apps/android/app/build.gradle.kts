@@ -13,7 +13,7 @@ android {
     compileSdk = 36
     buildToolsVersion = "36.0.0"
     defaultConfig {
-        applicationId = "io.github.vex2137.omnicore"
+        applicationId = distribution["android_application_id"] as String
         minSdk = 26
         targetSdk = 36
         versionCode = (distribution["android_version_code"] as Number).toInt()

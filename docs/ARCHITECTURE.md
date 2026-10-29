@@ -424,3 +424,14 @@ Opcjonalna zaufana binarka CUDA i niezależna binarka CPU są nadzorowane przez 
 sam adapter/proces guard. Wybór GPU nie zmienia logiki inferencji ani API klientów.
 Szczegóły fallbacku, SM 89, budowania i bramki sprzętowej: [CUDA.md](CUDA.md).
 Python pozostaje warstwą sterowania; nie wykazano potrzeby dodawania komponentu Rust.
+
+## 0.1.0 RC — wykrywanie i bramka Stable
+
+Adapter wybiera binarki z zamkniętej listy; CPU AppImage jest niezależnym fallbackiem.
+Po prctl i bootstrapie PyInstaller guard przywraca środowisko bibliotek użytkownika
+przed exec. Wykryte urządzenia, aktywne wykonanie i offloaded layers są rozdzielone.
+Nvidia-smi dostarcza opcjonalne dane VRAM, bez wyciągania wniosków z samej obecności GPU.
+Parser reasoning/SSE jest wspólny dla adapterów, niezależny od klientów; nie zmieniono
+schematu danych ani inferencji na Rust. Hardware-test korzysta z tych samych tras API
+w izolowanej tymczasowej instancji, nigdy z istniejącej bazy użytkownika.
+RC i Stable mają osobną bramkę: [RELEASE_GATE.md](RELEASE_GATE.md).

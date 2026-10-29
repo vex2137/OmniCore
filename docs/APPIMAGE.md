@@ -1,6 +1,6 @@
 # OmniCore AppImage x86_64
 
-Nazwa pliku: `OmniCore-0.1.0-alpha.3-x86_64.AppImage`.
+Nazwa pliku: `OmniCore-0.1.0-rc.1-x86_64.AppImage`.
 Paczka zawiera Python 3.12, PySide6/Qt6, backend i opcjonalnie sprawdzony CPU
 llama.cpp. Nie zawiera wag, Ollamy ani CUDA. Nie wymaga instalowania Pythona.
 
@@ -10,9 +10,9 @@ Pobierz AppImage i sąsiadujący plik `.sha256` ze szkicu wydania (dostęp dla w
 lub z artefaktu workflow **Linux desktop and AppImage**, gdy jest dostępny:
 
 ```sh
-sha256sum -c OmniCore-0.1.0-alpha.3-x86_64.AppImage.sha256
-chmod +x OmniCore-0.1.0-alpha.3-x86_64.AppImage
-./OmniCore-0.1.0-alpha.3-x86_64.AppImage
+sha256sum -c OmniCore-0.1.0-rc.1-x86_64.AppImage.sha256
+chmod +x OmniCore-0.1.0-rc.1-x86_64.AppImage
+./OmniCore-0.1.0-rc.1-x86_64.AppImage
 ```
 
 Wymagane Linux x86_64, glibc, serwer graficzny X11/Wayland, biblioteki systemowego
@@ -29,9 +29,9 @@ Opcjonalny niezależny silnik CUDA można wskazać w ustawieniach: [CUDA.md](CUD
 Bez obsługi FUSE użyj wspieranego trybu ekstrakcji:
 
 ```sh
-APPIMAGE_EXTRACT_AND_RUN=1 ./OmniCore-0.1.0-alpha.3-x86_64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 ./OmniCore-0.1.0-rc.1-x86_64.AppImage
 # Alternatywnie:
-./OmniCore-0.1.0-alpha.3-x86_64.AppImage --appimage-extract
+./OmniCore-0.1.0-rc.1-x86_64.AppImage --appimage-extract
 ./squashfs-root/AppRun
 ```
 
@@ -88,3 +88,11 @@ sukcesem buildów z dokładnie tego samego SHA, sprawdza manifesty i SHA-256, po
 uploaduje AppImage/APK wyłącznie do istniejącego szkicu `v0.1.0-alpha.3`.
 Nie publikuje wydania i odrzuca publiczny cel. Artefakty Actions wymagają konta
 GitHub; szkic jest dostępny osobom uprawnionym w repozytorium.
+
+## RC: automatyczne GPU i test właściciela
+
+Nowe ustawienia pokazują Auto/CPU/CUDA; ręczne ścieżki pozostają zaawansowaną opcją.
+Auto używa CUDA tylko po potwierdzeniu offloadu; rzeczywiste urządzenie i fallback
+są zapisane przy wiadomości. Test `--hardware-test` działa z dołączonym Pythonem
+bez GUI, z własną tymczasową bazą. Nie wskazuj istniejącej bazy do testów.
+[Instrukcja i blokada Stable](RELEASE_GATE.md).

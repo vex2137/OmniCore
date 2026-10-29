@@ -4,9 +4,9 @@ Kotlin + Jetpack Compose + Material 3, bez WebView. Aplikacja korzysta z istniej
 FastAPI REST/SSE. SQLite, inferencja, kolejka i modele pozostają na komputerze.
 **Nie ma lokalnej inferencji GGUF na telefonie ani wymaganego komponentu Rust.**
 
-Identyfikator: `io.github.vex2137.omnicore`. Wersja rozwojowa: `0.1.0-alpha.3`, versionCode 3.
+Identyfikator RC: `io.github.vex2137.omnicore.rc`. Wersja: `0.1.0-rc.1`, versionCode 4.
 Minimalny Android 8.0/API 26, target/compile SDK 36. Dystrybucyjny plik:
-`OmniCore-0.1.0-alpha.3-android-arm64.apk`, ABI arm64-v8a. Jest to build **debug/test**,
+`OmniCore-0.1.0-rc.1-android-arm64.apk`, ABI arm64-v8a. Jest to build **debug/test**,
 podpisany kluczem testowym, nie oficjalnym kluczem produkcyjnym. W APK nie ma
 adresu prywatnego serwera, tokenów użytkownika ani wag modeli.
 
@@ -116,8 +116,8 @@ cd apps/android
 ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
 cd ../..
 python3 scripts/package_android.py
-sha256sum -c dist/OmniCore-0.1.0-alpha.3-android-arm64.apk.sha256
-adb install dist/OmniCore-0.1.0-alpha.3-android-arm64.apk
+sha256sum -c dist/OmniCore-0.1.0-rc.1-android-arm64.apk.sha256
+adb install dist/OmniCore-0.1.0-rc.1-android-arm64.apk
 ```
 
 Budowanie tworzy oddzielne APK arm64-v8a i x86_64 do emulatora. Skrypt pakowania
@@ -197,3 +197,12 @@ cancel, jawne cancel drugiej generacji, historię przez nowy klient oraz unload.
 To dowód integracji kodu transportu z AI, **nie instalacji/UI na telefonie**.
 `RealBackendTest` jest jawnie wyłączony ze zwykłych testów; uruchamia go wyłącznie
 `-PrealBackend=true` z poprawnymi zmiennymi procesu. Brak wag kończy scenariusz błędem.
+
+## Kandydat Stable
+
+RC instaluje się obok Alpha jako „OmniCore RC”; nie usuwaj Alpha, aby wykonać test.
+Podpisy testowe poprzednich CI nie są trwałymi kluczami produkcyjnymi. Nie deklarujemy
+aktualizacji APK podpisanego innym kluczem. RC wymaga własnego adresu/tokena; po
+połączeniu widzi istniejącą historię serwera. Wybór Auto/CPU/CUDA dotyczy komputera.
+Wynik fizycznego Androida oraz trwałe podpisywanie są bramkami Stable:
+[RELEASE_GATE.md](RELEASE_GATE.md).

@@ -157,4 +157,5 @@ Download this file onto the backend computer?</string>
   <string name="mode_cpu">CPU</string>
   <string name="mode_cuda">CUDA</string>
   <string name="error_gpu">The backend could not use GPU. Select Auto for CPU fallback, or check engine diagnostics on the computer.</string>
+  <string name="launcher_name">OmniCore RC</string>
 </resources>

@@ -51,10 +51,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: matrix.api == 36
         with:
-          name: OmniCore-0.1.0-alpha.3-android-arm64
+          name: OmniCore-android-arm64
           path: |
-            dist/OmniCore-0.1.0-alpha.3-android-arm64.apk
-            dist/OmniCore-0.1.0-alpha.3-android-arm64.apk.sha256
+            dist/OmniCore-*-android-arm64.apk
+            dist/OmniCore-*-android-arm64.apk.sha256
             dist/android-build.json
           if-no-files-found: error
           retention-days: 30

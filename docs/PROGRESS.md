@@ -797,3 +797,17 @@ nie instaluje sterownika, nie zastępuje istniejącego silnika i zachowuje runti
 RPATH. bash -n i odmowa instalacji bez wymaganych narzędzi PASS; lokalnego CUDA13
 nie ma, więc jego budowanie wymaga potwierdzenia na sprzęcie. Silnik SM89/CUDA12
 z poprzedniego workflow został faktycznie zbudowany (40914492143 PASS).
+
+### 0.1.0-rc.1 — finalna walidacja źródeł przed paczkami
+
+156 backend + 20 Qt = 176 PASS; 44 JVM, lintDebug, assembleDebug oraz
+assembleDebugAndroidTest PASS dla RC/applicationId .rc. Rzeczywiste testy GGUF CPU:
+4 PASS (backend CPU/Auto, Qt z cancel/close/restart oraz izolowany hardware tool).
+Zmiana backendowej wersji na PEP440 0.1.0rc1 nie zmienia tras/schematu API v1.
+Wersja dystrybucji 0.1.0-rc.1, Android versionCode4; bramka Stable jest jawna.
+RC ma oddzielny ID, aby testowy podpis nie wymagał usunięcia istniejącej Alpha.
+Dokumentacja rozróżnia tę instalację od prawdziwej aktualizacji podpisanego APK.
+Opcjonalny prebuilt CUDA SM89 ma sprawdzoną sumę
+`ef431c73583986be861f47068f119172b0434393d7ff8b2ff2764c8e972058e5` i pochodzi
+z udanego workflow 40914492143. To dowód kompilacji, nie działania RTX4060.
+Końcowe artefakty/CI/merge/upload RC wymagają jeszcze potwierdzenia.

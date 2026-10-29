@@ -1,7 +1,7 @@
 # OmniCore
 OmniCore is an open-source local AI platform. This Alpha provides native Linux and Android clients for text models; image generation and other modules are planned.
 
-## Stan: 0.1.0 Alpha — natywne aplikacje Linux i Android
+## Stan: 0.1.0 Release Candidate — natywne aplikacje Linux i Android
 
 OmniCore ma działające GUI Qt6/PySide6: czat ze streamingiem i historią, menedżer
 GGUF/Hugging Face, ustawienia PL/EN i motywów oraz diagnostykę. GUI Linux zostało
@@ -9,11 +9,16 @@ przesunięte przed Image AI. GGUF działa przez llama.cpp **bez Ollamy**; rzeczy
 przepływ import/load/generowanie/anulowanie/historia przeszedł test na CPU ze
 SmolLM2-135M-Instruct Q4_K_M. Nie oznacza to zgodności wszystkich modeli lub GPU.
 
-Alpha.3 jest rozwijana jako stabilizacja: synchronizacja wielu klientów,
-wyraźne błędy pustej odpowiedzi/limitu reasoning, niezmienna nazwa modelu i statystyki
-przy wiadomości, Markdown/bloki kodu/wyszukiwanie Linux, systemowy język i reconnect
-Android. [CUDA/CPU](docs/CUDA.md) opisuje opcjonalny silnik NVIDIA i ograniczenia
-weryfikacji sprzętowej. Alpha.3 pozostaje szkicem do czasu osobnej zgody na publikację.
+Wersja **0.1.0-rc.1** przygotowuje pierwsze Stable: automatycznie wykrywa lokalne
+silniki CUDA (m.in. `~/llama.cpp/build/bin/llama-server`), rozróżnia CPU/Auto/CUDA,
+potwierdza offload i zachowuje CPU fallback. AppImage zawiera niezależny silnik CPU;
+CUDA jest opcjonalną integracją, nie domniemaną właściwością dołączonej binarki.
+Reasoning i odpowiedź są oddzielone, także przy znacznikach `<think>` i SSE.
+
+**Stable v0.1.0 nie jest jeszcze zatwierdzone sprzętowo.** [Bramka i krótki test
+CachyOS/RTX4060](docs/RELEASE_GATE.md) oraz [konfiguracja CUDA](docs/CUDA.md).
+RC APK ma podpis testowy i osobny identyfikator, więc nie wymaga usuwania Alpha.
+Historia backendu pozostaje wspólna. [Zmiany](CHANGELOG.md).
 
 ```sh
 uv sync --frozen --extra desktop --group gui-test --group packaging
@@ -28,7 +33,7 @@ backendem i opcjonalnym silnikiem CPU. Dane są przechowywane poza paczką.
 Backend FastAPI/SQLite i dotychczasowe API pozostają zachowane. Rust jest
 przygotowaną możliwością architektoniczną; [pomiary i decyzja](native/README.md)
 nie uzasadniają teraz nowej implementacji. Android ma osobnego natywnego klienta Kotlin/Compose ([instrukcja](docs/ANDROID.md));
-Image AI i Web pozostają planowane. To rozwojowa Alpha; publiczny release wymaga osobnego potwierdzenia.
+Image AI i Web pozostają planowane. To Release Candidate; Stable wymaga potwierdzenia testów sprzętowych.
 
 Android Kotlin/Compose korzysta z tego samego API: czat i historia, SSE, modele
 llama.cpp bez Ollamy, pobieranie GGUF przez backend, ustawienia generowania,

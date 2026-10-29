@@ -1,0 +1,106 @@
+name: Attach verified release candidate assets
+on:
+  workflow_dispatch:
+    inputs:
+      linux_run:
+        description: Successful Linux desktop and AppImage run ID
+        required: true
+        type: string
+      android_run:
+        description: Successful Native Android APK run ID
+        required: true
+        type: string
+      expected_sha:
+        description: Full tested source SHA shared by both packages
+        required: true
+        type: string
+      release_tag:
+        description: Existing RC draft only; Stable tags are rejected
+        default: v0.1.0-rc.1
+        required: true
+        type: string
+      cuda_run:
+        description: Successful optional CUDA build (SM89, no inference claim)
+        default: '40914492143'
+        required: true
+        type: string
+permissions:
+  contents: write
+  actions: read
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      LINUX_RUN: ${{ inputs.linux_run }}
+      ANDROID_RUN: ${{ inputs.android_run }}
+      CUDA_RUN: ${{ inputs.cuda_run }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.expected_sha }}
+      - name: Validate runs and draft destination
+        shell: bash
+        run: |
+          [[ "$LINUX_RUN" =~ ^[0-9]+$ && "$ANDROID_RUN" =~ ^[0-9]+$ && "$CUDA_RUN" =~ ^[0-9]+$ ]]
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$RELEASE_TAG" =~ ^v0\.1\.0-rc\.[0-9]+$ ]]
+          test "$(gh api "repos/$GH_REPO/actions/runs/$LINUX_RUN" --jq .name)" = 'Linux desktop and AppImage'
+          test "$(gh api "repos/$GH_REPO/actions/runs/$ANDROID_RUN" --jq .name)" = 'Native Android APK'
+          test "$(gh api "repos/$GH_REPO/actions/runs/$CUDA_RUN" --jq .name)" = 'Optional llama.cpp CUDA build'
+          for run_id in "$LINUX_RUN" "$ANDROID_RUN"; do
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run_id" --jq .head_sha)" = "$EXPECTED_SHA"
+          done
+          for run_id in "$LINUX_RUN" "$ANDROID_RUN" "$CUDA_RUN"; do
+            test "$(gh api "repos/$GH_REPO/actions/runs/$run_id" --jq .conclusion)" = success
+          done
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+      - uses: actions/download-artifact@v4
+        with:
+          name: OmniCore-linux-x86_64
+          run-id: ${{ inputs.linux_run }}
+          github-token: ${{ github.token }}
+          path: package/linux
+      - uses: actions/download-artifact@v4
+        with:
+          name: OmniCore-android-arm64
+          run-id: ${{ inputs.android_run }}
+          github-token: ${{ github.token }}
+          path: package/android
+      - uses: actions/download-artifact@v4
+        with:
+          name: OmniCore-optional-llama-cuda-sm89
+          run-id: ${{ inputs.cuda_run }}
+          github-token: ${{ github.token }}
+          path: package/cuda
+      - name: Verify package identity and upload to RC draft
+        shell: bash
+        run: |
+          version=${RELEASE_TAG#v}
+          test "$(jq -r .source_commit package/linux/build-manifest.json)" = "$EXPECTED_SHA"
+          test "$(jq -r .source_commit package/android/android-build.json)" = "$EXPECTED_SHA"
+          test "$(jq -r .version package/linux/build-manifest.json)" = "$version"
+          test "$(jq -r .version package/android/android-build.json)" = "$version"
+          (cd package/linux && sha256sum -c "OmniCore-$version-x86_64.AppImage.sha256")
+          (cd package/android && sha256sum -c "OmniCore-$version-android-arm64.apk.sha256")
+          (cd package/cuda && sha256sum -c OmniCore-llama-cuda-sm89.tar.gz.sha256)
+          mkdir -p package/tools
+          cp scripts/test_omnicore_cachyos.sh scripts/install_cuda_engine.sh package/tools/
+          (cd package/tools && sha256sum *.sh > tools.sha256)
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          gh release upload "$RELEASE_TAG" \
+            "package/linux/OmniCore-$version-x86_64.AppImage" \
+            "package/linux/OmniCore-$version-x86_64.AppImage.sha256" \
+            package/linux/build-manifest.json \
+            "package/android/OmniCore-$version-android-arm64.apk" \
+            "package/android/OmniCore-$version-android-arm64.apk.sha256" \
+            package/android/android-build.json \
+            package/cuda/OmniCore-llama-cuda-sm89.tar.gz \
+            package/cuda/OmniCore-llama-cuda-sm89.tar.gz.sha256 \
+            package/tools/*.sh package/tools/tools.sha256 --clobber
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          gh release view "$RELEASE_TAG" --json isDraft,assets

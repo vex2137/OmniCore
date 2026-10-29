@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "omnicore"
-version = "0.1.0a0"
+version = "0.1.0rc1"
 description = "Local AI platform with a native Linux desktop client"
 readme = "README.md"
 requires-python = ">=3.12"

@@ -4,7 +4,7 @@
 
 - Nazwa: **OmniCore**.
 - Typ: **open-source local AI platform** — platforma lokalnej sztucznej inteligencji.
-- Aktualna wersja rozwojowa: **0.1.0 Alpha** (publiczne Alpha.1 i Alpha.2; kolejne publikacje wymagają zgody właściciela).
+- Aktualna wersja rozwojowa: **0.1.0-rc.1**. Stable v0.1.0 wymaga potwierdzenia testów sprzętowych właściciela; patrz docs/RELEASE_GATE.md.
 - Platformy: Linux, Web, Android. Przyszła platforma: Windows.
 - Języki interfejsu: polski i angielski (PL/EN).
 - Interfejs: jasny i ciemny motyw oraz automatyczne wykrywanie motywu systemowego.
@@ -80,3 +80,7 @@ Nie implementuj teraz Image AI, Web GUI ani lokalnej inferencji Android. Rust wy
 i mierzalnej potrzeby; bez pustych crate'ów lub przepisywania backendu.
 Nie deklaruj działania inferencji, klientów ani zgodności modeli na podstawie
 samych interfejsów adapterów lub testów bez rzeczywistego silnika.
+
+Bieżący cel: Release Candidate z automatycznym CUDA i gotowymi artefaktami GitHub.
+Właściciel zezwolił na Stable po testach, ale wymaga osobnego potwierdzenia sprzętu.
+Nie twórz v0.1.0 ani finalnego release przed tą bramką. Nie usuwaj danych Alpha.

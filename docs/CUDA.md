@@ -1,4 +1,4 @@
-# NVIDIA / CPU — Alpha.3
+# NVIDIA / CPU — 0.1.0 RC
 
 Inferencja pozostaje w llama.cpp. Rust nie uczestniczy w uruchamianiu modeli.
 AppImage ma niezależny silnik CPU; opcjonalna binarka CUDA jest wybierana dopiero
@@ -47,3 +47,18 @@ Test wymaga faktycznego offloadu warstw, pamięci procesu według nvidia-smi,
 niepustej odpowiedzi i sprzątnięcia procesu. Nie uruchomiono go w środowisku Cloud,
 które nie ma GPU NVIDIA. Nie deklarujemy przetestowanej inferencji RTX 4060/CUDA.
 Zwykłe testy procesu/selektora używają kontrolowanego serwera i tego nie dowodzą.
+
+## Zmiana RC względem Alpha.3
+
+Nie trzeba wpisywać ścieżki, jeśli silnik znajduje się w skonfigurowanej lokalizacji,
+zarządzanym katalogu XDG, `~/llama.cpp/build{,-cuda}/bin/llama-server`, `~/.local/bin`
+lub standardowych lokalizacjach PATH/systemu. Lista jest zamknięta; nie skanujemy
+dysku ani katalogów modeli. Native guard przywraca oryginalny LD_LIBRARY_PATH po
+bootstrapie PyInstaller, aby CUDA13 użytkownika nie ładowała bibliotek Qt/AppImage.
+
+Wymuszona CUDA z zerem warstw jest błędem ustawień. Auto może przejść na niezależne
+CPU również przy błędzie ładowania/offloadu; powód jest jawny. NVIDIA VRAM pochodzi
+z nvidia-smi, a aktywny CUDA wymaga dodatniego offloadu w logu zaufanego silnika.
+Wynik `--list-devices` sam nie oznacza inferencji GPU. Starsza Alpha.3 nie wyszukiwała
+samodzielnie lokalnej binarki użytkownika — to była przyczyna zgłoszonego problemu.
+[Sprawdzenie rzeczywistej inferencji i bramka Stable](RELEASE_GATE.md).

@@ -37,7 +37,7 @@ def main():
     metadata = subprocess.check_output(  # noqa: S603
         [str(sdk / "aapt"), "dump", "badging", str(apk)], text=True
     )
-    assert "name='io.github.vex2137.omnicore'" in metadata
+    assert f"name='{DISTRIBUTION['android_application_id']}'" in metadata
     assert f"versionName='{VERSION}'" in metadata
     assert f"versionCode='{DISTRIBUTION['android_version_code']}'" in metadata
     assert "targetSdkVersion:'36'" in metadata
@@ -54,7 +54,7 @@ def main():
         json.dumps(
             {
                 "version": VERSION,
-                "application_id": "io.github.vex2137.omnicore",
+                "application_id": DISTRIBUTION["android_application_id"],
                 "build_type": "debug, test signing key; not a production signature",
                 "abi": "arm64-v8a",
                 "min_sdk": 26,
