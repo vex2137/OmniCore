@@ -811,3 +811,13 @@ Opcjonalny prebuilt CUDA SM89 ma sprawdzoną sumę
 `ef431c73583986be861f47068f119172b0434393d7ff8b2ff2764c8e972058e5` i pochodzi
 z udanego workflow 40914492143. To dowód kompilacji, nie działania RTX4060.
 Końcowe artefakty/CI/merge/upload RC wymagają jeszcze potwierdzenia.
+
+### RC — znaleziony i odtworzony błąd zagnieżdżonych bibliotek
+
+Faktyczny zamrożony guard zwrócił przed poprawką LD_LIBRARY_PATH zawierające
+AppImage/_internal mimo przywrócenia LD_LIBRARY_PATH_ORIG. Zagnieżdżone bootloadery
+przenosiły wewnętrzne biblioteki także do ORIG. Native boundary filtruje teraz
+rzeczywisty sys._MEIPASS i podkatalogi również z ORIG, zachowując ścieżki CUDA hosta.
+Dodano regresję jednostkową i obowiązkowy test faktycznego wyekstrahowanego AppImage:
+natywna powłoka sprawdza brak _internal bez drukowania środowiska/sekretów.
+Nowe paczki muszą przejść tę kontrolę przed wydaniem RC.

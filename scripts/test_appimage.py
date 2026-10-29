@@ -71,6 +71,34 @@ def main():
                 assert record["models"] == result[0]["models"]
                 assert record["locale"] == "en-US" and record["theme"] == "dark"
             result.append(record)
+        # Reproduce nested bootloaders without a GPU: the guard must remove _internal
+        # even when a parent bootloader already put it into LD_LIBRARY_PATH_ORIG.
+        extracted = directory / "native-check"
+        extracted.mkdir()
+        subprocess.run(  # noqa: S603 — the same verified AppImage, isolated extraction.
+            [str(args.appimage.resolve()), "--appimage-extract"],
+            cwd=extracted,
+            stdout=subprocess.DEVNULL,
+            check=True,
+            timeout=60,
+        )
+        binary = extracted / "squashfs-root/usr/bin/OmniCore"
+        native_env = dict(environment)
+        polluted = str(binary.parent / "_internal") + ":/opt/omnicore-acceptance-cuda"
+        native_env.update(LD_LIBRARY_PATH=polluted, LD_LIBRARY_PATH_ORIG=polluted)
+        subprocess.run(  # noqa: S603 — fixed native shell assertion; no environment dump.
+            [
+                str(binary),
+                "--engine-guard",
+                str(os.getpid()),
+                "/bin/sh",
+                "-c",
+                'test "$LD_LIBRARY_PATH" = /opt/omnicore-acceptance-cuda',
+            ],
+            env=native_env,
+            check=True,
+            timeout=30,
+        )
     (ROOT / "dist/appimage-test.json").write_text(json.dumps(result, indent=2) + "\n")
     print(
         "PASS: actual AppImage startup, HTTP, screenshot, shutdown, restart and persistent catalog"

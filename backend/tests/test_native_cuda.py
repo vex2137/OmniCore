@@ -120,3 +120,18 @@ def test_nvidia_vram_and_process_memory_are_reported_from_driver(monkeypatch):
         assert await nvidia.process_memory(999) is None
 
     asyncio.run(exercise())
+
+
+def test_nested_frozen_guard_removes_internal_from_original_path(monkeypatch):
+    monkeypatch.setattr(sys, "_MEIPASS", "/bundle/_internal", raising=False)
+    result = native_environment(
+        {
+            "LD_LIBRARY_PATH": "/bundle/_internal:/bundle/_internal:/usr/local/cuda/lib64",
+            "LD_LIBRARY_PATH_ORIG": (
+                "/bundle/_internal:/usr/local/cuda/lib64:/bundle/_internal/extra"
+            ),
+        },
+        frozen=True,
+    )
+    assert result["LD_LIBRARY_PATH"] == "/usr/local/cuda/lib64"
+    assert result["LD_LIBRARY_PATH_ORIG"] == "/usr/local/cuda/lib64"

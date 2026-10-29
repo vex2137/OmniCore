@@ -35,9 +35,17 @@ def native_environment(environment=None, *, frozen=None):
     if frozen if frozen is not None else getattr(sys, "frozen", False):
         # The guard runs AFTER the bootloader: external CUDA must not load AppImage's
         # libstdc++/OpenSSL. Preserve the user's original CUDA runtime search path.
-        original = result.get("LD_LIBRARY_PATH_ORIG")
-        if original:
-            result["LD_LIBRARY_PATH"] = original
+        original = result.get("LD_LIBRARY_PATH_ORIG", "")
+        internal = getattr(sys, "_MEIPASS", None)
+        entries = [value for value in original.split(os.pathsep) if value]
+        if internal:
+            root = Path(internal).resolve()
+            entries = [value for value in entries if not Path(value).resolve().is_relative_to(root)]
+        restored = os.pathsep.join(dict.fromkeys(entries))
+        if restored:
+            result["LD_LIBRARY_PATH"] = restored
+            result["LD_LIBRARY_PATH_ORIG"] = restored
         else:
             result.pop("LD_LIBRARY_PATH", None)
+            result.pop("LD_LIBRARY_PATH_ORIG", None)
     return result
