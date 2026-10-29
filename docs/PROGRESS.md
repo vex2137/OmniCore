@@ -2,23 +2,27 @@
 
 ## Project Status
 
-- **Current version:** 0.1.0 Alpha, native Linux GUI + FastAPI/SQLite Text AI.
-  Wersja komponentu backendu `0.1.0a0` pozostaje zgodna z wcześniejszymi kontraktami;
-  paczka kandyduje do `v0.1.0-alpha.1`, bez publicznego wydania.
-- **Current milestone:** GUI i lokalny AppImage działają z rzeczywistym GGUF na CPU.
-  Image AI, Web, Android, CUDA i fizyczny CachyOS pozostają niewykonane.
-- **Current development branch:** `feature/0.1.0-alpha`.
-- **Last verified implementation:** `8ee0fe442a5f215adc832651ef7eafe1451c2710`.
-- **Validation:** 130 PASS (117 backend, 11 GUI, 2 realne GGUF/GUI); osobno 1 PASS HF.
-  Smoke CLI/HTTP/WS i build wheel/sdist PASS. Końcowy AppImage dwukrotnie uruchomiony
-  przez X11 z prawdziwym GGUF, historią, preferencjami i zamknięciem procesów.
-- **GitHub:** dostęp API/uploads/push działa; istniejący PR #3 jest aktualizowany.
-  Main nadal `0f91a3e9a7ba28cac3324238248e1fda75fdb174` w tym punkcie kontrolnym.
-  Backend CI przeszedł; Linux CI wymaga poprawki zależności XCB (abort inicjalizacji
-  QApplication na Ubuntu 22.04). Nie integrować przed ponowną pozytywną weryfikacją.
-- **Last update:** 2026-10-28 (Europe/Warsaw).
+- **Wersja:** `0.1.0-alpha.1`, natywny Linux + natywny Android jako klient API.
+  Wersja komponentu backendu `0.1.0a0` pozostaje zgodna z dotychczasowym kontraktem.
+- **Gotowy zakres:** czat/stream/cancel/historia, modele GGUF/llama.cpp bez Ollamy,
+  klient Linux PySide6, klient Android Kotlin/Compose, PL/EN, motywy i diagnostyka.
+- **GitHub:** PR #3 **MERGED**, checkpoint zdalnego main
+  `ad03290f3c050617b6a74e81c5c49bf6b537e0d9`, potwierdzony API i ls-remote.
+  Gałąź `feature/0.1.0-alpha` pozostaje na `21acff00da0c67820bcb2203a27df146fd0e33bc`.
+  Commit dokumentujący weryfikację może być późniejszy; bieżący HEAD sprawdzać w Git.
+- **Testy:** 130 lokalnych PASS (117 backend + 11 Linux GUI + 2 realne GGUF/GUI),
+  18 JVM Android PASS, lint PASS i 1 test natywnego UI na emulatorze API 30 x86_64
+  PASS (0 skipped). Backend testu Androida jest fixture protokołu; GGUF zweryfikowano
+  osobno rzeczywiście na CPU Linux bez Ollamy. Osobny rzeczywisty HF transfer PASS.
+- **CI:** Backend, Linux AppImage i Android APK **SUCCESS** dla źródła `21acff0`
+  oraz po scaleniu na `ad03290`. Szczegółowe linki i SHAs poniżej.
+- **Pakiety:** oba rzeczywiście przesłane z checksumami do szkicu wydania
+  `v0.1.0-alpha.1`, ID 427506837. **draft=true, publicznego release nie opublikowano**.
+- **Ograniczenia:** fizyczny ARM64, CachyOS/RTX 4060, CUDA, Wayland i rzeczywista
+  Ollama nie były testowane. Android nie wykonuje inferencji na telefonie.
+  Image AI/Web pozostają planowane; nie wdrożono nieuzasadnionego komponentu Rust.
 
-Poniższe raporty Etapu 2 są historyczne. Aktualne wyniki GUI są na końcu dokumentu.
+Poniższe raporty Etapu 2 są historyczne. Aktualny raport końcowy jest na końcu dokumentu.
 
 ## Completed
 
@@ -329,3 +333,93 @@ Wcześniejszy lokalny build Debian wymaga GLIBC 2.39; nie jest tym samym artefak
 - Błąd backend CI był wyścigiem samego testu /proc: proces zdążył zniknąć między
   exists/open/read. Odczyt obsługuje teraz ENOENT/ESRCH jako zakończenie procesu,
   zachowując asercję i limit czasu. Nie wyłączono testu ani nie zmieniono guard.
+
+
+## Raport końcowy — Linux AppImage i Android APK
+
+### Kod, historia i main
+
+- Zapisano i wysłano wszystkie ukończone zmiany. engines.py nie miał pominiętego
+  diffu przy wznowieniu; dispatcher frozen/guard jest w `27a61e3` i na main.
+- Główne commity Linux: `27a61e3` GUI/lifecycle, `81e524e` realne testy i stabilizacja,
+  `8ee0fe4` AppImage/benchmarki/Rust, `9b241e3` XCB/CI.
+- Główne commity kontynuacji: `edfa8b3` draft-assets, `dfe529c` Android,
+  `82429c3` zgodność SDK, `987ca10` odzyskiwanie HTTP i bezpieczne sesje,
+  `21acff0` końcowa stabilizacja, trwały model rozmowy i czyszczenie widoku.
+- [PR #3](https://github.com/vex2137/OmniCore/pull/3) jest zamknięty jako **MERGED**.
+  Commit merge: `ad03290f3c050617b6a74e81c5c49bf6b537e0d9`.
+  Main potwierdzono przez GitHub API, fetch i ls-remote. Brak force push i resetu;
+  dotychczasowa historia oraz checkout są zachowane. Feature branch pozostał.
+
+### Zmienione moduły
+
+- `backend/src/omnicore/desktop`: osobny klient Qt, REST/SSE, własny backend,
+  lokalizacje, widoki, prywatna konfiguracja, lifecycle i dispatcher AppImage.
+- `backend/src/omnicore/diagnostics.py`, addytywne API diagnostyki i snapshot kontraktu;
+  zachowano endpointy, migracje, auth/CORS/limity i dotychczasowe funkcje backendu.
+- `apps/android`: niezależny Gradle/Kotlin/Compose/Material 3, bez WebView,
+  Keystore, polityka połączeń, stan/transient cache przez API i zasoby PL/EN.
+- `desktop/tests`, testy JVM/instrumentacyjne Android, osobne `integration/` dla
+  prawdziwego GGUF/GUI/HF, testy remount i race lifecycle.
+- `packaging/linux`, skrypty budowania/pakowania/testowania, workflow Linux/Android/
+  draft-assets; `native/README.md` i `benchmarks/` z rzeczywistymi pomiarami Python.
+- README, ARCHITECTURE, ROADMAP, LINUX_DESKTOP, APPIMAGE, ANDROID, PROGRESS i zrzuty UI.
+
+### Wykonane testy
+
+| Zestaw | Wynik i granica dowodu |
+| --- | --- |
+| Poprzednie 115 testów | Zachowane; obecnie 117 testów backendu PASS |
+| Native Linux GUI | 11 PASS przez X11/Xvfb; rzeczywisty backend HTTP |
+| Realny GGUF bez Ollamy | 1 PASS backend + 1 PASS GUI: import/load/stream/cancel/history/restart/unload |
+| Łączny lokalny zestaw Python | **130 PASS**, 0 FAIL/skip |
+| Android JVM + PL/EN | **18 PASS**, 0 FAIL/skip |
+| Android lint i build | PASS, podpisane APK ARM64/x86_64 oraz AndroidTest APK |
+| Emulator Android API 30 x86_64 | **1 PASS**, 0 FAIL/skip: natywny Compose, HTTP/SSE, Keystore, modele, historia, cancel, rename/delete, PL/EN i motywy |
+| Prawdziwy HF | Osobno PASS: metadata, cancel/resume, checksum i import |
+| Końcowy AppImage z CI | Dwukrotny rzeczywisty start przez X11, realny GGUF, trwałość historii/PL/EN/theme, brak osieroconego backendu — PASS |
+| Końcowy APK z GitHub Release | Pobrany ponownie, SHA-256 zgodny, apksigner verify i aapt ID/wersja/ABI — PASS |
+| Kontrakty/Ruff/format/smoke | PASS |
+| Fizyczny ARM64 / CUDA / CachyOS / Wayland / realna Ollama | Niewykonane, nie oznaczono jako PASS |
+
+Model testowy CPU: `bartowski/SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct-Q4_K_M.gguf`,
+105454432 B, Apache-2.0, SHA-256
+`2e8040ceae7815abe0dcb3540b9995eaa1fa0d2ca9e797d0a635ae4433c68c2d`.
+Silnik `c3df4b7e22a1ac38da663552d19e649dd97ca936`. Nie deklarujemy zgodności wszystkich modeli.
+
+### CI i rzeczywiste artefakty
+
+- [Backend dla źródła 21acff0](https://github.com/vex2137/OmniCore/actions/runs/40831766311): SUCCESS.
+- [Linux AppImage 21acff0](https://github.com/vex2137/OmniCore/actions/runs/40831766310): SUCCESS; źródło wybranej paczki.
+- [Android APK + emulator 21acff0](https://github.com/vex2137/OmniCore/actions/runs/40831766245): SUCCESS, łącznie z attach-draft.
+- [Backend po merge](https://github.com/vex2137/OmniCore/actions/runs/40833603147): SUCCESS.
+- [Linux po merge](https://github.com/vex2137/OmniCore/actions/runs/40833603144): SUCCESS.
+- [Android po merge](https://github.com/vex2137/OmniCore/actions/runs/40833603057): SUCCESS.
+- [Aktualizacja AppImage w szkicu](https://github.com/vex2137/OmniCore/actions/runs/40833916234): SUCCESS.
+
+[Szkic wydania](https://github.com/vex2137/OmniCore/releases)
+pozostaje niepubliczny i wymaga dostępu właściciela. Potwierdzono API `state=uploaded`
+i rzeczywiste pobranie plików. Oba źródłowe artefakty Actions również istnieją.
+
+| Plik | SHA-256 |
+| --- | --- |
+| `OmniCore-0.1.0-alpha-x86_64.AppImage` | `a2a9cd06e994f33f2fcbce82a43109a22d1a959d16ec7b83f552c9ec650648a7` |
+| `OmniCore-0.1.0-alpha-android-arm64.apk` | `cba87129fe7f4f8136ca3a9a52527b10a2160e016d039ee4674f7f91dc0aa904` |
+
+Do obu plików dołączono `.sha256`. To paczki CI ze źródła `21acff0`; wcześniejsze
+lokalne sumy i starsze paczki w historycznych raportach nie są sumami końcowej dystrybucji.
+AppImage: x86_64, glibc >=2.35, Python/Qt/backend i CPU llama.cpp, bez wag.
+APK: Android Debug/test signature, ID `io.github.vex2137.omnicore`, versionCode 1,
+minSdk 26/target 35, arm64-v8a. Instalację/UI sprawdzono na odpowiedniku x86_64,
+nie na fizycznym ARM64. Nie ma inferencji na telefonie ani wymogu Rust.
+
+Instrukcje: [Linux](LINUX_DESKTOP.md), [AppImage](APPIMAGE.md), [Android i LAN/TLS](ANDROID.md).
+Zrzuty rzeczywistych interfejsów: [Linux](images/linux-desktop.png), [Android](images/android-chat.png).
+Zrzut Androida i test UI używają kontrolowanego backendu protokołu.
+
+### Następne zadania
+
+Test fizycznego ARM64 i CachyOS/RTX 4060, macierz CUDA/Wayland/Ollama oraz osobna
+procedura produkcyjnego podpisu APK. Image AI i Web pozostają dalszym zakresem,
+nie rozpoczęto ich w tym zadaniu. Publiczna publikacja wymaga osobnego potwierdzenia.
+Rust pozostaje opcjonalny zgodnie z pomiarami i native/README.md.

@@ -20,7 +20,8 @@ stosowania okien/OpenGL oraz czcionki. Do szkicu wydania dołączono zweryfikowa
 ELF potwierdza wymagane symbole do **GLIBC 2.35**. Aktualną sumę podaje plik `.sha256` obok paczki oraz checkpoint w PROGRESS.md.
 Wcześniejszy lokalny build Debian 13 wymagał GLIBC 2.39 i ma inną checksumę;
 nie jest to plik dołączony do szkicu. Nie należy utożsamiać różnych buildów.
-Nie przetestowano fizycznego CachyOS, Wayland ani CUDA.
+Dołączony CPU build llama.cpp używa AVX2/FMA/F16C/BMI2; starszy procesor może
+wymagać własnego zgodnego silnika. Nie przetestowano fizycznego CachyOS, Wayland ani CUDA.
 
 Bez obsługi FUSE użyj wspieranego trybu ekstrakcji:
 

@@ -1,5 +1,5 @@
 # OmniCore
-OmniCore is an open-source platform for running and managing AI models locally. It provides a modern, unified interface for text generation, image creation, and future AI capabilities, with a focus on privacy, performance, and ease of use.
+OmniCore is an open-source local AI platform. This Alpha provides native Linux and Android clients for text models; image generation and other modules are planned.
 
 ## Stan: 0.1.0 Alpha — natywna aplikacja Linux
 
@@ -32,6 +32,8 @@ Image AI i Web pozostają planowane. To rozwojowa Alpha; publiczny release wymag
 - [Text AI: plan A–F, API i ograniczenia](docs/TEXT_AI.md)
 - [Instalacja i konfiguracja llama.cpp / Ollamy](docs/ENGINES.md)
 - [Android APK — połączenie LAN/HTTPS, Keystore i build](docs/ANDROID.md)
+- Rzeczywiste zrzuty aplikacji: [Linux](docs/images/linux-desktop.png) · [Android](docs/images/android-chat.png)
+  (Android: emulator i kontrolowany backend testu interfejsu).
 
 ## Uruchomienie backendu na Linux
 

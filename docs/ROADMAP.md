@@ -30,7 +30,7 @@ integracji main i szkicu wydania. Image AI, Web i Android nie są teraz wdrażan
 - [x] Rozmowy/historia, modele, REST/SSE/cancel, ustawienia, PL/EN i motywy.
 - [x] Bezpieczna konfiguracja LAN/HTTPS, Keystore, brak tokenów w logach/backupie.
 - [x] Rzeczywisty debug-signed APK ARM64, wrapper i CI, testy JVM/zasobów oraz lint.
-- [ ] Zweryfikować test interfejsu w emulatorze CI i udokumentować wynik.
+- [x] Zweryfikować test interfejsu w emulatorze CI i udokumentować wynik (API 30 x86_64).
 - [ ] Osobno sprawdzić instalację i działanie na fizycznym ARM64.
 - [ ] Lokalna inferencja Android pozostaje przyszłym, odrębnym zakresem.
 

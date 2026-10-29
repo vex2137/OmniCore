@@ -82,7 +82,7 @@ Instrukcje LAN, TLS, tokenu, budowania i granice testów: [ANDROID.md](ANDROID.m
 | Dane | SQLite ze standardowej biblioteki, jawne migracje SQL | Lokalna baza, transakcje, brak serwera DB; jeden proces backendu w Alpha |
 | Linux | Qt 6 / PySide6, przesunięty przed Image AI | Natywne okna i dialogi; dobrać wersję do Python 3.12; sprawdzić pakowanie, Wayland i obowiązki licencyjne Qt |
 | Web | React + TypeScript, Etap 4 | Samodzielny klient REST/WS; Node.js 24 dostępny, zależności klienta będą przypięte przy implementacji |
-| Android | Kotlin + Jetpack Compose, Etap 4 | Natywny klient zdalnego backendu; JDK/Gradle/SDK dobrać razem; brak inferencji na telefonie w Alpha |
+| Android | Kotlin + Jetpack Compose, klient API obecnego etapu | Natywny klient zdalnego backendu; JDK/Gradle/SDK dobrać razem; brak inferencji na telefonie w Alpha |
 | Kontrakty | Generowane OpenAPI i JSON Schema | Jedno źródło modeli w Pydantic, snapshoty w repozytorium sprawdzane w CI |
 | Zależności Python | uv i uv.lock | Powtarzalna instalacja `uv sync --frozen`; backend i narzędzia testowe bez silników AI |
 | Opcjonalne komponenty natywne | Rust; PyO3/maturin lub osobny proces API | Wyłącznie po profilowaniu i wykazaniu korzyści; obecnie brak własnego kodu Rust i nowych wymagań budowania |
@@ -113,8 +113,8 @@ flowchart LR
   `contracts/locales` udostępnia wygenerowane kopie katalogów klientom bez zależności od Pythona.
 - `backend/tests`: testy bez GPU. Oddzielne testy rzeczywistych silników i GPU
   powstaną wraz z integracjami; brak silnika nie oznacza zaliczonego testu inferencji.
-- Katalogi aplikacji Linux, Web i Android powstaną z działającymi klientami w Etapie 4.
-  W Etapie 1 nie tworzymy ekranów i przycisków pozorujących funkcje.
+- Linux: `backend/src/omnicore/desktop`; Android: `apps/android` — działające klienty API.
+  Klient Web pozostaje planowany. Etap 1 nie zawierał atrap ekranów ani przycisków.
 
 ## Etap 1 — dostarczany zakres i kryteria
 
