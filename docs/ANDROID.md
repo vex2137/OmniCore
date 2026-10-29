@@ -4,11 +4,17 @@ Kotlin + Jetpack Compose + Material 3, bez WebView. Aplikacja korzysta z istniej
 FastAPI REST/SSE. SQLite, inferencja, kolejka i modele pozostają na komputerze.
 **Nie ma lokalnej inferencji GGUF na telefonie ani wymaganego komponentu Rust.**
 
-Identyfikator RC: `io.github.vex2137.omnicore.rc`. Wersja: `0.1.0-rc.1`, versionCode 4.
+Identyfikator RC.2: `io.github.vex2137.omnicore.rc2`. Wersja: `0.1.0-rc.2`, versionCode 5.
 Minimalny Android 8.0/API 26, target/compile SDK 36. Dystrybucyjny plik:
-`OmniCore-0.1.0-rc.1-android-arm64.apk`, ABI arm64-v8a. Jest to build **debug/test**,
+`OmniCore-0.1.0-rc.2-android-arm64.apk`, ABI arm64-v8a. Jest to build **debug/test**,
 podpisany kluczem testowym, nie oficjalnym kluczem produkcyjnym. W APK nie ma
 adresu prywatnego serwera, tokenów użytkownika ani wag modeli.
+
+RC.2 instaluje się **obok** RC.1 i Alpha jako „OmniCore RC2”. Klucze testowe
+runnery CI generują niezależnie, dlatego nie próbujemy zastąpić instalacji RC.1
+APK z niezgodnym podpisem. Nie odinstalowuj starej aplikacji i nie czyść jej danych.
+W RC2 skonfiguruj ponownie adres/token; historia pozostaje na tym samym backendzie.
+To bezpieczna instalacja równoległa, a nie potwierdzona aktualizacja APK.
 
 Wersjonowanie APK, AppImage i aplikacji pochodzi z
 `backend/src/omnicore/distribution.json`. Publiczna Alpha.2 zachowuje poprzednie
@@ -116,8 +122,8 @@ cd apps/android
 ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
 cd ../..
 python3 scripts/package_android.py
-sha256sum -c dist/OmniCore-0.1.0-rc.1-android-arm64.apk.sha256
-adb install dist/OmniCore-0.1.0-rc.1-android-arm64.apk
+sha256sum -c dist/OmniCore-0.1.0-rc.2-android-arm64.apk.sha256
+adb install dist/OmniCore-0.1.0-rc.2-android-arm64.apk
 ```
 
 Budowanie tworzy oddzielne APK arm64-v8a i x86_64 do emulatora. Skrypt pakowania

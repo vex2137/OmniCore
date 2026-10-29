@@ -7,7 +7,7 @@
 - Android wznawia streaming po otwarciu/odświeżeniu rozmowy innego klienta.
 - Oddzielny timeout zimnego ładowania modelu i limit całkowitego czasu REST.
 - Ikona Androida: adaptive icon z bezpiecznymi marginesami i spójnym znakiem Linux.
-- Identyfikator RC pozostaje oddzielny od Alpha; versionCode 5, podpis testowy.
+- Identyfikator RC2 jest oddzielny od Alpha i RC.1; versionCode 5, podpis testowy.
 
 PR #6 zawiera zgłoszone przez właściciela wyniki obu GGUF CPU/Auto/CUDA na RTX4060.
 To nie test Cloud ani końcowe zatwierdzenie tej paczki. Telefon i trwały podpis APK

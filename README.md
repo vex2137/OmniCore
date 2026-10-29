@@ -21,7 +21,7 @@ Reasoning i odpowiedź są oddzielone, także przy znacznikach `<think>` i SSE.
 
 **Stable v0.1.0 nie jest zatwierdzone do publikacji.** PR #6 zawiera zgłoszone przez właściciela udane testy LFM3/Qwen3.5 CPU/Auto/CUDA na RTX4060; nie zastępuje to akceptacji nowej paczki, telefonu i podpisu APK. [Bramka i krótki test
 CachyOS/RTX4060](docs/RELEASE_GATE.md) oraz [konfiguracja CUDA](docs/CUDA.md).
-RC APK ma podpis testowy i osobny identyfikator, więc nie wymaga usuwania Alpha.
+RC.2 APK ma podpis testowy i osobny identyfikator `.rc2`, więc nie wymaga usuwania Alpha ani RC.1.
 Historia backendu pozostaje wspólna. [Zmiany](CHANGELOG.md).
 
 ```sh

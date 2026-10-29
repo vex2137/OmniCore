@@ -935,3 +935,18 @@ Production signing remains unresolved: the current integration cannot list Actio
 secrets (403); no secret values were read, no random production key was created.
 No device or GPU test was performed in Cloud. PR #6 owner results are recorded
 separately in RELEASE_GATE; Stable still requires explicit approval and phone/signing gates.
+
+### RC.2 — CI correction and preservation of installed RC.1
+
+First RC.2 CI found one stale health-test assertion expecting literal 0.1.0rc1
+(157 backend and 180 backend/Qt cases otherwise passed). It now compares runtime
+version to installed distribution metadata; targeted health/contracts: 4 PASS.
+A second packaging issue was prevented: a new ephemeral CI debug signature cannot
+update installed RC.1 under the same ID. RC.2 now uses `.rc2`, label OmniCore RC2,
+so neither Alpha nor RC.1 must be uninstalled. Both retain private settings; the
+new client needs its own connection configuration and shares backend history.
+The earlier same-ID RC.2 checkpoint is superseded; no such APK was published.
+
+Final-source real integrations: Qt stream/cancel/close/restart plus isolated hardware
+acceptance CPU/Auto: 2 PASS; actual Kotlin HTTP/SSE + FastAPI + GGUF CPU: PASS.
+These use SmolLM2, not mocks or user LFM/Qwen weights. No physical phone/GPU claim.

@@ -18,8 +18,8 @@ ani finalnego wydania przed potwierdzeniem poniższych punktów.
 - [ ] Android ARM64/POCO: instalacja, połączenie LAN/HTTPS, streaming, tło/obrót,
   reconnect, PL/EN, motyw i historia. Emulator nie zastępuje telefonu.
 - [ ] Docelowy trwały klucz podpisu APK oraz potwierdzona ścieżka aktualizacji.
-  RC ma podpis testowy i oddzielny ID `io.github.vex2137.omnicore.rc`, aby instalacja
-  testowa nie wymagała usunięcia Alpha i jej danych. RC łączy się z tą samą historią
+  RC.2 ma podpis testowy i oddzielny ID `io.github.vex2137.omnicore.rc2`, aby instalacja
+  testowa nie wymagała usunięcia RC.1 (`.rc`), Alpha ani ich danych. RC łączy się z tą samą historią
   backendu, ale wymaga własnej konfiguracji połączenia. Nie udajemy aktualizacji
   APK podpisanego innym, niedostępnym kluczem testowym poprzedniego CI.
 
