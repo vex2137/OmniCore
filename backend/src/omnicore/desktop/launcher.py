@@ -17,6 +17,11 @@ def protect_parent(expected):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--hardware-test":
+        sys.argv.pop(1)
+        from omnicore.hardware_acceptance import main as acceptance
+
+        raise SystemExit(acceptance())
     if len(sys.argv) > 1 and sys.argv[1] == "--engine-guard":
         from omnicore.text.process_guard import main as guard
 

@@ -782,3 +782,18 @@ Test aktualizacji zachowuje oryginalny JSON wiadomości bajt w bajt, ustawienia,
 katalog i eksport/import. Nie zmieniono schematu SQLite.
 Android: 44 JVM i lint PASS; opcje wykonania dotyczą komputera backendu, nie telefonu.
 Dodano wyświetlanie potwierdzonej liczby warstw na GPU i czytelne błędy GPU.
+
+### 0.1.0 RC — test sprzętowy bez hostowego Pythona
+
+Dodano --hardware-test do dispatchera AppImage i krótki test_omnicore_cachyos.sh.
+Test używa wyłącznie świeżej bazy tymczasowej i referencji do podanych GGUF;
+nie dotyka katalogu/historii użytkownika, nie drukuje tokenu, nie nadpisuje raportu.
+Sprawdza CPU/Auto/CUDA, niepustą odpowiedź, zapis nazwy modelu/historii, offload
+oraz pamięć własnego procesu według nvidia-smi; raport zawiera osiągi i gate
+hardware_ready. Cloud: rzeczywisty SmolLM2 CPU/Auto PASS, hardware_ready=false.
+Dodatkowy rzeczywisty test izolacji danych/modelu/raportu: 1 PASS (dwie generacje).
+Installer opcjonalnego silnika buduje przypięty commit z lokalnym CUDA Toolkit,
+nie instaluje sterownika, nie zastępuje istniejącego silnika i zachowuje runtime
+RPATH. bash -n i odmowa instalacji bez wymaganych narzędzi PASS; lokalnego CUDA13
+nie ma, więc jego budowanie wymaga potwierdzenia na sprzęcie. Silnik SM89/CUDA12
+z poprzedniego workflow został faktycznie zbudowany (40914492143 PASS).

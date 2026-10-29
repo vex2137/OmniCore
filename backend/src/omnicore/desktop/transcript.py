@@ -27,6 +27,7 @@ def statistics_text(stats, tr):
     for key, label, unit in (
         ("tokens_per_second", "speed", "tok/s"),
         ("input_tokens", "input_tokens", ""),
+        ("gpu_offloaded_layers", "offloaded_layers", ""),
         ("output_tokens", "output_tokens", ""),
         ("ttft_seconds", "ttft", "s"),
         ("first_answer_seconds", "first_answer", "s"),
