@@ -898,3 +898,12 @@ retains heartbeat/read semantics. Loading shares the dispatcher/pool and cancell
 Targeted Android JVM: ClientTest 18 + ViewModelTest 19 = 37 PASS, 0 skipped/errors.
 Tests include another client's task, repeated refresh without duplicate stream,
 and a delayed HTTP load that exceeds the ordinary read timeout. No phone test.
+
+### Stable hardening — P4, launcher icon
+
+Android now uses an adaptive launcher icon (API26+) with the original purple
+OmniCore diamond kept inside the 66dp safe zone. Its central cutout is circular,
+matching Linux/AppImage's existing SVG; no new logo or branding was invented.
+Legacy vector geometry remains available. Full local JVM suite: 47 PASS, lintDebug,
+assembleDebug and assembleDebugAndroidTest PASS. Resource compilation validates
+both launcher layers; launcher appearance on POCO/HyperOS still needs a phone.
