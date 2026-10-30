@@ -21,6 +21,11 @@ private class MemorySettings : ClientSettings {
     override var generationId: String? = null
     override var parameters = Parameters()
     private var token = ""
+    var failSecretWrite = false
+    var pairing: String? = null
+    override fun readPendingPairing() = pairing
+    override fun storePendingPairing(value: String?) { if (failSecretWrite) throw ApiFailure("token_unavailable"); pairing = value }
+    override fun hasPendingPairing() = pairing != null
 
     override fun storeToken(token: String) {
         this.token = token
@@ -45,10 +50,15 @@ private class FakeRepository : OmniRepository {
     var parameters: Parameters? = null
     val stream = MutableSharedFlow<Generation>()
     var transfers = emptyList<Download>()
+    var pairCalls = 0
+    var firstNonce: String? = null
+    var pairResponseLoss = false
+    var pairHealthFailures = 0
     var historySettings = HistorySettings()
     var deletedAll = 0
 
     override suspend fun health(): Health {
+        if (pairCalls > 0 && pairHealthFailures > 0) { pairHealthFailures--; throw ApiFailure("connection_error") }
         if (offline) throw ApiFailure("connection_error")
         if (rejected) throw ApiFailure("unauthorized")
         return Health("ok", "fixture")
@@ -85,6 +95,14 @@ private class FakeRepository : OmniRepository {
 
     override suspend fun delete(id: String) {
         chats = chats.filterNot { it.id == id }
+    }
+
+    override suspend fun redeemPairing(code: String, nonce: String): PairingCredential {
+        pairCalls++
+        if (firstNonce == null) firstNonce = nonce
+        if (firstNonce != nonce) throw ApiFailure("pairing_used")
+        if (pairResponseLoss && pairCalls == 1) throw ApiFailure("connection_error")
+        return PairingCredential("phone", PairingPolicy.credential(code, nonce))
     }
 
     override suspend fun historySettings() = historySettings
@@ -504,6 +522,67 @@ class ViewModelTest {
         vm.refresh()
         runCurrent()
         assertTrue(vm.state.value.autoTitle)
+    }
+
+    private fun pairingQr() = WireJson.encodeToString(PairingQr.serializer(),
+        PairingQr(1, "http://192.168.1.12:8000", "c".repeat(64), System.currentTimeMillis() / 1000.0 + 120))
+
+    @Test
+    fun pairingSucceedsFirstTimeAndDeduplicatesRepeatedCallbacks() = runVmTest {
+        runCurrent()
+        val qr = pairingQr()
+        vm.pair(qr)
+        vm.pair(qr)
+        runCurrent()
+        assertEquals(1, repo.pairCalls)
+        assertEquals(PairingPolicy.credential("c".repeat(64), repo.firstNonce!!), settings.readToken())
+        assertEquals("http://192.168.1.12:8000", settings.url)
+        assertNull(settings.pairing)
+        assertTrue(vm.state.value.connected)
+    }
+
+    @Test
+    fun lostRedemptionResponseRetriesTheSameNonceAndDoesNotCreateAnotherIdentity() = runVmTest {
+        runCurrent()
+        repo.pairResponseLoss = true
+        vm.pair(pairingQr())
+        runCurrent()
+        val nonce = repo.firstNonce
+        assertNotNull(settings.pairing)
+        advanceTimeBy(501)
+        runCurrent()
+        assertEquals(2, repo.pairCalls)
+        assertEquals(nonce, repo.firstNonce)
+        assertNull(settings.pairing)
+        assertEquals(PairingPolicy.credential("c".repeat(64), repo.firstNonce!!), settings.readToken())
+    }
+
+    @Test
+    fun failedHealthKeepsOriginalConnectionAndPendingPairingCanResume() = runVmTest {
+        runCurrent()
+        val old = settings.url
+        repo.pairHealthFailures = 1
+        vm.pair(pairingQr())
+        runCurrent()
+        assertEquals(old, settings.url)
+        assertTrue(vm.state.value.pairingPending)
+        val nonce = repo.firstNonce
+        vm.retryPairing()
+        runCurrent()
+        assertEquals(nonce, repo.firstNonce)
+        assertEquals(1, repo.pairCalls) // Recovery authenticates the issued credential, without consuming a new code.
+        assertEquals("http://192.168.1.12:8000", settings.url)
+        assertNull(settings.pairing)
+    }
+
+    @Test
+    fun failedKeystoreWriteDoesNotConsumeTheCode() = runVmTest {
+        runCurrent()
+        settings.failSecretWrite = true
+        vm.pair(pairingQr())
+        runCurrent()
+        assertEquals(0, repo.pairCalls)
+        assertEquals("token_unavailable", vm.state.value.error)
     }
 
     @Test

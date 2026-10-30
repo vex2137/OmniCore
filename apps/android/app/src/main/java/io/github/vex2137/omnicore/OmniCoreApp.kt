@@ -185,6 +185,26 @@ private fun ErrorBanner(code: String, dismiss: () -> Unit) {
             "token_unavailable" -> R.string.error_keystore
             "invalid_parameters" -> R.string.error_parameters
             "pairing_invalid" -> R.string.pairing_invalid
+            "pairing_expired" -> R.string.pairing_expired
+            "pairing_used" -> R.string.pairing_used
+            "provider_requires_server_auth" -> R.string.provider_requires_server_auth
+            "provider_permission_required" -> R.string.provider_permission_required
+            "provider_key_requires_https" -> R.string.provider_key_requires_https
+            "provider_secret_store_unavailable" -> R.string.provider_secret_store_unavailable
+            "provider_key_missing" -> R.string.provider_key_missing
+            "provider_endpoint_invalid" -> R.string.provider_endpoint_invalid
+            "provider_key_reentry_required" -> R.string.provider_key_reentry_required
+            "provider_key_invalid" -> R.string.provider_key_invalid
+            "provider_auth_failed" -> R.string.provider_auth_failed
+            "provider_rate_limited" -> R.string.provider_rate_limited
+            "provider_model_not_found" -> R.string.provider_model_not_found
+            "provider_unavailable" -> R.string.provider_unavailable
+            "provider_request_rejected" -> R.string.provider_request_rejected
+            "provider_parameter_unsupported" -> R.string.provider_parameter_unsupported
+            "provider_response_invalid" -> R.string.provider_response_invalid
+            "provider_content_blocked" -> R.string.provider_content_blocked
+            "provider_connection_failed" -> R.string.provider_connection_failed
+            "provider_confirmation_required" -> R.string.provider_confirmation_required
             "pairing_rate_limited" -> R.string.pairing_rate_limited
             "history_changed" -> R.string.history_changed
             "model_required" -> R.string.error_model
@@ -295,7 +315,7 @@ private fun HomeScreen(s: UiState, vm: OmniViewModel, navigate: (Int) -> Unit) {
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(c.title.ifBlank { title }, Modifier.padding(20.dp))
+                Text(c.title.ifBlank { title }, Modifier.padding(20.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -341,7 +361,7 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
             }
         }
         Choice(
-            s.models.map { it.id to "${it.name} · ${it.backend}" },
+            s.models.map { it.id to ((if (it.backend == "cloud") stringResource(R.string.paid_model) + " · " else "") + "${it.name} · ${it.backend}") },
             s.selectedModel,
             stringResource(R.string.choose_model),
             vm::selectModel,
@@ -563,7 +583,7 @@ private fun Choice(
         DropdownMenu(expanded, { expanded = false }, Modifier.heightIn(max = 320.dp)) {
             items.forEach { item ->
                 DropdownMenuItem(
-                    text = { Text(item.second) },
+                    text = { Text(item.second, maxLines = 2, overflow = TextOverflow.Ellipsis) },
                     onClick = {
                         expanded = false
                         select(item.first)
@@ -734,11 +754,13 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
 private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -> Unit) {
     var scanned by remember { mutableStateOf<String?>(null) }
     var scanError by remember { mutableStateOf(false) }
+    var scanning by rememberSaveable { mutableStateOf(false) }
     var deleteCount by remember { mutableStateOf<Int?>(null) }
     val scanPrompt = stringResource(R.string.scan_pairing)
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
+        scanning = false
         result.contents?.let { raw ->
-            try { PairingPolicy.parse(raw); scanned = raw }
+            try { PairingPolicy.parse(raw); scanned = raw; scanError = false }
             catch (_: Exception) { scanError = true }
         }
     }
@@ -772,11 +794,15 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
         Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineSmall)
         Text(stringResource(R.string.connection_hint))
         OutlinedButton(
-            onClick = { scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt(scanPrompt).setBeepEnabled(false).setBarcodeImageEnabled(false)) },
-            enabled = !s.busy && !s.generating,
+            onClick = { scanning = true; scanError = false; scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt(scanPrompt).setBeepEnabled(false).setBarcodeImageEnabled(false)) },
+            enabled = !s.busy && !s.generating && !scanning && scanned == null,
             modifier = Modifier.fillMaxWidth().testTag("scan_pairing"),
         ) { Text(stringResource(R.string.pair_phone)) }
         if (scanError) Text(stringResource(R.string.pairing_invalid), color = MaterialTheme.colorScheme.error)
+        if (s.pairingPending) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = vm::retryPairing, enabled = !s.busy, modifier = Modifier.testTag("pairing_retry")) { Text(stringResource(R.string.pairing_retry)) }
+            TextButton(onClick = vm::cancelPairing, enabled = !s.busy) { Text(stringResource(R.string.cancel)) }
+        }
         OutlinedTextField(
             url,
             {
@@ -899,6 +925,11 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
             enabled = s.connected && !s.busy && s.conversations.isNotEmpty(),
             modifier = Modifier.fillMaxWidth().testTag("delete_all_chats"),
         ) { Text(stringResource(R.string.delete_all_chats)) }
+        var titleLength by remember(s.titleMaxLength) { mutableStateOf(s.titleMaxLength.toString()) }
+        OutlinedTextField(titleLength, { titleLength = it.take(2) }, label = { Text(stringResource(R.string.title_length)) }, singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+        OutlinedButton(onClick = { titleLength.toIntOrNull()?.let(vm::titleLength) }, enabled = !s.busy && s.connected && titleLength.toIntOrNull() in 20..80) { Text(stringResource(R.string.save)) }
+        ProviderSettings(s, vm)
         Text(
             stringResource(R.string.about, BuildConfig.VERSION_NAME),
             style = MaterialTheme.typography.bodySmall,

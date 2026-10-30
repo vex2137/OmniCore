@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-rc.5 — przygotowanie, bez publicznej publikacji
+
+- QR: deduplikacja skanowania, trwałe szyfrowane wznowienie, weryfikacja połączenia,
+  bezpieczne ponowienie tej samej wymiany i nowy kod po wygaśnięciu; zegar serwera.
+- Nazwane tokeny API: jednorazowe ujawnienie, zakresy, wygaśnięcie, ostatnie użycie,
+  unieważnianie jednego/wszystkich dodatkowych tokenów; zgodność starego QR.
+- Wspólny czat modeli OpenAI/Anthropic/Gemini/OpenRouter/własnego API OpenAI,
+  natywne ustawienia obu klientów, Secret Service, streaming/Stop/usage/tytuły.
+- Krótkie tytuły z deterministycznym limitem i bez nadpisywania ręcznych nazw.
+- Przeciągany, zwijany panel historii Linux z trwałą szerokością i pełnym tooltipem;
+  Android wyświetla długie nazwy z wielokropkiem i zachowuje ich edycję.
+- Osobny APK `.rc5`, versionCode 8, testowy podpis; zachowane dane i paczki RC.4.
+
 ## 0.1.0-rc.4 — przygotowanie, bez publikacji
 
 - Android: trwały wybór CPU/Auto/CUDA, warstwy GPU, rozdzielenie ustawień rozmowy

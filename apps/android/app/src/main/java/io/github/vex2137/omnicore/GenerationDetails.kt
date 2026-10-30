@@ -8,6 +8,7 @@ import androidx.compose.ui.res.stringResource
 @Composable
 fun GenerationDetails(s: GenerationStatistics) {
     val parts = mutableListOf<String>()
+    s.executionProvider?.let { parts.add("$it · ${s.executionModel.orEmpty()}") }
     fun add(label: String, value: Number?, unit: String = "") {
         if (value != null) {
             val number = if (value is Double) "%.2f".format(value) else value.toString()

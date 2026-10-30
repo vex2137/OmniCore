@@ -32,7 +32,7 @@ fun GenerationSettings(s: UiState, vm: OmniViewModel) {
     var layers by remember(s.selectedConversation, editingDefaults, effective) {
         mutableStateOf(effective.gpuLayers.toString())
     }
-    val llama = s.models.firstOrNull { it.id == s.selectedModel }?.backend != "ollama"
+    val llama = s.models.firstOrNull { it.id == s.selectedModel }?.backend.let { it == null || it == "llama.cpp" }
     var thinking by remember(s.selectedConversation, editingDefaults, effective) { mutableStateOf(effective.thinking) }
     var prompt by remember(s.selectedConversation, editingDefaults, effective) { mutableStateOf(effective.systemPrompt) }
     val parameters =

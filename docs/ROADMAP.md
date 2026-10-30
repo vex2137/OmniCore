@@ -398,3 +398,13 @@ własności procesu i blokady danych; jednorazowe parowanie QR oraz skaner Andro
 wspólne automatyczne tytuły i zbiorcze usuwanie historii. Zachowane CPU i CUDA,
 bez nowego silnika, Rust, Web lub Image AI. RC.4 nie stanowi zgody na Stable.
 Pozostają akceptacja paczek i rzeczywiste CUDA/telefon/kamera oraz podpis właściciela.
+
+
+## RC.5 — parowanie, tokeny i świadomy wybór zewnętrznego AI
+
+Zaimplementowane: bezpieczne odzyskiwanie tej samej wymiany QR, ręczne tokeny z
+zakresami i metadanymi, pięć adapterów API w istniejącej kolejce czatu, konfiguracja
+Linux/Android i systemowy magazyn sekretów, ograniczone tytuły oraz trwały splitter.
+Właściciel potwierdził RC.4 Android/CUDA0/25 warstw/~109 tok./s; RC.5 wymaga osobnej
+akceptacji nowych paczek, kamery i rzeczywistych kont API. Płatnych wywołań Cloud
+nie wykonywał. Nie zmienia to bramki podpisu produkcyjnego i zgody na Stable.

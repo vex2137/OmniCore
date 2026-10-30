@@ -1196,3 +1196,61 @@ wcześniej otwarty strumień kończy się według swojego cyklu życia. Sparowan
 współdzielą historię, nie otrzymują osobnych kont. Tekstowa migracja 3→4 jest addytywna
 transakcyjna; przed powrotem do starego backendu zachowaj kopię danych — starszy
 backend bezpiecznie odmawia pracy z nowszym schematem, nie wykonuje downgrade.
+
+## RC.5 — implementacja i weryfikacja lokalna (2026-10-30)
+
+Start: czyste `feature/stable-hardening`, lokalny i zdalny HEAD
+`923bc35f8a4904bdce7739c9e9a79b97a3e51a33`, PR #8 OPEN. RC.4 draft
+429156174 / v0.1.0-rc.4 nadal ma 11 assetów; żadnego nie zastąpiono.
+
+Właściciel zgłosił test **RC.4**: fizyczny Android po QR, LFM3 1.7B,
+RTX4060/CUDA0, 25 warstw, około 109 tok./s. Dwie nieudane próby parowania nie
+mają logów pozwalających przypisać jedną przyczynę. Potwierdzone słabości kodu
+RC.4: lokalne sprawdzanie terminu według zegara telefonu, brak odzyskania wydanego
+poświadczenia po utracie odpowiedzi, asynchroniczny zapis sekretu bez kontroli
+wyniku oraz brak trwałego stanu wymiany i deduplikacji uruchomień skanera.
+
+RC.5: kod jednorazowy jest związany z losowym nonce zapisanym przed POST w
+Keystore. Ponowienie tej samej operacji zwraca to samo poświadczenie, inne nonce
+jest odrzucane. Backend trzyma wyłącznie hashe; odzyskiwanie po restarcie używa
+już wydanego tokenu, nie omija wygaśnięcia nowego kodu ani odwołania tokenu.
+Adres/sekret są zapisywane atomowo po health. GUI blokuje równoległe QR, sprawdza
+allowlist/adres, pokazuje termin/status/nowy kod. Stary klient code-only pozostaje
+zgodny i nie może ponownie wymienić kodu.
+
+Dodano named API tokens (chat/providers, expiry, last use, jednorazowa wartość,
+revoke/revoke all z potwierdzeniem), Linux GUI, ręczny token Androida zachowany.
+Administracja wyłącznie głównym tokenem z loopback. Główny token nie jest listowany
+ani odwoływany operacją zbiorczą. Sekrety i kody nie trafiają do URL/logów.
+
+Nowe moduły `providers/{service,protocols,vault,api}` rozszerzają istniejący
+TextEngine/generation/history, bez drugiej kolejki. OpenAI, Anthropic, Gemini,
+OpenRouter i własny OpenAI HTTPS mają osobne formaty, autoryzację, modele i SSE.
+Linux/Android: konfiguracja, katalog/ręczne ID, test katalogu bez inferencji,
+świadomy wybór płatnego modelu, streaming/Stop, usage/provider/model, automatyczne
+tytuły. Klucze tylko w Secret Service backendu, Android nie kopiuje ich między
+urządzeniami; zdalne wpisanie wymaga HTTPS. Niedostępny magazyn kończy się błędem,
+bez plaintext fallback. Brak automatycznego lokalny→płatny fallbacku. Limity modeli
+API i prawdziwe konta wymagają testu właściciela; DNS nie stanowi izolacji sieciowej.
+Szczegóły: [EXTERNAL_AI](EXTERNAL_AI.md).
+
+Tytuły: 2–5 słów w prompt, deterministycznie maks. 5 całych słów i 42 znaki,
+konfiguracja 20–80; usuwanie wstępów/markdown, manual CAS, bez zmiany starych nazw.
+Historia Qt: splitter 200–520 px, trwała szerokość/zwijanie, elide i tooltip.
+Android: elide i pełna edycja. Zgodna migracja ustawień historii v5.
+
+Weryfikacja lokalna:
+- Pełny backend+Qt: **258 PASS**, 0 FAIL/SKIP; późniejszy dodatkowy test fragmentacji
+  UTF-8/SSE i limitu odpowiedzi PASS. Zmienione po przeglądzie API scope i QR
+  sprawdzone ukierunkowanie: **21 PASS**, provider final **18 PASS** (nakładające się).
+- Android JVM: **66 PASS**, 0 FAIL/ERROR/SKIP; lint/debug APK/test APK **PASS**.
+- Ruff check/format, eksport kontraktów i smoke **PASS**.
+- Rzeczywisty Secret Service w izolowanej sesji D-Bus: syntetyczny sekret
+  put/get/delete **PASS**. Nie użyto klucza właściciela ani płatnego wywołania.
+- Kontrolowane HTTP testuje pięć protokołów, 401/429/503, streaming/Stop/usage,
+  shared history/titles, scoping i ochronę sekretów; nie jest testem kont API.
+- Fizyczne RC.5 kamera/Android/CachyOS/RTX4060 oraz prawdziwe API: **NIEWYKONANE**.
+  Emulatory i zamrożone paczki są weryfikowane osobno poniżej po ich przygotowaniu.
+
+Numeracja RC.5: 0.1.0rc5 / 0.1.0-rc.5, APK `.rc5`, versionCode 8, podpis testowy.
+Nie mergujemy main, nie publikujemy Stable/publicznego RC i zachowujemy RC.4.

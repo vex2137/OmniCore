@@ -33,6 +33,34 @@ class NativeClientTest {
     @Volatile private var downloadState = "running"
     @Volatile private var downloaded = false
 
+    @Test
+    fun pendingPairingAndConnectionSurviveKeystoreReopenWithoutPlaintext() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val settings = SecureSettings(context)
+        val previousUrl = settings.url
+        val previousToken = settings.readToken()
+        val previousTrusted = settings.trustedLan
+        val pending = WireJson.encodeToString(PendingPairing.serializer(), PendingPairing("private-qr-fixture", "c".repeat(64)))
+        try {
+            settings.storePendingPairing(pending)
+            assertTrue(SecureSettings(context).hasPendingPairing())
+            assertEquals(pending, SecureSettings(context).readPendingPairing())
+            settings.commitConnection("http://192.168.1.12:8000", token, true)
+            val reopened = SecureSettings(context)
+            assertEquals(token, reopened.readToken())
+            assertEquals("http://192.168.1.12:8000", reopened.url)
+            assertTrue(reopened.trustedLan)
+            val stored = context.getSharedPreferences("omnicore", 0).all.toString()
+            assertFalse(stored.contains(token))
+            assertFalse(stored.contains("private-qr-fixture"))
+            settings.storePendingPairing(null)
+            assertFalse(SecureSettings(context).hasPendingPairing())
+        } finally {
+            settings.storePendingPairing(null)
+            settings.commitConnection(previousUrl, previousToken, previousTrusted)
+        }
+    }
+
     private fun transfer() =
         """{"id":"d","source":{"repository":"owner/repo","revision":"abc","filename":"model.gguf","size_bytes":123},"state":"$downloadState","received_bytes":60,"percent":48}"""
 
@@ -75,6 +103,7 @@ class NativeClientTest {
                         path == "/api/v1/text/downloads" ->
                             json(if (downloaded) "[${transfer()}]" else "[]")
                         path == "/api/v1/text/history/settings" -> json("""{"auto_title":true}""")
+                        path == "/api/v1/providers/configs" -> json("[]")
                         path == "/api/v1/text/diagnostics" -> json("""{"generations":[]}""")
                         path == "/api/v1/text/huggingface/files" ->
                             json(

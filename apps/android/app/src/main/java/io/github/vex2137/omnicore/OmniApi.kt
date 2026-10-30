@@ -225,6 +225,25 @@ class OmniApi(
     override suspend fun redeemPairing(code: String): PairingCredential =
         WireJson.decodeFromString(exchange("POST", "/api/v1/pairing/redeem", WireJson.encodeToString(PairingCode(code))))
 
+    override suspend fun redeemPairing(code: String, nonce: String): PairingCredential =
+        WireJson.decodeFromString(exchange("POST", "/api/v1/pairing/redeem", WireJson.encodeToString(PairingCode(code, nonce))))
+
+
+    override suspend fun providers(): List<ProviderInfo> =
+        WireJson.decodeFromString(exchange("GET", "/api/v1/providers/configs"))
+
+    override suspend fun saveProvider(id: String?, value: ProviderInput): ProviderInfo =
+        WireJson.decodeFromString(exchange(if (id == null) "POST" else "PUT",
+            "/api/v1/providers/configs" + if (id == null) "" else "/$id", WireJson.encodeToString(value)))
+
+    override suspend fun deleteProvider(id: String) { exchange("DELETE", "/api/v1/providers/configs/$id") }
+    override suspend fun providerModels(id: String): List<String> =
+        WireJson.decodeFromString(exchange("GET", "/api/v1/providers/configs/$id/models"))
+    override suspend fun testProvider(id: String) { exchange("POST", "/api/v1/providers/configs/$id/test", "{}") }
+    override suspend fun addProviderModel(id: String, model: String) {
+        exchange("POST", "/api/v1/providers/configs/$id/models", WireJson.encodeToString(CloudModelSelection(model)))
+    }
+
     private fun query(value: String) = java.net.URLEncoder.encode(value, "UTF-8")
 
     override suspend fun search(query: String): List<HubRepository> =

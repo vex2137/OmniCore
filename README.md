@@ -1,23 +1,27 @@
 # OmniCore
 OmniCore is an open-source local AI platform. This Alpha provides native Linux and Android clients for text models; image generation and other modules are planned.
 
-## RC.4 — kandydat źródeł do testów
+## RC.5 — kandydat do testów właściciela
 
-RC.4 naprawia zapis wyboru CPU/Auto/CUDA na Androidzie: wybór urządzenia zapisuje
-się od razu, a ręczna liczba warstw i pozostałe parametry po „Zapisz”. Ustawienia
-bieżącej rozmowy są oddzielone od domyślnych nowych rozmów. Wybrane urządzenie
-jest oddzielone od rzeczywistego wykonania i przyczyny fallbacku.
+RC.5 poprawia ponawianie parowania QR i dodaje nazwane, odwoływalne tokeny API
+w **Serwer i urządzenia → Tokeny i dostęp API**. Token można wkleić w Androidzie
+bez kamery. Kod QR pozostaje jednorazowy; ponowienie tej samej operacji odzyskuje
+wyłącznie to samo poświadczenie. Dostęp LAN nadal wymaga autoryzacji.
 
-Linux: **Serwer i urządzenia** zarządza własnym backendem, dostępem LAN,
-autostartem, restartem i odwoływalnym parowaniem QR. Android skanuje QR w
-ustawieniach i wymienia jednorazowy kod na własny token zapisany w Keystore.
-Oba klienty mają automatyczne tytuły i zbiorcze usuwanie historii z potwierdzeniem.
-[Obsługa LAN](docs/LINUX_DESKTOP.md#rc4-serwer-i-urządzenia) ·
-[Android i parowanie](docs/ANDROID.md#rc4-parowanie-i-parametry-gpu).
+Oba klienty obsługują OpenAI, Anthropic, Gemini, OpenRouter i własne API OpenAI
+we wspólnym czacie. Klucze przechowuje systemowy magazyn sekretów backendu Linux.
+Modele zewnętrzne wymagają świadomego wyboru; nie ma płatnego fallbacku.
+[Konfiguracja, bezpieczeństwo i ograniczenia](docs/EXTERNAL_AI.md).
 
-To przygotowanie RC, bez publikacji Stable. Testy Cloud nie potwierdzają RTX4060,
-fizycznego Androida ani kamery. Historyczne wydania i ich sumy poniżej pozostają
-niezmienione. Wyniki bieżących źródeł: [PROGRESS](docs/PROGRESS.md).
+Automatyczne tytuły mają do 5 słów i domyślnie 42 znaki (limit konfigurowalny).
+Ręczne i istniejące nazwy pozostają zachowane. Panel historii Linux można
+przeciągać i zwijać; szerokość jest zapamiętywana, pełna nazwa dostępna w dymku.
+
+Właściciel potwierdził **RC.4** na fizycznym Androidzie: LFM3 1.7B, RTX4060/CUDA0,
+25 warstw i około 109 tok./s. To nie jest test nowej paczki RC.5. Testy kamery,
+CachyOS/GPU i prawdziwych kont dostawców RC.5 pozostają do akceptacji właściciela.
+RC.4 i jej artefakty są zachowane. Nie publikujemy Stable ani nie scalamy do main.
+Wyniki bieżących źródeł: [PROGRESS](docs/PROGRESS.md).
 
 ## Stan: 0.1.0 Release Candidate — natywne aplikacje Linux i Android
 

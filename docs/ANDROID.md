@@ -274,3 +274,25 @@ Testowy RC.4 ma osobny identyfikator `.rc4` i versionCode 7, więc można pozost
 RC.3 oraz jego lokalne ustawienia. Nowa instalacja wymaga parowania/konfiguracji,
 a po połączeniu widzi istniejącą historię backendu. Nie jest to dowód aktualizacji
 owner-signed APK w miejscu; docelowy podpis i taki test nadal są osobną bramką.
+
+
+## RC.5: parowanie i zewnętrzne modele
+
+Skaner przyjmuje jeden QR naraz. Przed wymianą zapisuje szyfrowany stan operacji
+w Keystore, a adres/token zastępuje dopiero po sprawdzeniu połączenia i trwałego
+zapisu. Przy utracie odpowiedzi powtarza tę samą wymianę, bez nowego urządzenia.
+Przycisk ponowienia odzyskuje już wydany token także po restarcie aplikacji;
+nieprzetworzony wygasły kod wymaga nowego QR. Można anulować oczekującą operację.
+Zegar telefonu nie unieważnia kodu; ważność sprawdza backend. Cofnięty token nie
+może zostać odtworzony przez ponowienie.
+
+Bez kamery wpisz adres serwera i nazwany token utworzony w Linux GUI. Najpierw
+użyj testu połączenia, następnie Połącz. Zwykły HTTP jest dopuszczony wyłącznie
+po świadomym zaufaniu prywatnej sieci LAN. Kod i token nie trafiają do URL/logów.
+
+[Dostawcy AI](EXTERNAL_AI.md) mają sekcję ustawień również na Androidzie;
+wykonawcą i magazynem kluczy pozostaje Linux. Przy HTTP LAN wpisz klucz na PC,
+na telefonie wybierz już zapisany model. Długie tytuły są wizualnie skrócone,
+a pełna nazwa pozostaje w edycji; zapisane ręczne nazwy nie są skracane.
+APK RC.5 ma oddzielne ID `.rc5`, więc instaluje się obok RC.4 i wymaga połączenia
+z tym samym backendem. Nie usuwa poprzedniej aplikacji ani wspólnej historii.

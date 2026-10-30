@@ -1,6 +1,6 @@
 # 0.1.0 — bramka wydania
 
-Bieżący kandydat źródeł: **0.1.0-rc.4**, nie Stable. Zgoda na publiczne Stable obowiązuje
+Bieżący kandydat źródeł: **0.1.0-rc.5**, nie Stable. Zgoda na publiczne Stable obowiązuje
 po testach i osobnym potwierdzeniu sprzętowym właściciela. Nie twórz tagu v0.1.0
 ani finalnego wydania przed potwierdzeniem poniższych punktów.
 
@@ -149,3 +149,21 @@ niepublicznym szkicu ID 429156174 na [liście wydań właściciela](https://gith
 Backend/Linux/Android i wysłanie załączników mają SUCCESS; 223 Python/Qt,
 60 JVM oraz 2+2 UI emulatorów PASS. Sumy, rozmiary i runy są w PROGRESS.md.
 To kandydat do testów właściciela, nie zatwierdzenie sprzętu lub publikacji.
+
+
+## RC.5 — nowe bramki akceptacji
+
+Właściciel zgłosił udaną inferencję RC.4 z fizycznego Androida po QR: LFM3 1.7B,
+RTX4060/CUDA0, 25 warstw, około 109 tok./s. Pierwsze dwie próby QR nie powiodły
+się; bez logów nie przypisujemy ich jednej konkretnej przyczynie.
+
+- [ ] Nowe QR RC.5 za pierwszym razem na telefonie; utrata sieci, ponowienie,
+  wygasły/nowy kod, anulowanie i cofnięcie tokenu.
+- [ ] Nowy AppImage na CachyOS: działający systemowy magazyn sekretów, tokeny,
+  splitter, lokalne CPU/Auto/CUDA i brak regresji LAN.
+- [ ] Własne konta/klucze pięciu API: katalog/ręczne ID, streaming/Stop/usage,
+  limity i koszty. Cloud używa wyłącznie kontrolowanych odpowiedzi.
+- [ ] Trwały podpis właściciela i osobna zgoda na Stable pozostają wymagane.
+
+Szkic i paczki RC.4 pozostają niezmienione; RC.5 musi mieć własną identyfikację
+źródeł i osobne artefakty. Testy emulatora nie potwierdzają fizycznej kamery/GPU.

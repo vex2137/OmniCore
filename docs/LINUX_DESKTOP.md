@@ -230,3 +230,25 @@ nieodwracalnej operacji. Backend anuluje aktywne generowanie oraz usuwa rozmowy,
 wiadomości, zadania generacji i klucze ich żądań. Modele, pobrane pliki, ustawienia
 oraz parowania pozostają. Zmiana liczby rozmów przez inny klient wymaga ponownego
 potwierdzenia. Klienci odświeżają wspólną historię również podczas zwykłej pracy.
+
+
+## RC.5: tokeny, parowanie i panel historii
+
+W **Serwer i urządzenia → Tokeny i dostęp API** utwórz nazwany token (domyślnie
+30 dni, 0 oznacza bezterminowy). Pełna wartość jest widoczna tylko teraz; skopiuj
+ją do ustawień Androida wraz z adresem wyświetlanym przez serwer. Schowek jest
+czyszczony po 45 sekundach, jeżeli jego zawartość się nie zmieniła. Lista pokazuje
+zakresy, daty utworzenia/ostatniego użycia/wygaśnięcia. Odwołanie wszystkich wymaga
+potwierdzenia i obejmuje również sparowane telefony; główny token jest zachowany.
+Administracja tokenami wymaga głównego tokenu i połączenia lokalnego.
+
+QR jest ważny 120 sekund według serwera. Okno blokuje równoległe otwieranie,
+pokazuje status, pozwala utworzyć nowy QR i sprawdza zgodność adresu z aktualnym
+nasłuchem/allowlist. Po zmianie adresu sieci wykonaj restart backendu z GUI.
+Nowy kod nie upoważnia do ponownego wydawania wielu tokenów z jednego kodu.
+
+Przeciągnij prawą krawędź historii (200–520 px) albo użyj przycisku zwijania w
+czacie. Szerokość i zwinięcie są trwałe. Długie nazwy mają wielokropek i tooltip.
+Limit automatycznych nazw (20–80 znaków, domyślnie 42, do 5 słów) zmienisz w
+ustawieniach historii; nie przepisuje starych nazw ani ręcznych tytułów.
+[Dostawcy AI](EXTERNAL_AI.md).

@@ -11,10 +11,12 @@ import org.junit.Test
 
 class PairingTest {
     @Test
-    fun qrRequiresPrivateDestinationValidCodeVersionAndExpiry() {
+    fun qrRequiresPrivateDestinationCodeAndVersionButUsesServerExpiry() {
         val good = PairingQr(1, "http://192.168.1.12:8000", "a".repeat(64), 1100.0)
         assertEquals(good, PairingPolicy.parse(WireJson.encodeToString(good), 1000.0))
-        for (bad in listOf(good.copy(url = "https://public.example"), good.copy(url = "http://127.0.0.1:8000"), good.copy(url = "http://[::1]:8000"), good.copy(code = "wrong"), good.copy(omnicore = 2), good.copy(expiresAt = 999.0), good.copy(expiresAt = 2000.0))) {
+        assertEquals(good, PairingPolicy.parse(WireJson.encodeToString(good), 5000.0))
+        assertEquals(good, PairingPolicy.parse(WireJson.encodeToString(good), 100.0))
+        for (bad in listOf(good.copy(url = "https://public.example"), good.copy(url = "http://127.0.0.1:8000"), good.copy(url = "http://[::1]:8000"), good.copy(code = "wrong"), good.copy(omnicore = 2), good.copy(expiresAt = -1.0))) {
             try { PairingPolicy.parse(WireJson.encodeToString(bad), 1000.0); fail("Accepted bad QR") }
             catch (_: ApiFailure) { }
         }
