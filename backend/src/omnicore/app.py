@@ -17,6 +17,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from omnicore import __version__
 from omnicore.adapters import AdapterRegistry
+from omnicore.backend_lock import BackendLease
 from omnicore.config import RuntimeConfig
 from omnicore.database import Database
 from omnicore.events import EventHub
@@ -47,12 +48,14 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        await run_in_threadpool(db.initialize)
-        try:
-            await run_in_threadpool(text.initialize)
-            yield
-        finally:
-            await text.close()
+        # Enforce this for every ASGI entry point, not only the desktop launcher.
+        with BackendLease(config.data_dir, config.host, config.port):
+            await run_in_threadpool(db.initialize)
+            try:
+                await run_in_threadpool(text.initialize)
+                yield
+            finally:
+                await text.close()
 
     errors = {
         code: {"model": ErrorResponse}

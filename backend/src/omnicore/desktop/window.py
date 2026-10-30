@@ -98,6 +98,7 @@ class MainWindow(QMainWindow):
         session.ready.connect(self.backend_ready)
         session.failed.connect(self.show_error)
         session.log.connect(self.log_event)
+        session.state_changed.connect(self.backend_state)
         session.stopped.connect(self._stopped)
         self._poll = QTimer(self)
         self._poll.setInterval(1500)
@@ -507,6 +508,23 @@ class MainWindow(QMainWindow):
         self.refresh_model_table()
         self.render_messages()
         self._fill_conversations()
+        self.backend_state(self._connection_key)
+
+    def backend_state(self, state):
+        if self._closing:
+            return
+        self._connection_key = state
+        self.connection.setText(self.tr(state))
+        self.statusBar().showMessage(self.tr(state))
+        if state != "connected":
+            self.is_connected = False
+        self.reconnect_button.setEnabled(state not in {"connecting", "backend_starting"})
+        key = (
+            "start_backend"
+            if state in {"error", "disconnected"} and not os.environ.get("OMNICORE_DESKTOP_URL")
+            else "reconnect"
+        )
+        self.reconnect_button.setText(self.tr(key))
 
     def preview_language(self):
         self.config.locale = self.language.currentData()

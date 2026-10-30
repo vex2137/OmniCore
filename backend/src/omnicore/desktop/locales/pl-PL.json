@@ -22,7 +22,7 @@
   "ready": "Gotowy",
   "connecting": "Łączenie…",
   "connected": "Backend połączony",
-  "backend_starting": "Uruchamianie prywatnego backendu…",
+  "backend_starting": "Uruchamianie backendu…",
   "closing": "Zamykanie własnych procesów…",
   "error": "Błąd",
   "saved": "Ustawienia zapisane",
@@ -188,5 +188,11 @@
   "older_messages": "Pokaż {count} wcześniejszych wiadomości",
   "gpu_offload_unverified": "Silnik nie potwierdził przeniesienia warstw na GPU. Auto może użyć CPU; sprawdź ustawienia i zgodność silnika.",
   "cuda_runtime_unavailable": "Silnik CUDA nie może wczytać bibliotek runtime lub sterownika. Sprawdź diagnostykę lub wybierz Auto/CPU.",
-  "gpu_layers_required": "Wybierz co najmniej jedną warstwę GPU, aby wymagać CUDA."
+  "gpu_layers_required": "Wybierz co najmniej jedną warstwę GPU, aby wymagać CUDA.",
+  "start_backend": "Uruchom backend",
+  "backend_in_use": "Inny serwer używa już tego katalogu danych. Połącz się z nim; drugi backend nie został uruchomiony.",
+  "backend_auth_required": "Znaleziony serwer wymaga uwierzytelnienia. Skonfiguruj OMNICORE_DESKTOP_TOKEN zgodnie z instrukcją połączenia.",
+  "backend_lock_error": "Nie można uzyskać dostępu do blokady backendu. Sprawdź uprawnienia katalogu danych.",
+  "backend_port_error": "Nie można przydzielić lokalnego portu serwera. Sprawdź sieć i spróbuj ponownie.",
+  "backend_start_failed": "Backend nie mógł się uruchomić. Sprawdź port i zależności Pythona lub użyj kompletnego AppImage."
 }

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 
+from omnicore.backend_lock import discover_backend
 from omnicore.desktop.config import data_path
 
 
@@ -16,6 +17,7 @@ class BackendSession(QObject):
     failed = Signal(str)
     stopped = Signal()
     log = Signal(str)
+    state_changed = Signal(str)
 
     def __init__(self, api, config, parent=None):
         super().__init__(parent)
@@ -26,6 +28,7 @@ class BackendSession(QObject):
         self._attempt = 0
         self._ready = False
         self._restart = False
+        self._starting = False
         self._timer = QTimer(self)
         self._timer.setInterval(250)
         self._timer.timeout.connect(self._probe)
@@ -34,25 +37,55 @@ class BackendSession(QObject):
         self._kill_timer.timeout.connect(self._kill)
 
     def start(self):
+        if self.process and self.process.state() != QProcess.NotRunning:
+            self.reconnect()
+            return
+        if self._starting:
+            return
         self.closing = False
         self._ready = False
+        self._starting = True
+        self.state_changed.emit("connecting")
         url = os.environ.get("OMNICORE_DESKTOP_URL", "http://127.0.0.1:8000")
+        if not os.environ.get("OMNICORE_DESKTOP_URL"):
+            try:
+                existing = discover_backend(data_path())
+            except OSError:
+                self._fail("backend_lock_error")
+                return
+            if existing is not None:
+                if not existing.get("url"):
+                    self._fail("backend_in_use")
+                    return
+                self.api.configure(existing["url"], os.environ.get("OMNICORE_DESKTOP_TOKEN", ""))
+                self.owned, self._attempt = False, 0
+                self.state_changed.emit("backend_starting")
+                self._timer.start()
+                self._probe()
+                return
         # Remote configuration is explicit and tokens are supplied only in process environment.
         from urllib.parse import urlsplit
 
-        parsed = urlsplit(url)
+        try:
+            parsed = urlsplit(url)
+            valid_port = parsed.port is None or 1 <= parsed.port <= 65535
+        except ValueError:
+            self._fail("invalid_backend_url")
+            return
         if (
             parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or not valid_port
             or parsed.username
             or parsed.password
             or parsed.query
             or parsed.fragment
             or parsed.path not in {"", "/"}
         ):
-            self.failed.emit("invalid_backend_url")
+            self._fail("invalid_backend_url")
             return
         if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-            self.failed.emit("remote_requires_https")
+            self._fail("remote_requires_https")
             return
         self.api.configure(url, os.environ.get("OMNICORE_DESKTOP_TOKEN", ""))
         self.api.request(
@@ -60,36 +93,51 @@ class BackendSession(QObject):
         )
 
     def reconnect(self):
-        if self.closing:
+        if self.closing and self.process and self.process.state() != QProcess.NotRunning:
+            return
+        self.closing = False
+        if self._starting:
             return
         self._ready = False
+        self.state_changed.emit("connecting")
         if self.owned and self.process and self.process.state() != QProcess.NotRunning:
-            self.api.request(
-                "GET", "/api/v1/health", success=self._connected, failure=self.failed.emit
-            )
+            self.api.request("GET", "/api/v1/health", success=self._connected, failure=self._fail)
         else:
             self.start()
 
     def _reuse(self, health):
         if not isinstance(health, dict) or health.get("status") != "ok":
-            self.failed.emit("incompatible_backend")
+            self._fail("incompatible_backend")
             return
         self.owned = False
         self._ready = True
+        self._starting = False
+        self.state_changed.emit("connected")
         self.ready.emit()
+
+    def _fail(self, code):
+        self._timer.stop()
+        self._starting = False
+        self.state_changed.emit("error")
+        self.failed.emit(code)
 
     def _not_running(self, error):
         if self.closing:
             return
         if os.environ.get("OMNICORE_DESKTOP_URL") or error == "unauthorized":
-            self.failed.emit(error)
+            self._fail(error)
             return
         self._spawn()
 
     def _spawn(self):
-        with socket.socket() as listener:
-            listener.bind(("127.0.0.1", 0))
-            port = listener.getsockname()[1]
+        try:
+            with socket.socket() as listener:
+                listener.bind(("127.0.0.1", 0))
+                port = listener.getsockname()[1]
+        except OSError:
+            self._fail("backend_port_error")
+            return
+        self._starting = True
         token = secrets.token_hex(32)
         self.api.configure(f"http://127.0.0.1:{port}", token)
         environment = QProcessEnvironment.systemEnvironment()
@@ -128,11 +176,17 @@ class BackendSession(QObject):
         # Deliberately drain raw logs without displaying/persisting prompts, paths or secrets.
         process.readyReadStandardOutput.connect(lambda: process.readAllStandardOutput())
         process.finished.connect(self._finished)
-        process.errorOccurred.connect(lambda _: self.failed.emit("backend_process_error"))
+        process.errorOccurred.connect(self._process_error)
         self.owned, self._attempt = True, 0
         process.start()
         self._timer.start()
         self.log.emit("backend_starting")
+        self.state_changed.emit("backend_starting")
+
+    def _process_error(self, error):
+        if error == QProcess.FailedToStart:
+            self.owned = False
+            self._fail("backend_process_error")
 
     def _probe(self):
         if self.closing:
@@ -140,18 +194,33 @@ class BackendSession(QObject):
         self._attempt += 1
         if self._attempt > 120:
             self._timer.stop()
-            self.failed.emit("backend_timeout")
-            self.stop()
+            self._fail("backend_timeout")
+            if self.owned and self.process:
+                self.process.terminate()
+                self._kill_timer.start(8000)
             return
         self.api.request(
-            "GET", "/api/v1/health", success=self._connected, failure=lambda _: None, timeout=600
+            "GET",
+            "/api/v1/health",
+            success=self._connected,
+            failure=self._probe_failed,
+            timeout=600,
         )
 
+    def _probe_failed(self, code):
+        if code == "unauthorized":
+            self._fail("backend_auth_required")
+
     def _connected(self, health):
-        if self.closing or self._ready or health.get("status") != "ok":
+        if self.closing or self._ready:
+            return
+        if not isinstance(health, dict) or health.get("status") != "ok":
+            self._fail("incompatible_backend")
             return
         self._timer.stop()
         self._ready = True
+        self._starting = False
+        self.state_changed.emit("connected")
         self.ready.emit()
 
     def restart(self, config):
@@ -164,27 +233,39 @@ class BackendSession(QObject):
 
     def stop(self):
         self.closing = True
+        self._starting = False
         self._timer.stop()
         self.api.close_stream()
         if self.owned and self.process and self.process.state() != QProcess.NotRunning:
             self.process.terminate()
             self._kill_timer.start(8000)
         else:
-            QTimer.singleShot(0, self.stopped.emit)
+            self.state_changed.emit("disconnected")
+            QTimer.singleShot(0, self, self.stopped.emit)
 
     def _kill(self):
         if self.process and self.process.state() != QProcess.NotRunning:
             self.process.kill()
 
-    def _finished(self, *_):
+    def _finished(self, code, _status):
         self._timer.stop()
         self._kill_timer.stop()
-        self._ready = False
+        was_ready, self._ready = self._ready, False
+        self._starting = False
         if self._restart:
             self._restart = False
             self.closing = False
             self._spawn()
         elif self.closing:
+            self.owned = False
+            self.state_changed.emit("disconnected")
             self.stopped.emit()
         else:
-            self.failed.emit("backend_exited")
+            self.owned = False
+            self._fail(
+                "backend_in_use"
+                if code == 73
+                else "backend_exited"
+                if was_ready
+                else "backend_start_failed"
+            )

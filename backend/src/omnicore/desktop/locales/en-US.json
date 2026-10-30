@@ -22,7 +22,7 @@
   "ready": "Ready",
   "connecting": "Connecting…",
   "connected": "Backend connected",
-  "backend_starting": "Starting private backend…",
+  "backend_starting": "Starting backend…",
   "closing": "Closing owned processes…",
   "error": "Error",
   "saved": "Settings saved",
@@ -188,5 +188,11 @@
   "older_messages": "Show {count} earlier messages",
   "gpu_offload_unverified": "The engine did not confirm moving any layers to GPU. Auto can use CPU; check GPU settings and engine compatibility.",
   "cuda_runtime_unavailable": "The CUDA engine cannot load its runtime libraries or driver. Check diagnostics or use Auto/CPU.",
-  "gpu_layers_required": "Select at least one GPU layer to require CUDA."
+  "gpu_layers_required": "Select at least one GPU layer to require CUDA.",
+  "start_backend": "Start backend",
+  "backend_in_use": "A server already uses this data directory. Connect to that server; a second backend was not started.",
+  "backend_auth_required": "An existing server requires authentication. Configure OMNICORE_DESKTOP_TOKEN using the connection guide.",
+  "backend_lock_error": "Cannot access the backend process lock. Check data directory permissions.",
+  "backend_port_error": "Cannot allocate a local server port. Check networking and try again.",
+  "backend_start_failed": "The backend could not start. Check the port and Python dependencies, or use the complete AppImage."
 }

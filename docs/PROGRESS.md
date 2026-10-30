@@ -993,3 +993,22 @@ na fizycznym ARM64. Wynik PR #6 jest zachowany, ale nie zastępuje potwierdzenia
 nowych bajtów. Wymagane docelowe podpisywanie/ścieżka aktualizacji i osobna zgoda
 na finalne wydanie; patrz RELEASE_GATE. Nie ma finalnego tagu ani Stable v0.1.0.
 Nie restartować projektu, nie usuwać checkoutu ani danych Alpha/RC.
+
+### Backend start/signing follow-up — module 1
+
+Existing automatic desktop launch is retained. Backend ASGI lifespan now holds an
+exclusive advisory lock for its data directory, before SQLite/scheduler startup.
+CLI exits early on a live lease; GUI discovers its loopback port without storing
+or discovering an API token. Invalid/remote records cannot redirect credentials.
+No lock inode is unlinked; stale metadata is ignored when the lock is free.
+Symlink/FIFO locks are refused without blocking. Bind/start failures release the
+lease. Added AppImage --serve for explicit headless operation with existing CLI
+security configuration; remote mode remains an intentional authenticated opt-in.
+
+GUI has starting/connected/disconnected/error state signals, an enabled retry/start
+button after failures, duplicate-start protection and safe QTimer ownership.
+Missing executable, crashed child, repeated start and reuse/authentication were
+exercised. Actual tests: 164 backend PASS (including 6 lock/startup cases), 5 Qt
+lifecycle PASS; lint/format PASS. First new ASGI test used a forbidden test hostname
+and was corrected to localhost; a queued Qt stop signal lifetime bug was found
+and fixed with its QObject context. No existing user data was reset.
