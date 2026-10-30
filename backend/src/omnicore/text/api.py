@@ -14,6 +14,7 @@ from starlette.concurrency import run_in_threadpool
 from omnicore.config import RuntimeConfig
 from omnicore.diagnostics import HardwareSnapshot, hardware_snapshot
 from omnicore.events import EventHub
+from omnicore.providers.service import CloudEngine, Providers
 from omnicore.schemas import BackendInfo, WireModel
 from omnicore.text import nvidia
 from omnicore.text.conversations import (
@@ -42,6 +43,7 @@ class ModelImport(WireModel):
 
 class HistorySettings(WireModel):
     auto_title: bool = True
+    title_max_length: int = Field(default=42, ge=20, le=80)
 
 
 class HistoryDelete(WireModel):
@@ -144,6 +146,8 @@ class TextService:
             request_timeout=config.generation_timeout,
         )
         self.engines = {"llama.cpp": self.llama}
+        self.providers = Providers(self.store, authenticated=bool(config.api_token))
+        self.engines["cloud"] = CloudEngine(self.providers)
         if config.ollama_enabled:
             self.engines["ollama"] = OllamaEngine(
                 config.ollama_url, timeout=config.generation_timeout
@@ -156,6 +160,7 @@ class TextService:
 
     def initialize(self):
         self.store.initialize()
+        self.providers.initialize()
         self.downloads.initialize()
         self.generations.initialize()
 
@@ -177,7 +182,11 @@ def routes(service: TextService):
 
     @router.put("/history/settings", response_model=HistorySettings)
     async def save_history_settings(body: HistorySettings):
-        saved = await run_in_threadpool(service.history.save_history_settings, body.auto_title)
+        saved = await run_in_threadpool(
+            service.history.save_history_settings,
+            body.auto_title,
+            body.title_max_length if "title_max_length" in body.model_fields_set else None,
+        )
         if not body.auto_title:
             await service.generations.titles.interrupt()
         return saved

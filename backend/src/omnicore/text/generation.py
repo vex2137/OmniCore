@@ -146,7 +146,9 @@ class GenerationManager:
                         conversation_id=conversation_id,
                         model_id=model_id,
                         model_name=model.name,
-                        context_limit_tokens=parameters.context_size,
+                        context_limit_tokens=parameters.context_size
+                        if model.backend != "cloud"
+                        else None,
                         parameters=parameters,
                         created_at=timestamp(),
                         updated_at=timestamp(),
@@ -368,7 +370,14 @@ class GenerationManager:
             record.content += chunk.content
             record.reasoning_content += chunk.reasoning_content
             record.generation_seconds = elapsed
-            for field in ("input_tokens", "output_tokens", "tokens_per_second", "finish_reason"):
+            for field in (
+                "input_tokens",
+                "output_tokens",
+                "tokens_per_second",
+                "finish_reason",
+                "execution_provider",
+                "execution_model",
+            ):
                 value = getattr(chunk, field)
                 if value is not None:
                     setattr(record, field, value)

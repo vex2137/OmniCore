@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 
 from omnicore.desktop.config import data_path
 from omnicore.desktop.i18n import Translator
+from omnicore.desktop.providers import ProvidersWidget
 from omnicore.desktop.report import diagnostic_report, save_report
 from omnicore.desktop.server import ServerPage
 from omnicore.desktop.transcript import ChatTranscript
@@ -231,9 +232,16 @@ class MainWindow(QMainWindow):
         page = QWidget()
         outer = QHBoxLayout(page)
         outer.setContentsMargins(0, 12, 0, 0)
-        splitter = QSplitter()
+        splitter = QSplitter(Qt.Horizontal)
+        self.history_splitter = splitter
+        splitter.setHandleWidth(7)
+        splitter.setChildrenCollapsible(False)
+        splitter.setOpaqueResize(True)
         outer.addWidget(splitter)
         collection = QWidget()
+        self.history_panel = collection
+        collection.setMinimumWidth(200)
+        collection.setMaximumWidth(520)
         left = QVBoxLayout(collection)
         left.setContentsMargins(0, 0, 16, 0)
         self.new_button = self.button("new_chat", self.new_conversation, primary=True)
@@ -249,6 +257,8 @@ class MainWindow(QMainWindow):
         left.addWidget(self.history_search)
         self.conversation_list = QListWidget()
         self.conversation_list.setObjectName("conversations")
+        self.conversation_list.setTextElideMode(Qt.ElideRight)
+        self.conversation_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.conversation_list.currentItemChanged.connect(self.select_conversation)
         left.addWidget(self.conversation_list, 1)
         left.addLayout(
@@ -265,7 +275,12 @@ class MainWindow(QMainWindow):
         self.model_combo.setMinimumWidth(180)
         self.model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.model_combo.currentIndexChanged.connect(self.model_selected)
-        chat.addLayout(self.row(self.model_combo, self.button("refresh", self.refresh_models)))
+        self.history_toggle = self.button("toggle_history", self.toggle_history)
+        chat.addLayout(
+            self.row(
+                self.history_toggle, self.model_combo, self.button("refresh", self.refresh_models)
+            )
+        )
         self.transcript = ChatTranscript()
         chat.addWidget(self.transcript, 1)
         self.generation_status = self.label("ready")
@@ -282,9 +297,42 @@ class MainWindow(QMainWindow):
             self.row(self.button("copy", self.copy_answer), self.stop_button, self.send_button)
         )
         splitter.addWidget(pane)
-        splitter.setSizes([242, 730])
+        splitter.setSizes([self.config.history_width, 730])
+        self.history_panel.setVisible(not self.config.history_collapsed)
+        self.history_save_timer = QTimer(self)
+        self.history_save_timer.setSingleShot(True)
+        self.history_save_timer.setInterval(250)
+        self.history_save_timer.timeout.connect(self.save_history_width)
+        splitter.splitterMoved.connect(lambda *_: self.history_save_timer.start())
         splitter.setStretchFactor(1, 1)
         self.pages.addWidget(page)
+
+    def save_history_width(self):
+        if self._closing or self.config.history_collapsed:
+            return
+        width = self.history_splitter.sizes()[0]
+        self.config.history_width = max(200, min(520, width))
+        try:
+            self.config.save()
+        except OSError:
+            self.show_error("invalid_settings")
+
+    def toggle_history(self):
+        if not self.config.history_collapsed:
+            self.save_history_width()
+        self.config.history_collapsed = not self.config.history_collapsed
+        self.history_panel.setVisible(not self.config.history_collapsed)
+        if not self.config.history_collapsed:
+            self.history_splitter.setSizes(
+                [
+                    self.config.history_width,
+                    max(320, self.history_splitter.width() - self.config.history_width),
+                ]
+            )
+        try:
+            self.config.save()
+        except OSError:
+            self.show_error("invalid_settings")
 
     def _build_models(self):
         page = QWidget()
@@ -296,7 +344,7 @@ class MainWindow(QMainWindow):
         installed = QWidget()
         local = QVBoxLayout(installed)
         self.engine_filter = QComboBox()
-        self.engine_filter.addItems(["llama.cpp", "ollama"])
+        self.engine_filter.addItems(["llama.cpp", "ollama", "cloud"])
         self.engine_filter.currentTextChanged.connect(self.refresh_model_table)
         local.addLayout(
             self.row(
@@ -467,6 +515,13 @@ class MainWindow(QMainWindow):
         self._texts.append((self.auto_title, "auto_title"))
         self.auto_title.toggled.connect(self.save_history_settings)
         basic.addRow(self.auto_title)
+        self.title_limit = QSpinBox()
+        self.title_limit.setRange(20, 80)
+        self.title_limit.setValue(42)
+        self.title_limit.valueChanged.connect(
+            lambda _: self.save_history_settings(self.auto_title.isChecked())
+        )
+        basic.addRow(self.label("title_length"), self.title_limit)
         self.delete_all_button = self.button("delete_all_chats", self.confirm_delete_all)
         basic.addRow(self.delete_all_button)
         basic.addRow(self.label("settings_hint"))
@@ -475,6 +530,8 @@ class MainWindow(QMainWindow):
         self.about.setWordWrap(True)
         self.about.setTextInteractionFlags(Qt.TextSelectableByMouse)
         basic.addRow(self.about)
+        self.providers_widget = ProvidersWidget(self)
+        basic.addRow(self.providers_widget)
         scroll.setWidget(page)
         self.pages.addWidget(scroll)
 
@@ -538,6 +595,7 @@ class MainWindow(QMainWindow):
         self.refresh_model_table()
         self.render_messages()
         self._fill_conversations()
+        self.server_page.tokens.retranslate()
         self.server_page.update_state(self._connection_key)
         self.backend_state(self._connection_key)
 
@@ -719,6 +777,7 @@ class MainWindow(QMainWindow):
         self.log_event("connected")
         self._health_pending = {"models", "conversations", "settings"}
         self.refresh_models()
+        self.providers_widget.refresh()
         self.refresh_conversations()
         self.api.request("GET", "/api/v1/settings", success=self._preferences)
         self.refresh_diagnostics()
@@ -790,6 +849,7 @@ class MainWindow(QMainWindow):
         for record in self.conversations:
             item = QListWidgetItem(record["title"] or self.tr("untitled"))
             item.setData(Qt.UserRole, record["id"])
+            item.setToolTip(record["title"] or self.tr("untitled"))
             self.conversation_list.addItem(item)
             if record["id"] == current:
                 self.conversation_list.setCurrentItem(item)
@@ -892,13 +952,16 @@ class MainWindow(QMainWindow):
         self.auto_title.blockSignals(True)
         self.auto_title.setChecked(settings["auto_title"])
         self.auto_title.blockSignals(False)
+        self.title_limit.blockSignals(True)
+        self.title_limit.setValue(settings.get("title_max_length", 42))
+        self.title_limit.blockSignals(False)
 
     def save_history_settings(self, enabled):
         if self.is_connected:
             self.api.request(
                 "PUT",
                 TEXT + "/history/settings",
-                {"auto_title": enabled},
+                {"auto_title": enabled, "title_max_length": self.title_limit.value()},
                 success=self.history_settings_received,
             )
 
@@ -1165,7 +1228,11 @@ class MainWindow(QMainWindow):
                 self.tr("choose_model") if records else self.tr("no_model"), None
             )
             for record in records:
-                self.model_combo.addItem(f"{record['name']} · {record['backend']}", record["id"])
+                self.model_combo.addItem(
+                    (self.tr("paid_model") + " · " if record["backend"] == "cloud" else "")
+                    + f"{record['name']} · {record['backend']}",
+                    record["id"],
+                )
             index = self.model_combo.findData(selected)
             self.model_combo.setCurrentIndex(max(index, 0))
             self.model_combo.blockSignals(False)
@@ -1651,6 +1718,7 @@ class MainWindow(QMainWindow):
         event.ignore()
         if self._closing:
             return
+        self.save_history_width()
         self._closing = True
         self._poll.stop()
         self._set_pages_enabled(False)

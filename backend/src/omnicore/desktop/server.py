@@ -21,12 +21,15 @@ from PySide6.QtWidgets import (
 )
 
 from omnicore.desktop.server_credentials import lan_addresses
+from omnicore.desktop.tokens import TokensWidget
 
 
 class ServerPage(QScrollArea):
     def __init__(self, window):
         super().__init__()
         self.window = window
+        self._pair_pending = False
+        self._pair_dialog = None
         self.setWidgetResizable(True)
         page = QWidget()
         form = QFormLayout(page)
@@ -67,6 +70,8 @@ class ServerPage(QScrollArea):
         form.addRow(window.label("paired_devices"), self.devices)
         self.revoke_button = window.button("revoke_device", self.revoke)
         form.addRow(self.revoke_button)
+        self.tokens = TokensWidget(window)
+        form.addRow(self.tokens)
         self.setWidget(page)
         window.session.state_changed.connect(self.update_state)
         window.session.ready.connect(self.refresh_devices)
@@ -80,6 +85,10 @@ class ServerPage(QScrollArea):
         if current in [self.address.itemText(i) for i in range(self.address.count())]:
             self.address.setCurrentText(current)
 
+        if hasattr(self, "tokens") and self.window.session._ready:
+            self.tokens.refresh()
+            self.refresh_devices()
+
     def update_state(self, state):
         w = self.window
         self.state.setText(w.tr(state))
@@ -88,7 +97,14 @@ class ServerPage(QScrollArea):
         self.start_button.setEnabled(state in {"disconnected", "error"})
         self.stop_button.setEnabled(owned and idle and state == "connected")
         self.restart_button.setEnabled(owned and idle and state == "connected")
-        self.pair_button.setEnabled(owned and state == "connected" and w.config.lan_enabled)
+        self.pair_button.setEnabled(
+            owned
+            and state == "connected"
+            and w.config.lan_enabled
+            and not self._pair_pending
+            and self._pair_dialog is None
+        )
+        self.tokens.setEnabled(state == "connected")
         self.revoke_button.setEnabled(owned and state == "connected" and w.config.lan_enabled)
 
     def stop(self):
@@ -172,61 +188,147 @@ class ServerPage(QScrollArea):
             )
 
     def pair(self):
-        if not self.address.currentText():
+        address = self.address.currentText()
+        if self._pair_pending or self._pair_dialog is not None:
+            return
+        if not address:
             self.window.show_error("lan_no_address")
             return
-        self.window.api.request("POST", "/api/v1/pairing/offers", {}, success=self.show_pairing)
+        if address not in self.window.session.lan_hosts:
+            self.window.show_error("lan_restart_required")
+            return
+        self._pair_pending = True
+        self.pair_button.setEnabled(False)
 
-    def show_pairing(self, offer):
+        def failure(code):
+            self._pair_pending = False
+            self.update_state(self.window._connection_key)
+            self.window.show_error(code)
+
+        self.window.api.request(
+            "POST",
+            "/api/v1/pairing/offers",
+            {},
+            success=lambda offer: self.show_pairing(offer, address),
+            failure=failure,
+        )
+
+    def show_pairing(self, offer, address=None):
         import qrcode
 
         w = self.window
-        payload = json.dumps(
-            {
-                "omnicore": 1,
-                "url": f"http://{self.address.currentText()}:{w.config.lan_port}",
-                "code": offer["code"],
-                "expires_at": offer["expires_at"],
-            },
-            separators=(",", ":"),
-        )
-        qr = qrcode.QRCode(border=4)
-        qr.add_data(payload)
-        qr.make(fit=True)
-        matrix = qr.get_matrix()
-        image = QImage(len(matrix), len(matrix), QImage.Format_RGB32)
-        for y, row in enumerate(matrix):
-            for x, black in enumerate(row):
-                image.setPixelColor(x, y, Qt.black if black else Qt.white)
+        self._pair_pending = False
         dialog = QDialog(self)
+        self._pair_dialog = dialog
         dialog.setWindowTitle(w.tr("pair_phone"))
         layout = QVBoxLayout(dialog)
         text = QLabel(w.tr("pairing_hint"))
         text.setWordWrap(True)
         layout.addWidget(text)
         picture = QLabel()
-        picture.setPixmap(
-            QPixmap.fromImage(image).scaled(360, 360, Qt.KeepAspectRatio, Qt.FastTransformation)
-        )
         layout.addWidget(picture, alignment=Qt.AlignCenter)
         countdown = QLabel()
+        countdown.setWordWrap(True)
         layout.addWidget(countdown)
+        state = {"offer": offer, "polling": False, "closed": False, "status": "waiting"}
+        address = address or self.address.currentText()
+
+        def draw(value):
+            if state["closed"]:
+                return
+            state["offer"], state["status"], state["polling"] = value, "waiting", False
+            payload = json.dumps(
+                {
+                    "omnicore": 1,
+                    "url": f"http://{address}:{w.config.lan_port}",
+                    "code": value["code"],
+                    "expires_at": int(value["expires_at"]),
+                },
+                separators=(",", ":"),
+            )
+            qr = qrcode.QRCode(border=4)
+            qr.add_data(payload)
+            qr.make(fit=True)
+            matrix = qr.get_matrix()
+            image = QImage(len(matrix), len(matrix), QImage.Format_RGB32)
+            for y, row in enumerate(matrix):
+                for x, black in enumerate(row):
+                    image.setPixelColor(x, y, Qt.black if black else Qt.white)
+            picture.setPixmap(
+                QPixmap.fromImage(image).scaled(
+                    len(matrix) * max(4, min(8, 420 // len(matrix))),
+                    len(matrix) * max(4, min(8, 420 // len(matrix))),
+                    Qt.KeepAspectRatio,
+                    Qt.FastTransformation,
+                )
+            )
+            regenerate.setEnabled(True)
+            tick()
+
+        def new_code():
+            regenerate.setEnabled(False)
+            w.api.request(
+                "POST",
+                "/api/v1/pairing/offers",
+                {},
+                success=draw,
+                failure=lambda code: (regenerate.setEnabled(True), countdown.setText(w.tr(code))),
+            )
+
+        regenerate = w.button("pairing_new_code", new_code)
+        layout.addWidget(regenerate)
         layout.addWidget(w.button("cancel", dialog.reject))
-        timer = QTimer(dialog)
+
+        def status(value, identity):
+            if state["offer"]["id"] != identity:
+                return
+            state["polling"] = False
+            if state["closed"]:
+                return
+            state["status"] = value["status"]
+            if value["status"] == "used":
+                regenerate.setEnabled(False)
+                countdown.setText(w.tr("pairing_complete"))
+                picture.clear()
+                QTimer.singleShot(1200, dialog, dialog.accept)
+
+        def poll_failed(_code, identity):
+            if state["offer"]["id"] != identity:
+                return
+            state["polling"] = False
+            if not state["closed"]:
+                countdown.setText(w.tr("pairing_network_error"))
 
         def tick():
-            remaining = max(0, int(offer["expires_at"] - time.time()))
-            countdown.setText(w.tr("pairing_expires", seconds=remaining))
+            if state["closed"] or state["status"] == "used":
+                return
+            remaining = max(0, int(state["offer"]["expires_at"] - time.time()))
+            countdown.setText(
+                w.tr("pairing_expires", seconds=remaining) if remaining else w.tr("pairing_expired")
+            )
             if not remaining:
-                dialog.reject()
+                picture.clear()
+            if not state["polling"]:
+                state["polling"] = True
+                w.api.request(
+                    "GET",
+                    "/api/v1/pairing/offers/" + state["offer"]["id"],
+                    success=lambda value, identity=state["offer"]["id"]: status(value, identity),
+                    failure=lambda code, identity=state["offer"]["id"]: poll_failed(code, identity),
+                )
 
+        timer = QTimer(dialog)
         timer.timeout.connect(tick)
         timer.start(1000)
-        tick()
+        draw(offer)
         dialog.exec()
+        state["closed"] = True
         timer.stop()
+        self._pair_dialog = None
+        self.update_state(w._connection_key)
         w.api.request(
             "DELETE",
-            "/api/v1/pairing/offers/" + offer["id"],
-            success=lambda _: self.refresh_devices(),
+            "/api/v1/pairing/offers/" + state["offer"]["id"],
+            success=lambda _: (self.refresh_devices(), self.tokens.refresh()),
         )
+        dialog.deleteLater()

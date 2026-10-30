@@ -57,6 +57,9 @@ TEXT_MIGRATIONS = (
     );
     INSERT INTO text_history_settings VALUES(1,1);
     """,
+    """
+    ALTER TABLE text_history_settings ADD COLUMN title_max_length INTEGER NOT NULL DEFAULT 42;
+    """,
 )
 
 

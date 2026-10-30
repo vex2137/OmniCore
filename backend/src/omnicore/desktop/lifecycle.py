@@ -24,6 +24,7 @@ class BackendSession(QObject):
         self.api, self.config = api, config
         self.process = None
         self.owned = False
+        self.lan_hosts = []
         self.closing = False
         self._attempt = 0
         self._ready = False
@@ -142,6 +143,7 @@ class BackendSession(QObject):
     def _spawn(self):
         try:
             addresses = lan_addresses() if self.config.lan_enabled else []
+            self.lan_hosts = addresses
             if self.config.lan_enabled and not addresses:
                 self._fail("lan_no_address")
                 return

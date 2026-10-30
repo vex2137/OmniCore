@@ -118,12 +118,19 @@ class Conversations:
 
     def history_settings(self):
         with self.store.db.connect() as c:
-            row = c.execute("SELECT auto_title FROM text_history_settings WHERE id=1").fetchone()
-        return {"auto_title": bool(row[0])}
+            row = c.execute(
+                "SELECT auto_title,title_max_length FROM text_history_settings WHERE id=1"
+            ).fetchone()
+        return {"auto_title": bool(row[0]), "title_max_length": row[1]}
 
-    def save_history_settings(self, enabled):
+    def save_history_settings(self, enabled, title_max_length=None):
         with self.store.db.connect() as c, c:
             c.execute("UPDATE text_history_settings SET auto_title=? WHERE id=1", (enabled,))
+            if title_max_length is not None:
+                c.execute(
+                    "UPDATE text_history_settings SET title_max_length=? WHERE id=1",
+                    (title_max_length,),
+                )
         return self.history_settings()
 
     def title_state(self, conversation_id, status, title=None):
@@ -139,12 +146,18 @@ class Conversations:
             expected = "pending" if status == "generating" else "generating"
             if record.title_status != expected:
                 return False
-            enabled = c.execute(
-                "SELECT auto_title FROM text_history_settings WHERE id=1"
-            ).fetchone()[0]
+            enabled, limit = c.execute(
+                "SELECT auto_title,title_max_length FROM text_history_settings WHERE id=1"
+            ).fetchone()
             record.title_status = status if enabled else "cancelled"
             if title and enabled:
-                record.title = title
+                from omnicore.text.title_format import short_title
+
+                bounded = short_title(title, limit)
+                if bounded:
+                    record.title = bounded
+                else:
+                    record.title_status = "failed"
             record.updated_at = timestamp()
             c.execute(
                 "UPDATE text_conversations SET record=? WHERE id=?",

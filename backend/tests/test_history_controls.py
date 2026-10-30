@@ -40,8 +40,16 @@ def test_auto_title_uses_existing_engine_once_and_manual_name_survives(text_app)
 def test_title_disabled_and_manual_compare_and_set_preserve_history(text_app):
     app, path = text_app
     with TestClient(app, base_url="http://localhost") as c:
-        assert c.get("/api/v1/text/history/settings").json() == {"auto_title": True}
-        assert c.put("/api/v1/text/history/settings", json={"auto_title": False}).status_code == 200
+        assert c.get("/api/v1/text/history/settings").json() == {
+            "auto_title": True,
+            "title_max_length": 42,
+        }
+        assert (
+            c.put(
+                "/api/v1/text/history/settings", json={"auto_title": False, "title_max_length": 42}
+            ).status_code
+            == 200
+        )
         model, _ = create_chat(c, path)
         chat = c.post("/api/v1/text/conversations", json={"model_id": model["id"]}).json()
         job = c.post(
@@ -50,7 +58,7 @@ def test_title_disabled_and_manual_compare_and_set_preserve_history(text_app):
         ).json()
         wait_job(c, job["id"])
         assert c.get(f"/api/v1/text/conversations/{chat['id']}").json()["title"] == ""
-        c.put("/api/v1/text/history/settings", json={"auto_title": True})
+        c.put("/api/v1/text/history/settings", json={"auto_title": True, "title_max_length": 42})
         history = app.state.text.history
         race = history.create()
         assert history.title_state(race.id, "generating")

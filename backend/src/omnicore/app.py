@@ -16,6 +16,7 @@ from starlette.exceptions import HTTPException
 from starlette.websockets import WebSocketDisconnect
 
 from omnicore import __version__
+from omnicore.access import routes as access_routes
 from omnicore.adapters import AdapterRegistry
 from omnicore.backend_lock import BackendLease
 from omnicore.config import RuntimeConfig
@@ -24,6 +25,7 @@ from omnicore.events import EventHub
 from omnicore.localization import catalog, message
 from omnicore.pairing import Pairings
 from omnicore.pairing import routes as pairing_routes
+from omnicore.providers.api import routes as provider_routes
 from omnicore.schemas import (
     BackendInfo,
     ClientEvent,
@@ -81,6 +83,8 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
     app.state.pairings = pairings
     app.include_router(routes(text))
     app.include_router(pairing_routes(pairings, config))
+    app.include_router(access_routes(pairings, config))
+    app.include_router(provider_routes(text))
 
     def openapi():
         if app.openapi_schema is None:

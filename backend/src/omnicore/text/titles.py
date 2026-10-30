@@ -2,6 +2,7 @@
 
 import asyncio
 
+from omnicore.text.title_format import short_title
 from omnicore.text.types import TextMessage
 
 
@@ -51,6 +52,8 @@ class Titles:
             await manager.semaphore.acquire()
             acquired = True
             async with asyncio.timeout(15):
+                settings = await asyncio.to_thread(history.history_settings)
+                limit = settings["title_max_length"]
                 model = await asyncio.to_thread(manager.store.model, record.model_id)
                 engine = manager.engines[model.backend]
                 parameters = record.parameters.model_copy(
@@ -64,7 +67,7 @@ class Titles:
                 prompt = [
                     TextMessage(
                         role="user",
-                        content="Return only a short conversation title (at most 8 words), "
+                        content=f"Only a topic title: 2–5 words, at most {limit} characters. "
                         "in the user's language. Do not answer the conversation.\n\n"
                         + "\n".join(m.content[:500] for m in messages[:2]),
                     )
@@ -76,11 +79,7 @@ class Titles:
                         output = await self._consume(engine, str(path), prompt, parameters)
                 else:
                     output = await self._consume(engine, model.location, prompt, parameters)
-                title = (
-                    " ".join(output.strip().splitlines()[0].strip(' "').split()[:8])[:80]
-                    if output.strip()
-                    else None
-                )
+                title = short_title(output, limit)
                 if title and not any(ord(c) < 32 for c in title) and "<" not in title:
                     state = "completed"
                 else:

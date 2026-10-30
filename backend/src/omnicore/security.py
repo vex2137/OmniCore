@@ -71,6 +71,12 @@ class SecurityBoundary:
             )
             if not master and not paired:
                 code, status = "unauthorized", 401
+            else:
+                scope["omnicore_scopes"] = (
+                    ["chat", "providers", "owner"] if master else paired["scopes"]
+                )
+        elif not self.config.api_token:
+            scope["omnicore_scopes"] = ["chat", "providers"]
         if self.config.lan_only and not private_peer((scope.get("client") or ("",))[0]):
             code, status = "forbidden_network", 403
         if code is None and "origin" in headers and headers["origin"] not in self.origins:
@@ -112,7 +118,7 @@ class SecurityBoundary:
 
         async def private_send(event):
             if event["type"] == "http.response.start" and scope["path"].startswith(
-                "/api/v1/pairing/"
+                ("/api/v1/pairing/", "/api/v1/access/", "/api/v1/providers")
             ):
                 event = dict(event)
                 event["headers"] = [*event.get("headers", []), (b"cache-control", b"no-store")]
