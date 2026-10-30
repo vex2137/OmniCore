@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from omnicore.text.engines import LlamaEngine
-from omnicore.text.native import engine_candidates, native_environment
+from omnicore.text.native import engine_candidates, native_environment, restricted_cpu_threads
 from omnicore.text.types import GenerationParameters, TextError
 
 
@@ -161,3 +161,33 @@ def test_nested_frozen_guard_removes_internal_from_original_path(monkeypatch):
     )
     assert result["LD_LIBRARY_PATH"] == "/usr/local/cuda/lib64"
     assert result["LD_LIBRARY_PATH_ORIG"] == "/usr/local/cuda/lib64"
+
+
+@pytest.mark.parametrize(
+    "quota,affinity,logical,expected",
+    [
+        ("max 100000", 8, 8, None),
+        ("400000 100000", 8, 8, (4, 4)),
+        ("50000 100000", 8, 8, (1, 1)),
+        ("50000 100000", 1, 1, (1, 1)),
+        ("max 100000", 2, 8, (2, 2)),
+        ("invalid", 8, 8, None),
+    ],
+)
+def test_only_restricted_cpu_pools_are_capped(monkeypatch, quota, affinity, logical, expected):
+    import os
+
+    monkeypatch.setattr(os, "cpu_count", lambda: logical)
+    monkeypatch.setattr(os, "sched_getaffinity", lambda _: set(range(affinity)))
+    monkeypatch.delenv("LLAMA_ARG_THREADS", raising=False)
+    monkeypatch.delenv("LLAMA_ARG_THREADS_BATCH", raising=False)
+    original = Path.read_text
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda p, *a, **k: quota if str(p) == "/sys/fs/cgroup/cpu.max" else original(p, *a, **k),
+    )
+    assert restricted_cpu_threads() == expected
+    if expected:
+        monkeypatch.setenv("LLAMA_ARG_THREADS", "1")
+        assert restricted_cpu_threads() == (1, 1)

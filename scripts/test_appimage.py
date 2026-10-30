@@ -129,9 +129,23 @@ def main():
             environment["PATH"] = "/usr/bin:/bin"
             process = subprocess.Popen(command, env=environment, start_new_session=True)  # noqa: S603
             try:
-                assert process.wait(timeout=220) == 0, "AppImage smoke failed"
+                status = process.wait(timeout=220)
+                if status:
+                    record = json.loads(report.read_text()) if report.is_file() else {}
+                    job = record.get("generation") or {}
+                    # Controlled smoke data only: never dump prompts, paths or credentials.
+                    detail = {
+                        "exit": status,
+                        "stage": record.get("stage"),
+                        "ok": record.get("ok"),
+                        "owned": record.get("owned"),
+                        "generation_state": job.get("state"),
+                        "error_code": job.get("error_code"),
+                    }
+                    raise AssertionError(f"AppImage smoke failed: {detail}")
             except BaseException:
-                os.killpg(process.pid, signal.SIGKILL)
+                if process.poll() is None:
+                    os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=10)
                 raise
             record = json.loads(report.read_text())

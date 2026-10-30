@@ -1089,3 +1089,24 @@ this full flow and original start/restart/library guard checks. This local test
 build is not the canonical downloadable package; final CI rebuild uses committed
 source. Qt/isolated acceptance real GGUF: 2 PASS; actual Kotlin/FastAPI/GGUF: PASS.
 No production key or physical GPU/phone test was added or claimed.
+
+### RC.3 — measured restricted-CPU regression
+
+Canonical 4f160e2 passed CI and a serial real-GGUF run. In an extra overlapping
+frozen GUI48 + hardware CPU/Auto32 run, GUI exceeded its smoke deadline while
+one CPU32 job took177.27s (0.19 tok/s); its later Auto CPU job took3.26s after
+contention ended. Native default was5 threads, visible affinity/logical5 and
+cgroup cpu.max400000/100000 (4 CPUs). Do not report that failed run as PASS.
+
+Adapter now bounds generation/batch pools under restrictive affinity/visible
+cgroup v2 quota, disables busy polling there and preserves lower explicit thread
+settings. Unrestricted native behavior remains. Current CI CPU binary under the
+source API completed two concurrent CPU32 jobs in12.56/12.84s. Local frozen
+prototype passed the same GUI/hardware overlap (hardware13.08/4.45s). Workloads
+and local/CI build contexts differ; raw stripped metrics and caveats are in
+benchmarks/rc3-cgroup-cpu.json, not a generalized speedup or GPU benchmark.
+Targeted adapter/native tests:28 PASS, including quota/affinity/unrestricted/
+fractional limits. Smoke failures now retain safe stage/error diagnostics and
+avoid masking the cause by killing an already-exited process. No secrets logged.
+Final CI and canonical overlapping test still must pass before replacing RC.3
+**draft** assets. RC.2 stays immutable. No Stable publication or production key.

@@ -168,3 +168,11 @@ WantedBy=default.target
 (0600), poza repozytorium. Właściciel włącza/wyłącza usługę przez systemd --user;
 OmniCore nie instaluje jej automatycznie i nie otwiera portów bez zgody. Nie podawaj
 sekretów w zgłoszeniach błędów. Zewnętrzny backend nie jest zatrzymywany przez GUI.
+
+
+Pod ograniczoną affinity lub widocznym limitem CPU cgroup v2 adapter ogranicza
+pule wątków llama.cpp i wyłącza aktywne oczekiwanie (polling). Zapobiega to
+zużywaniu budżetu CPU przez oczekujące pule podczas równoległych obciążeń.
+Niższe ustawienia LLAMA_ARG_THREADS/BATCH są zachowane. Bez ograniczeń pozostaje
+domyślny dobór silnika; dotyczy to również zwykłej instalacji CachyOS/CUDA.
+Pomiary i ograniczenia obserwacji: benchmarks/rc3-cgroup-cpu.json.

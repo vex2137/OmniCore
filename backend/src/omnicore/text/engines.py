@@ -19,7 +19,7 @@ import httpx
 from omnicore.config import is_loopback
 from omnicore.schemas import BackendInfo, Capability, ResourceUsage
 from omnicore.text import nvidia
-from omnicore.text.native import engine_candidates
+from omnicore.text.native import engine_candidates, restricted_cpu_threads
 from omnicore.text.reasoning import normalize_stream, sse_data
 from omnicore.text.types import EngineModel, GenerationParameters, TextChunk, TextError, TextMessage
 
@@ -496,7 +496,8 @@ class LlamaEngine:
     async def _load_selected(
         self, path, context_size, selected, selected_device, layers, fallback, file_descriptor
     ):
-        desired = (str(path), context_size, layers, selected_device, str(selected))
+        threads = restricted_cpu_threads()
+        desired = (str(path), context_size, layers, selected_device, str(selected), threads)
         if self.parameters == desired and self.process and self.process.returncode is None:
             self.fallback_reason = fallback
             return
@@ -526,6 +527,17 @@ class LlamaEngine:
             "4",
         ]
         arguments += ["--device", "none" if selected_device == "cpu" else selected_device]
+        if threads:
+            arguments += [
+                "--threads",
+                str(threads[0]),
+                "--threads-batch",
+                str(threads[1]),
+                "--poll",
+                "0",
+                "--poll-batch",
+                "0",
+            ]
         if self.chat_template:
             arguments += ["--chat-template", self.chat_template]
         try:
