@@ -738,32 +738,83 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
         Text(stringResource(R.string.connection_hint))
         OutlinedTextField(
             url,
-            { url = it },
+            {
+                url = it
+                vm.clearConnectionTest()
+            },
             label = { Text(stringResource(R.string.backend_url)) },
             placeholder = { Text(stringResource(R.string.url_example)) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            enabled = !s.busy,
             modifier = Modifier.fillMaxWidth().testTag("url"),
         )
         OutlinedTextField(
             token,
-            { token = it },
+            {
+                token = it
+                vm.clearConnectionTest()
+            },
             label = { Text(stringResource(R.string.api_token)) },
             supportingText = { Text(stringResource(R.string.token_hint)) },
             visualTransformation = PasswordVisualTransformation(),
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            enabled = !s.busy,
             modifier = Modifier.fillMaxWidth().testTag("token"),
         )
         if (s.hasToken)
             Text(stringResource(R.string.token_saved), style = MaterialTheme.typography.bodySmall)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(clear, { clear = it })
+            Checkbox(
+                clear,
+                {
+                    clear = it
+                    vm.clearConnectionTest()
+                },
+                enabled = !s.busy,
+            )
             Text(stringResource(R.string.clear_token))
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(trusted, { trusted = it }, modifier = Modifier.testTag("trusted_lan"))
+            Checkbox(
+                trusted,
+                {
+                    trusted = it
+                    vm.clearConnectionTest()
+                },
+                enabled = !s.busy,
+                modifier = Modifier.testTag("trusted_lan"),
+            )
             Text(stringResource(R.string.trusted_lan))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { vm.testConnection(url, token, clear, trusted) },
+                enabled = !s.busy,
+                modifier = Modifier.weight(1f).testTag("test_connection"),
+            ) {
+                Text(stringResource(R.string.test_connection))
+            }
+            OutlinedButton(
+                onClick = vm::connect,
+                enabled = !s.busy && s.url.isNotBlank(),
+                modifier = Modifier.weight(1f).testTag("reconnect_saved"),
+            ) {
+                Text(stringResource(R.string.reconnect))
+            }
+        }
+        s.connectionTest?.let { result ->
+            Text(
+                stringResource(
+                    when (result) {
+                        "passed" -> R.string.connection_test_passed
+                        "testing" -> R.string.connection_test_running
+                        else -> R.string.connection_test_failed
+                    }
+                ),
+                modifier = Modifier.testTag("connection_test_result"),
+            )
         }
         Button(
             onClick = {

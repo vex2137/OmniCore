@@ -41,6 +41,7 @@ data class UiState(
     val health: Health? = null,
     val diagnostics: Diagnostics = Diagnostics(),
     val reconnecting: Boolean = false,
+    val connectionTest: String? = null,
 ) {
     val connectionStatus: ConnectionStatus
         get() =
@@ -220,24 +221,71 @@ class OmniViewModel(
             connect()
     }
 
+    private fun validateConnection(
+        raw: String,
+        newToken: String,
+        clearToken: Boolean,
+        trustedLan: Boolean,
+    ): String {
+        val url = ConnectionPolicy.validatedUrl(raw, trustedLan)
+        if (
+            settings.url.isNotBlank() &&
+                !ConnectionPolicy.sameOrigin(settings.url, url) &&
+                newToken.isEmpty() &&
+                !clearToken
+        )
+            throw ApiFailure("token_for_new_host")
+        if (
+            newToken.isNotEmpty() &&
+                (!newToken.matches(Regex("[A-Za-z0-9]{32,}")) || newToken.length > 4096)
+        )
+            throw ApiFailure("invalid_token")
+        return url
+    }
+
+    fun testConnection(raw: String, newToken: String, clearToken: Boolean, trustedLan: Boolean) {
+        if (mutable.value.busy) return
+        mutable.update { it.copy(busy = true, error = null, connectionTest = "testing") }
+        viewModelScope.launch {
+            var candidate: OmniRepository? = null
+            try {
+                val url = validateConnection(raw, newToken, clearToken, trustedLan)
+                val token =
+                    when {
+                        newToken.isNotEmpty() -> newToken
+                        clearToken -> ""
+                        else -> withContext(io) { settings.readToken() }
+                    }
+                candidate = repository(url, token)
+                candidate.health()
+                candidate.models() // Verify authenticated versioned API, not just TCP/HTTP.
+                mutable.update { it.copy(connectionTest = "passed") }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                // A rejected candidate must not disconnect the currently active server/chat.
+                mutable.update {
+                    it.copy(
+                        connectionTest = "failed",
+                        error = (e as? ApiFailure)?.code ?: "invalid_response",
+                    )
+                }
+            } finally {
+                candidate?.close()
+                mutable.update { it.copy(busy = false) }
+            }
+        }
+    }
+
+    fun clearConnectionTest() {
+        mutable.update { it.copy(connectionTest = null) }
+    }
+
     fun saveConnection(raw: String, newToken: String, clearToken: Boolean, trustedLan: Boolean) {
         if ((mutable.value.generating && mutable.value.connected) || mutable.value.busy) return
         mutable.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             try {
-                val url = ConnectionPolicy.validatedUrl(raw, trustedLan)
-                if (
-                    settings.url.isNotBlank() &&
-                        !ConnectionPolicy.sameOrigin(settings.url, url) &&
-                        newToken.isEmpty() &&
-                        !clearToken
-                )
-                    throw ApiFailure("token_for_new_host")
-                if (
-                    newToken.isNotEmpty() &&
-                        (!newToken.matches(Regex("[A-Za-z0-9]{32,}")) || newToken.length > 4096)
-                )
-                    throw ApiFailure("invalid_token")
+                val url = validateConnection(raw, newToken, clearToken, trustedLan)
                 withContext(io) {
                     if (newToken.isNotEmpty() || clearToken) settings.storeToken(newToken)
                     settings.url = url

@@ -320,6 +320,47 @@ class ViewModelTest {
     }
 
     @Test
+    fun connectionTestDoesNotSaveCandidateOrReplaceActiveChat() = runVmTest {
+        runCurrent()
+        vm.draft("Hi")
+        vm.send()
+        runCurrent()
+        val current = vm.state.value.generation
+        val originalUrl = settings.url
+        vm.testConnection("https://other.example", "a".repeat(48), false, false)
+        runCurrent()
+        assertEquals("passed", vm.state.value.connectionTest)
+        assertEquals(originalUrl, settings.url)
+        assertEquals("", settings.readToken())
+        assertEquals(current, vm.state.value.generation)
+        assertTrue(vm.state.value.connected)
+        assertEquals(0, repo.cancelled)
+    }
+
+    @Test
+    fun rejectedCandidateDoesNotInvalidateTheActiveConnection() = runVmTest {
+        runCurrent()
+        repo.rejected = true
+        vm.testConnection(settings.url, "", false, true)
+        runCurrent()
+        assertEquals("failed", vm.state.value.connectionTest)
+        assertEquals("unauthorized", vm.state.value.error)
+        assertTrue(vm.state.value.connected)
+        assertFalse(vm.state.value.authorizationFailed)
+    }
+
+    @Test
+    fun connectionTestCannotForwardStoredTokenToANewOrigin() = runVmTest {
+        runCurrent()
+        settings.storeToken("a".repeat(48))
+        vm.testConnection("https://other.example", "", false, false)
+        runCurrent()
+        assertEquals("token_for_new_host", vm.state.value.error)
+        assertEquals("failed", vm.state.value.connectionTest)
+        assertTrue(vm.state.value.connected)
+    }
+
+    @Test
     fun ambiguousPostRetryUsesTheSameIdempotencyKey() = runVmTest {
         runCurrent()
         vm.draft("Hi")

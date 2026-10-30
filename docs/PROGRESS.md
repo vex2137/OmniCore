@@ -1012,3 +1012,16 @@ exercised. Actual tests: 164 backend PASS (including 6 lock/startup cases), 5 Qt
 lifecycle PASS; lint/format PASS. First new ASGI test used a forbidden test hostname
 and was corrected to localhost; a queued Qt stop signal lifetime bug was found
 and fixed with its QObject context. No existing user data was reset.
+
+### Backend start/signing follow-up — module 2
+
+Android now has a separate authenticated connection test and one-click reconnect
+using saved settings. The test checks health and the model API with a temporary
+client, never saves candidate URL/token, and does not detach/cancel active chat.
+New-origin token forwarding is rejected; candidate authentication failures leave
+the active connection intact. Test result clears when fields change. Existing
+localhost/LAN/HTTPS hints and Keystore storage remain. No unauthenticated LAN
+scan/mDNS pairing was added: discovering an address does not authenticate a server.
+Manual explicit address remains the simple supported flow.
+Targeted ViewModel22 + resource parity1 = 23 JVM PASS; UI field state changes are
+included in the final native regression/build. No physical phone claim.
