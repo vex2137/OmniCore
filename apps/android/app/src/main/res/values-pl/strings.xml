@@ -241,4 +241,5 @@ Pobrać ten plik na komputer backendu?</string>
     <string name="provider_key_requires_https">Skonfiguruj klucz na komputerze Linux albo użyj HTTPS do jego przesłania. Kluczy dostawców nie można przesyłać przez LAN HTTP.</string>
     <string name="provider_confirmation_required">Przed użyciem potwierdź świadomie dodanie modelu zewnętrznego.</string>
     <string name="provider_requires_server_auth">Dostawcy zewnętrzni wymagają autoryzacji backendu. Uruchom backend z aplikacji desktopowej lub skonfiguruj jego token API.</string>
+    <string name="server_unavailable">Serwer niedostępny</string>
 </resources>

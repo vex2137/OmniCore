@@ -19,6 +19,7 @@ data class UiState(
     val connected: Boolean = false,
     val connecting: Boolean = false,
     val authorizationFailed: Boolean = false,
+    val serverUnavailable: Boolean = false,
     val busy: Boolean = false,
     val error: String? = null,
     val url: String = "",
@@ -57,6 +58,7 @@ data class UiState(
                 authorizationFailed -> ConnectionStatus.Unauthorized
                 connecting || reconnecting -> ConnectionStatus.Connecting
                 connected -> ConnectionStatus.Connected
+                serverUnavailable -> ConnectionStatus.Unavailable
                 else -> ConnectionStatus.Disconnected
             }
 
@@ -89,6 +91,9 @@ class OmniViewModel(
     private var paused = false
     private var downloadUpdates: Job? = null
     private var recovery: Job? = null
+    private var connectionJob: Job? = null
+    private var networkOnline = true
+    private var retryAttempt = 0
     private var pending: GenerationRequest? = null
     private var pendingConversation: String? = null
     private var parameterRevision = 0L
@@ -103,6 +108,7 @@ class OmniViewModel(
         mutable.update {
             it.copy(
                 error = code,
+                serverUnavailable = code == "connection_error",
                 authorizationFailed = it.authorizationFailed || code == "unauthorized",
                 connected = it.connected && code !in setOf("connection_error", "unauthorized"),
             )
@@ -144,20 +150,24 @@ class OmniViewModel(
         api = null
     }
 
-    fun connect() {
+    fun connect() = connectNow(manual = true)
+
+    private fun connectNow(manual: Boolean) {
         if (mutable.value.busy) return
+        if (!networkOnline) { mutable.update { it.copy(connected = false, reconnecting = false) }; return }
+        if (!manual && mutable.value.authorizationFailed) return
         closeTransport()
         mutable.update {
             it.copy(
                 busy = true,
-                connecting = true,
+                connecting = manual,
                 authorizationFailed = false,
                 connected = false,
-                error = null,
+                error = if (manual) null else it.error,
                 reconnecting = false,
             )
         }
-        viewModelScope.launch {
+        connectionJob = viewModelScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
             var candidate: OmniRepository? = null
             try {
                 val token = withContext(io) { settings.readToken() }
@@ -165,19 +175,23 @@ class OmniViewModel(
                 val service = repository(base, token)
                 candidate = service
                 val health = service.health()
+                if (!networkOnline) throw ApiFailure("connection_error")
                 api = service
                 candidate = null
+                refresh(service)
+                recoverGeneration(service)
                 mutable.update {
                     it.copy(
                         url = base,
                         hasToken = token.isNotEmpty(),
                         connected = true,
+                        serverUnavailable = false,
+                        error = null,
                         health = health,
                         reconnecting = false,
                     )
                 }
-                refresh(service)
-                recoverGeneration(service)
+                retryAttempt = 0
                 if (!paused) {
                     resumeStream(service)
                     pollDownloads(service)
@@ -196,40 +210,39 @@ class OmniViewModel(
     }
 
     private fun scheduleReconnect() {
-        if (
-            paused ||
-                settings.url.isBlank() ||
-                mutable.value.authorizationFailed ||
-                recovery?.isActive == true
-        )
-            return
-        recovery =
-            viewModelScope.launch {
-                mutable.update { it.copy(reconnecting = true) }
-                delay(3000)
-                recovery = null
-                if (!mutable.value.busy) connect() else scheduleReconnect()
+        if (paused || !networkOnline || settings.url.isBlank() || mutable.value.authorizationFailed || recovery?.isActive == true) return
+        recovery = viewModelScope.launch {
+            val base = (2000L * (1L shl retryAttempt.coerceAtMost(5))).coerceAtMost(60000L)
+            retryAttempt = (retryAttempt + 1).coerceAtMost(6)
+            val jitter = kotlin.random.Random.nextLong(-base / 5, base / 5 + 1)
+            delay((base + jitter).coerceAtMost(60000L))
+            recovery = null
+            if (!paused && networkOnline && !mutable.value.authorizationFailed) {
+                if (!mutable.value.busy) connectNow(manual = false) else scheduleReconnect()
             }
+        }
     }
 
     fun networkLost() {
-        if (paused || settings.url.isBlank()) return
+        networkOnline = false
+        connectionJob?.cancel()
+        recovery?.cancel()
+        recovery = null
         epoch++
         events?.cancel()
         events = null
-        mutable.update { it.copy(connected = false, reconnecting = !it.authorizationFailed) }
-        if (!mutable.value.busy) scheduleReconnect()
+        downloadUpdates?.cancel()
+        mutable.update { it.copy(connected = false, reconnecting = false, serverUnavailable = false) }
     }
 
     fun networkAvailable() {
-        if (
-            !paused &&
-                !mutable.value.authorizationFailed &&
-                !mutable.value.connected &&
-                !mutable.value.busy &&
-                settings.url.isNotBlank()
-        )
-            connect()
+        val wasOffline = !networkOnline
+        networkOnline = true
+        if (wasOffline && !paused && !mutable.value.authorizationFailed && !mutable.value.connected && !mutable.value.busy && settings.url.isNotBlank()) {
+            recovery?.cancel()
+            recovery = null
+            connectNow(manual = false)
+        }
     }
 
     private fun validateConnection(
@@ -721,40 +734,21 @@ class OmniViewModel(
         if (paused || record.terminal) return
         events =
             viewModelScope.launch {
-                var backoff = 500L
-                while (
-                    isActive &&
-                        !paused &&
-                        epoch == current &&
-                        mutable.value.generation?.terminal == false
-                ) {
-                    try {
-                        service.snapshots(record.id).collect { snapshot ->
-                            if (epoch == current && snapshot.id == record.id) {
-                                mutable.update {
-                                    it.copy(connected = true, reconnecting = false, error = null)
-                                }
-                                accept(snapshot)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        if (e is CancellationException) throw e
-                        if ((e as? ApiFailure)?.code == "unauthorized") {
-                            error(e)
-                            return@launch
+                try {
+                    service.snapshots(record.id).collect { snapshot ->
+                        if (epoch == current && snapshot.id == record.id) {
+                            mutable.update { it.copy(connected = true, reconnecting = false, error = null) }
+                            accept(snapshot)
                         }
                     }
-                    if (epoch != current || mutable.value.generation?.terminal != false) break
-                    mutable.update { it.copy(reconnecting = true) }
-                    delay(backoff)
-                    backoff = (backoff * 2).coerceAtMost(8000)
-                    try {
-                        val next = service.generation(record.id)
-                        if (epoch == current) accept(next)
-                    } catch (e: Exception) {
-                        error(e)
-                        if ((e as? ApiFailure)?.code == "unauthorized") return@launch
+                    if (epoch == current && mutable.value.generation?.terminal == false) {
+                        error(ApiFailure("connection_error"))
+                        scheduleReconnect()
                     }
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    error(if ((e as? ApiFailure)?.code == "unauthorized") e else ApiFailure("connection_error"))
+                    scheduleReconnect()
                 }
             }
     }
@@ -796,6 +790,7 @@ class OmniViewModel(
     fun pause() {
         paused = true
         recovery?.cancel()
+        connectionJob?.cancel()
         downloadUpdates?.cancel()
         epoch++
         events?.cancel()
@@ -805,7 +800,15 @@ class OmniViewModel(
     fun resume() {
         val wasPaused = paused
         paused = false
-        if (wasPaused && settings.url.isNotBlank()) connect()
+        if (wasPaused && settings.url.isNotBlank() && !mutable.value.authorizationFailed && networkOnline) {
+            if (mutable.value.connected) { api?.let { service ->
+                viewModelScope.launch {
+                    try { refresh(service); recoverGeneration(service); resumeStream(service); pollDownloads(service) }
+                    catch (e: Exception) { error(e); scheduleReconnect() }
+                }
+            } }
+            else connectNow(manual = false)
+        }
     }
 
     private suspend fun refreshSharedHistory(service: OmniRepository) {
@@ -830,7 +833,7 @@ class OmniViewModel(
         downloadUpdates =
             viewModelScope.launch {
                 while (isActive && !paused) {
-                    delay(2000)
+                    delay(if (mutable.value.downloads.any { it.state in setOf("queued", "running") }) 2000 else 30000)
                     try {
                         val records = service.downloads()
                         mutable.update { it.copy(downloads = records) }

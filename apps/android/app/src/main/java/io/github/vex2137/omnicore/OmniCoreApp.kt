@@ -72,6 +72,7 @@ fun OmniCoreApp(vm: OmniViewModel, onLanguage: (String) -> Unit) {
                 ConnectionStatus.Connected -> R.string.connected
                 ConnectionStatus.Connecting -> R.string.connecting
                 ConnectionStatus.Disconnected -> R.string.disconnected
+                ConnectionStatus.Unavailable -> R.string.server_unavailable
                 ConnectionStatus.Unauthorized -> R.string.auth_failed
             }
         val icons =
@@ -281,6 +282,7 @@ private fun HomeScreen(s: UiState, vm: OmniViewModel, navigate: (Int) -> Unit) {
                                 ConnectionStatus.Connecting -> R.string.connecting
                                 ConnectionStatus.Unauthorized -> R.string.auth_failed
                                 ConnectionStatus.Disconnected -> R.string.disconnected
+                ConnectionStatus.Unavailable -> R.string.server_unavailable
                             }
                         ),
                         style = MaterialTheme.typography.titleLarge,
@@ -960,6 +962,7 @@ private fun DiagnosticsScreen(s: UiState, vm: OmniViewModel) {
                         ConnectionStatus.Connecting -> R.string.connecting
                         ConnectionStatus.Unauthorized -> R.string.auth_failed
                         ConnectionStatus.Disconnected -> R.string.disconnected
+                ConnectionStatus.Unavailable -> R.string.server_unavailable
                     }
                 )
             )

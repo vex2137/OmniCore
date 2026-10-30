@@ -50,6 +50,7 @@ private class FakeRepository : OmniRepository {
     var parameters: Parameters? = null
     val stream = MutableSharedFlow<Generation>()
     var transfers = emptyList<Download>()
+    var healthCalls = 0
     var pairCalls = 0
     var firstNonce: String? = null
     var pairResponseLoss = false
@@ -58,6 +59,7 @@ private class FakeRepository : OmniRepository {
     var deletedAll = 0
 
     override suspend fun health(): Health {
+        healthCalls++
         if (pairCalls > 0 && pairHealthFailures > 0) { pairHealthFailures--; throw ApiFailure("connection_error") }
         if (offline) throw ApiFailure("connection_error")
         if (rejected) throw ApiFailure("unauthorized")
@@ -330,8 +332,8 @@ class ViewModelTest {
         vm.draft("Hi")
         vm.send()
         runCurrent()
-        assertTrue(vm.state.value.reconnecting)
-        advanceTimeBy(600)
+        assertFalse(vm.state.value.connected)
+        advanceTimeBy(2600)
         runCurrent()
         assertTrue(repo.watched >= 2)
         repo.stream.emit(
@@ -640,9 +642,11 @@ class ViewModelTest {
         runCurrent()
         vm.networkLost()
         runCurrent()
-        assertEquals(ConnectionStatus.Connecting, vm.state.value.connectionStatus)
+        assertEquals(ConnectionStatus.Disconnected, vm.state.value.connectionStatus)
         assertEquals(0, repo.cancelled)
         advanceTimeBy(3100)
+        assertFalse(vm.state.value.connected)
+        vm.networkAvailable()
         runCurrent()
         assertEquals(ConnectionStatus.Connected, vm.state.value.connectionStatus)
         assertEquals(1, repo.sent)
@@ -659,6 +663,42 @@ class ViewModelTest {
         runCurrent()
         assertEquals(ConnectionStatus.Unauthorized, vm.state.value.connectionStatus)
         assertFalse(vm.state.value.reconnecting)
+    }
+
+    @Test
+    fun offlineBackoffIsBoundedAndNetworkLossSuspendsAllRetries() = runVmTest {
+        repo.offline = true
+        runCurrent()
+        advanceTimeBy(300_000)
+        runCurrent()
+        assertTrue(repo.healthCalls in 7..12)
+        val before = repo.healthCalls
+        vm.networkLost()
+        advanceTimeBy(300_000)
+        runCurrent()
+        assertEquals(before, repo.healthCalls)
+        repo.offline = false
+        vm.networkAvailable()
+        runCurrent()
+        assertTrue(vm.state.value.connected)
+        assertEquals(before + 1, repo.healthCalls)
+    }
+
+    @Test
+    fun revokedTokenRemainsStoppedAcrossBackgroundAndNetworkChangesUntilManualRetry() = runVmTest {
+        repo.rejected = true
+        runCurrent()
+        val before = repo.healthCalls
+        vm.pause(); vm.networkLost(); vm.networkAvailable(); vm.resume()
+        advanceTimeBy(180_000)
+        runCurrent()
+        assertEquals(before, repo.healthCalls)
+        assertEquals(ConnectionStatus.Unauthorized, vm.state.value.connectionStatus)
+        repo.rejected = false
+        vm.connect()
+        runCurrent()
+        assertTrue(vm.state.value.connected)
+        assertEquals(before + 1, repo.healthCalls)
     }
 
     @Test

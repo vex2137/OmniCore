@@ -16,5 +16,6 @@ enum class ConnectionStatus {
     Connected,
     Connecting,
     Disconnected,
+    Unavailable,
     Unauthorized,
 }

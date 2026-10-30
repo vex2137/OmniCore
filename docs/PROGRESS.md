@@ -1254,3 +1254,22 @@ Weryfikacja lokalna:
 
 Numeracja RC.5: 0.1.0rc5 / 0.1.0-rc.5, APK `.rc5`, versionCode 8, podpis testowy.
 Nie mergujemy main, nie publikujemy Stable/publicznego RC i zachowujemy RC.4.
+
+## RC.5 Android — ponawianie połączenia
+
+Przyczyna: niezależne pętle ponawiania połączenia co 3 s i streamu od 0,5 s,
+ponawianie mimo braku sieci oraz ponowne łączenie po wznowieniu nawet przy
+odrzuconym tokenie. Polling historii i pobrań wykonywał się co 2 s także w spoczynku.
+
+Jedna pętla reconnect stosuje backoff z jitterem do 60 s; brak sieci wstrzymuje
+próby, a błąd autoryzacji wymaga ręcznej interwencji. Stream wznawia się przez
+ten sam mechanizm bez ponownego wysłania wiadomości i bez anulowania generacji.
+Powrót z tła odświeża istniejącą sesję bez niepotrzebnego zamykania transportu.
+Utrata starej sieci po zmianie domyślnej nie oznacza utraty nowej. Stan dostępności
+serwera i jeden komunikat błędu pozostają widoczne między próbami. Bezczynny polling
+historii/pobrań wynosi 30 s, aktywne pobieranie pozostaje odświeżane co 2 s.
+
+Testy symulują wiele minut awarii, zanik i powrót sieci, błąd tokenu i ręczny retry;
+test fizycznego Androida, rzeczywistego przełączania Wi-Fi/sieci komórkowej i
+restartu serwera wymaga właściciela. Nowa kompilacja testowa ma osobną nazwę;
+wcześniejszy szkic RC.5 pozostaje zachowany.
