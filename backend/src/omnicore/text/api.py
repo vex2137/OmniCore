@@ -192,8 +192,13 @@ def routes(service: TextService):
             if len(await run_in_threadpool(service.history.list)) != body.expected_count:
                 raise TextError("history_changed", 409)
             await manager.titles.interrupt()
-            for job_id in list(manager.tasks):
+            workers = list(manager.tasks.items())
+            for job_id, _ in workers:
                 await manager.cancel(job_id)
+            # A terminal snapshot can reach SQLite before its worker's final cleanup.
+            # Join those workers too, then cancel any title they scheduled on completion.
+            await asyncio.gather(*(task for _, task in workers), return_exceptions=True)
+            await manager.titles.interrupt()
             count = await run_in_threadpool(service.history.delete_all, body.expected_count)
         return {"deleted": count}
 

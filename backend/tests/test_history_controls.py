@@ -87,6 +87,8 @@ def test_bulk_delete_confirmation_count_and_active_generation_preserve_models(te
             "DELETE", "/api/v1/text/conversations", json={"confirmed": True, "expected_count": 1}
         )
         assert response.status_code == 200 and response.json() == {"deleted": 1}
+        assert not app.state.text.generations.tasks
+        assert not app.state.text.generations.titles.tasks
         assert c.get("/api/v1/text/conversations").json() == []
         assert c.get(f"/api/v1/text/generations/{job['id']}").status_code == 404
         assert c.get(f"/api/v1/text/models/{model['id']}").status_code == 200
