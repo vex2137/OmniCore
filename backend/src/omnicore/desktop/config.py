@@ -36,6 +36,9 @@ class DesktopConfig:
     ollama_enabled: bool = True
     parameters: dict = field(default_factory=dict)
     onboarding_complete: bool = False
+    lan_enabled: bool = False
+    lan_port: int = 8000
+    auto_start_backend: bool = True
 
     @classmethod
     def load(cls, path: Path | None = None):
@@ -47,10 +50,16 @@ class DesktopConfig:
             )
         payload = json.loads(path.read_text(encoding="utf-8"))
         obj = cls(**payload)
+        if type(obj.lan_port) is not int or not 1024 <= obj.lan_port <= 65535:
+            raise ValueError("Invalid LAN port")
+        if any(type(value) is not bool for value in (obj.lan_enabled, obj.auto_start_backend)):
+            raise ValueError("Invalid server preferences")
         if obj.locale not in {"pl-PL", "en-US"} or obj.theme not in {"system", "light", "dark"}:
             raise ValueError("Invalid desktop preferences")
         if not obj.llama_server:
             obj.llama_server = bundled_engine()
+        if not obj.llama_cuda_server:
+            obj.llama_cuda_server = os.environ.get("OMNICORE_LLAMA_CUDA_SERVER", "")
         return obj
 
     def save(self, path: Path | None = None):

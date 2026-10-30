@@ -238,3 +238,39 @@ Nie uruchamiaj drugiego backendu na tej samej bazie — połącz klientów z jed
 Podpis Stable, kopie klucza i sprawdzenie zgodności aktualizacji:
 [ANDROID_SIGNING.md](ANDROID_SIGNING.md). Skonfigurowanie workflow nie oznacza
 wygenerowania ani sprawdzenia produkcyjnego podpisu.
+
+
+## RC.4: Parowanie i parametry GPU
+
+W ustawieniach wybierz **Sparuj z komputerem (QR)**. Skaner ZXing działa lokalnie,
+bez usług Google Play. Uprawnienie kamery jest potrzebne do skanowania; odmowa
+lub brak kamery nie usuwa ręcznej konfiguracji połączenia. Sprawdź pokazany adres
+PC i potwierdź zaufaną sieć. Aplikacja nie zapisuje obrazów kodu ani głównego tokenu
+serwera. Jednorazowy kod jest wymieniany na osobny token urządzenia, przechowywany
+przez istniejący Keystore. Błędny, wygasły i wykorzystany kod nie zmienia działającego
+połączenia. Nie skanuj kodów od niezaufanych osób; parowanie daje dostęp do historii
+wspólnego backendu. Kamera/fizyczny telefon pozostają do testów właściciela.
+
+CPU/Auto/CUDA odnoszą się do komputera backendu, nie GPU telefonu. Wybór trybu
+zapisuje się od razu; pozostałe pola, w tym własna liczba warstw GPU (0–999),
+wymagają **Zapisz parametry**. 99 oznacza żądanie wszystkich warstw typowego modelu;
+silnik ogranicza offload do rzeczywistych warstw. CUDA z zerową liczbą warstw jest
+odrzucana przez backend, bez cichego przejścia na CPU. Auto raportuje przyczynę
+fallbacku. W statystykach widoczne są rzeczywiste urządzenie i offload.
+
+Wybierz zakres edycji: bieżąca rozmowa albo domyślne nowych rozmów. Zapis rozmowy
+nie zmienia domyślnych. Generowanie wysyła jawny snapshot zapisanych parametrów;
+nie może wyprzedzić zapisu. Odświeżenie, otwarcie rozmowy i restart odczytują
+parametry z backendu, zamiast przywracać stary wybór z formularza. Parametry GPU
+llama.cpp nie są narzucane modelom Ollama. Ręczne zmiany innych klientów odczytuje
+pełne odświeżenie lub ponowne otwarcie rozmowy.
+
+Ustawienia zawierają wspólny przełącznik automatycznych nazw i **Usuń wszystkie
+rozmowy** z liczbą rozmów oraz potwierdzeniem nieodwracalności. Operacja zbiorcza
+korzysta z jednego endpointu i nie usuwa modeli ani konfiguracji. Historię i tytuły
+synchronizuje wspólny backend; błędy generowania tytułu nie uszkadzają odpowiedzi.
+
+Testowy RC.4 ma osobny identyfikator `.rc4` i versionCode 7, więc można pozostawić
+RC.3 oraz jego lokalne ustawienia. Nowa instalacja wymaga parowania/konfiguracji,
+a po połączeniu widzi istniejącą historię backendu. Nie jest to dowód aktualizacji
+owner-signed APK w miejscu; docelowy podpis i taki test nadal są osobną bramką.

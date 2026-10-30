@@ -1,7 +1,6 @@
 """Own one authenticated backend; reuse an explicitly configured service safely."""
 
 import os
-import secrets
 import socket
 import sys
 from pathlib import Path
@@ -10,6 +9,7 @@ from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signa
 
 from omnicore.backend_lock import discover_backend
 from omnicore.desktop.config import data_path
+from omnicore.desktop.server_credentials import lan_addresses, server_token
 
 
 class BackendSession(QObject):
@@ -57,11 +57,21 @@ class BackendSession(QObject):
                 if not existing.get("url"):
                     self._fail("backend_in_use")
                     return
-                self.api.configure(existing["url"], os.environ.get("OMNICORE_DESKTOP_TOKEN", ""))
+                try:
+                    token = os.environ.get("OMNICORE_DESKTOP_TOKEN") or server_token()
+                except OSError:
+                    self._fail("backend_token_error")
+                    return
+                self.api.configure(existing["url"], token)
                 self.owned, self._attempt = False, 0
                 self.state_changed.emit("backend_starting")
                 self._timer.start()
                 self._probe()
+                return
+            if self.config.lan_enabled:
+                # A saved LAN service belongs to this data directory and selected port.
+                # Do not attach an unrelated default-port service from another directory.
+                self._spawn()
                 return
         # Remote configuration is explicit and tokens are supplied only in process environment.
         from urllib.parse import urlsplit
@@ -131,17 +141,29 @@ class BackendSession(QObject):
 
     def _spawn(self):
         try:
-            with socket.socket() as listener:
-                listener.bind(("127.0.0.1", 0))
-                port = listener.getsockname()[1]
+            addresses = lan_addresses() if self.config.lan_enabled else []
+            if self.config.lan_enabled and not addresses:
+                self._fail("lan_no_address")
+                return
+            if self.config.lan_enabled:
+                port = self.config.lan_port
+            else:
+                with socket.socket() as listener:
+                    listener.bind(("127.0.0.1", 0))
+                    port = listener.getsockname()[1]
+            token = server_token(create=True)
         except OSError:
-            self._fail("backend_port_error")
+            self._fail("backend_token_or_port_error")
             return
         self._starting = True
-        token = secrets.token_hex(32)
         self.api.configure(f"http://127.0.0.1:{port}", token)
         environment = QProcessEnvironment.systemEnvironment()
-        for key in ("OMNICORE_ALLOW_REMOTE", "OMNICORE_ALLOWED_ORIGINS", "OMNICORE_ALLOWED_HOSTS"):
+        for key in (
+            "OMNICORE_ALLOW_REMOTE",
+            "OMNICORE_ALLOWED_ORIGINS",
+            "OMNICORE_ALLOWED_HOSTS",
+            "OMNICORE_LAN_ONLY",
+        ):
             environment.remove(key)
         values = {
             "OMNICORE_API_TOKEN": token,
@@ -152,6 +174,13 @@ class BackendSession(QObject):
             "OMNICORE_OLLAMA_URL": self.config.ollama_url,
             "OMNICORE_OLLAMA_ENABLED": "1" if self.config.ollama_enabled else "0",
         }
+        if self.config.lan_enabled:
+            values.update(
+                OMNICORE_HOST="0.0.0.0",  # noqa: S104 — authenticated, private peers only.
+                OMNICORE_ALLOW_REMOTE="1",
+                OMNICORE_LAN_ONLY="1",
+                OMNICORE_ALLOWED_HOSTS=",".join(["127.0.0.1", "localhost", "::1", *addresses]),
+            )
         if self.config.llama_server:
             values["OMNICORE_LLAMA_SERVER"] = self.config.llama_server
         else:

@@ -1110,3 +1110,41 @@ fractional limits. Smoke failures now retain safe stage/error diagnostics and
 avoid masking the cause by killing an already-exited process. No secrets logged.
 Final CI and canonical overlapping test still must pass before replacing RC.3
 **draft** assets. RC.2 stays immutable. No Stable publication or production key.
+
+
+## RC.4 — implementacja źródeł i lokalna walidacja
+
+Punkt wejścia gałęzi `feature/stable-hardening`: `1dc61f28d7d29cc090b800d9855082af0dd44186`,
+zgodny z GitHubem przy rozpoczęciu. Nie resetowano historii i nie tworzono worktree.
+
+Potwierdzony przepływ resetu Androida: wybór urządzenia był wyłącznie stanem
+formularza do ręcznego zapisu; wysyłanie nie przekazywało parametrów formularza,
+więc backend używał dotychczasowych parametrów rozmowy (często CPU/0). Odświeżenie
+odtwarzało je w formularzu. Oddzielny błąd: zapis parametrów rozmowy zastępował
+lokalne domyślne nowych rozmów. Kod backendu nie zmienia żądanego CUDA na CPU;
+ma już odmowę niepotwierdzonego offloadu i jawny fallback wyłącznie Auto.
+Nie stwierdzono błędu serializacji GPU w istniejącym PATCH po poprawnym zapisie.
+Nie jest to zdalna diagnoza pomiarów właściciela; test nowego APK z RTX4060 pozostaje otwarty.
+
+Naprawy: natychmiastowy zapis trybu, autorytatywny stan urządzenia, snapshot parametrów
+w generowaniu i ochrona przed wyprzedzeniem zapisu; brak mieszania domyślnych i
+rozmowy, ręczne warstwy, odrębne wybrane/rzeczywiste urządzenie i przyczyny fallbacku.
+Linux ma zakres parametrów i zachowuje zapisane parametry wspólnej rozmowy.
+Ollama nie otrzymuje ustawień GPU llama.cpp.
+
+Qt: sekcja serwera, start/stop/restart/autostart i LAN bez terminala, prywatny token
+0600, dozwolone hosty i prywatne źródła, blokada SQLite, dołączanie bez przejmowania
+obcego procesu. QR: 120 s, jednorazowość, anulowanie/restart, osobne hashowane tokeny
+urządzeń i cofanie dostępu; skaner Androida z potwierdzeniem adresu i Keystore.
+Wspólne tytuły (32 tokeny, istniejący model, priorytet odpowiedzi, ręczny tytuł
+chroniony transakcją) i transakcyjne usuwanie całej historii z anulowaniem zadań.
+Modele/downloady/ustawienia nie są usuwane. Migracja tekstu jest addytywna.
+
+Lokalne wyniki źródeł: **223 PASS, 0 FAIL/ERROR/SKIP** (190 backend + 33 Qt),
+**60 JVM PASS, 0 FAIL/ERROR/SKIP**; ruff/format/kontrakty, smoke prawdziwego CLI
+HTTP/WS z restartem i trwałością, sdist/wheel oraz Android lint/debug APK/instrumentation
+APK build PASS. Dodatkowe ukierunkowane testy cyklu tytułu i serwera PASS.
+Faktyczne testy instrumentacyjne na emulatorze nie były uruchamiane: brak /dev/kvm.
+Testy kamery, fizycznego Androida, RTX4060 i natywnego CachyOS pozostają niewykonane.
+Silnik CPU llama.cpp z przypiętego commita zbudowano; wyniki paczek zostaną zapisane
+w kolejnym punkcie kontrolnym. Nie publikowano wydania ani Stable.

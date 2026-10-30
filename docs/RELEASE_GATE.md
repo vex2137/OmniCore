@@ -1,6 +1,6 @@
 # 0.1.0 — bramka wydania
 
-Bieżący kandydat źródeł: **0.1.0-rc.3**, nie Stable. Zgoda na publiczne Stable obowiązuje
+Bieżący kandydat źródeł: **0.1.0-rc.4**, nie Stable. Zgoda na publiczne Stable obowiązuje
 po testach i osobnym potwierdzeniu sprzętowym właściciela. Nie twórz tagu v0.1.0
 ani finalnego wydania przed potwierdzeniem poniższych punktów.
 
@@ -126,3 +126,19 @@ sprzętowych na nowe bajty bez ich sprawdzenia.
 Szczegóły: [podpis i aktualizacje](ANDROID_SIGNING.md), [serwer bez terminala](LINUX_DESKTOP.md#backend-lokalny-i-serwer-dla-telefonu).
 Żaden produkcyjny klucz nie został utworzony w Cloud. Podpis Stable pozostaje
 niewykonany, a przygotowany job nie publikuje wydania i wymaga konfiguracji właściciela.
+
+
+## RC.4 — bieżące dodatkowe bramki
+
+Wyniki RC.1–RC.3 pozostają historyczne, bez przenoszenia testów na nowe paczki.
+RC.4 obejmuje parametry GPU Androida, zarządzanie LAN/QR i funkcje historii.
+
+- [ ] Fizyczny Android: zeskanowanie QR kamerą, parowanie, odrzucenie starego kodu,
+  cofnięcie dostępu, zapis CUDA/warstw, odświeżenie i restart APK.
+- [ ] RTX4060: generowanie z Androida oraz Linuxa na tym samym LAN, rzeczywisty
+  offload/VRAM, CPU/Auto/CUDA i jawne błędy wymuszonego CUDA.
+- [ ] Natywne CachyOS/Wayland/X11 i realna zapora LAN; GUI nie zmienia reguł zapory.
+- [ ] Test owner-signed aktualizacji i zgodna tożsamość podpisu.
+- [ ] Osobna zgoda na publiczne wydanie i Stable.
+
+Testy JVM/Qt/backendu i build APK nie zastępują kamery, telefonu ani GPU.

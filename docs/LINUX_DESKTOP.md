@@ -176,3 +176,57 @@ zużywaniu budżetu CPU przez oczekujące pule podczas równoległych obciąże�
 Niższe ustawienia LLAMA_ARG_THREADS/BATCH są zachowane. Bez ograniczeń pozostaje
 domyślny dobór silnika; dotyczy to również zwykłej instalacji CachyOS/CUDA.
 Pomiary i ograniczenia obserwacji: benchmarks/rc3-cgroup-cpu.json.
+
+
+## RC.4: Serwer i urządzenia
+
+Otwórz **Serwer i urządzenia**. Własny backend uruchamia się domyślnie wraz z GUI;
+można wyłączyć autostart i użyć przycisku uruchomienia. Zatrzymanie wymaga
+potwierdzenia, anuluje aktywną generację i rozłącza klientów. Zamknięcie GUI nadal
+zatrzymuje jego własny backend. Backend uruchomiony przez inną aplikację pozostaje
+zewnętrzny: GUI może go używać, ale nie zatrzymuje i nie rekonfiguruje tego procesu.
+Blokada katalogu danych nie jest usuwana, a drugi backend tej samej bazy jest odrzucany.
+
+Aby połączyć telefon:
+
+1. Połącz oba urządzenia z tą samą zaufaną siecią prywatną.
+2. Włącz dostęp LAN i zapisz ustawienia. Aplikacja wykrywa prywatne adresy IPv4,
+   ustawia hosty i port, zachowuje katalogi modeli oraz uruchamia ponownie swój backend.
+3. Wybierz adres używany przez telefon i naciśnij **Sparuj telefon z Androidem**.
+4. Zeskanuj QR w ustawieniach Androida i sprawdź adres komputera przed potwierdzeniem.
+
+Kod QR wygasa po 120 sekundach, jest jednorazowy i można go anulować zamykając
+okno. Utworzenie nowego kodu unieważnia poprzedni; restart unieważnia wszystkie
+niewykorzystane kody. Kod nie zawiera głównego tokenu API. Telefon otrzymuje osobny
+token; w sekcji urządzeń można cofnąć jego dostęp. Nowe żądania z odwołanym tokenem
+są odrzucane; wcześniej otwarty strumień kończy się zgodnie z jego cyklem życia.
+Każde sparowane urządzenie uzyskuje dostęp do wspólnego backendu i jego historii,
+nie do osobnej przestrzeni kont użytkowników.
+
+Główny token procesu jest zapisany w `server.token` w katalogu danych z prawami
+0600; pliki symlink i tokeny czytelne dla innych użytkowników są odrzucane.
+Konfiguracja GUI nie zawiera tokenu. W SQLite zapisane są wyłącznie hashe kodów
+parowania i tokenów urządzeń. Brak tokenu, obcy Host/Origin i publiczny adres
+źródłowy są odrzucane. LAN używa HTTP w świadomie zaufanej sieci — bez szyfrowania.
+Nie przekierowuj portu przez router. Dla niezaufanej sieci zachowaj HTTPS/reverse
+proxy i ręczną konfigurację połączenia. GUI nie zmienia zapory ani sterowników;
+przy braku połączenia sprawdź wspólną sieć i regułę zapory dla wybranego portu.
+
+W ustawieniach generowania wybierz zakres: **Bieżąca rozmowa** lub **Domyślne dla
+nowych rozmów**. Zapis bieżącej rozmowy trafia do backendu; inne urządzenie odczytuje
+go po odświeżeniu. Wysyłanie nie zastępuje zapisanych parametrów rozmowy domyślnymi.
+Auto/CUDA korzystają z dotychczasowego wykrywania silników, wyboru pliku CUDA,
+warstw GPU i potwierdzonego offloadu. Nie instaluje się CUDA ani sterowników.
+
+**Automatycznie generuj nazwy rozmów** jest wspólnym ustawieniem backendu,
+domyślnie włączonym. Po pierwszej odpowiedzi istniejący model tworzy krótki tytuł
+w tle (maksymalnie 32 tokeny). Nowa odpowiedź ma pierwszeństwo i anuluje trwające
+tworzenie tytułu. Błąd, anulowanie, brak modelu i restart nie powodują ponawiania
+na każdej wiadomości; tytuł można nadać ręcznie. Istniejące i ręcznie nazwane
+rozmowy nie są automatycznie nadpisywane.
+
+**Usuń wszystkie rozmowy** pobiera aktualną liczbę rozmów i wymaga potwierdzenia
+nieodwracalnej operacji. Backend anuluje aktywne generowanie oraz usuwa rozmowy,
+wiadomości, zadania generacji i klucze ich żądań. Modele, pobrane pliki, ustawienia
+oraz parowania pozostają. Zmiana liczby rozmów przez inny klient wymaga ponownego
+potwierdzenia. Klienci odświeżają wspólną historię również podczas zwykłej pracy.

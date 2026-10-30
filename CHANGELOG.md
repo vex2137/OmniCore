@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-rc.4 — przygotowanie, bez publikacji
+
+- Android: trwały wybór CPU/Auto/CUDA, warstwy GPU, rozdzielenie ustawień rozmowy
+  i domyślnych, jawne parametry generowania i rzeczywiste statystyki wykonania.
+- Linux: serwer i urządzenia, start/stop/restart, autostart, prywatny LAN i własność procesu.
+- Jednorazowe parowanie QR, skaner Androida i odwoływalne tokeny urządzeń.
+- Wspólne automatyczne nazwy oraz potwierdzane, zbiorcze usuwanie historii.
+- Zachowane dotychczasowe wydania, dane i bramki sprzętu/podpisu/Stable.
+
 ## 0.1.0-rc.3 — start backendu i przygotowanie podpisu
 
 - Jeden backend na katalog danych, lokalne wykrywanie portu bez zapisu tokenów.

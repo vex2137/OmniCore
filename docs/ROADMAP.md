@@ -388,3 +388,13 @@ tożsamości aktualizacji są przygotowane. Produkcyjny klucz nie powstał w Clo
 przygotowano instrukcję bezpiecznego utworzenia, dwóch kopii i odzyskiwania.
 Pozostają: rzeczywista konfiguracja/backup klucza, podpis APK, zgodna aktualizacja
 na urządzeniu, akceptacja sprzętowa oraz osobna zgoda na Stable.
+
+
+## RC.4 — parametry Androida, LAN i wspólna historia
+
+Zrealizowany zakres źródeł: natychmiastowy zapis urządzenia Androida, jawny snapshot
+generowania i rozdzielenie domyślnych/rozmowy; serwer LAN zarządzany w Qt z zachowaniem
+własności procesu i blokady danych; jednorazowe parowanie QR oraz skaner Androida;
+wspólne automatyczne tytuły i zbiorcze usuwanie historii. Zachowane CPU i CUDA,
+bez nowego silnika, Rust, Web lub Image AI. RC.4 nie stanowi zgody na Stable.
+Pozostają akceptacja paczek i rzeczywiste CUDA/telefon/kamera oraz podpis właściciela.

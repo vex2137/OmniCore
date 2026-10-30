@@ -42,7 +42,10 @@ def test_discover_owned_server_on_random_port_without_starting_or_stopping_anoth
         api.close()
 
 
-def test_discovered_server_requires_its_token_and_never_spawns_a_duplicate(desktop, qtbot):
+def test_discovered_server_requires_its_token_and_never_spawns_a_duplicate(
+    desktop, qtbot, monkeypatch
+):
+    monkeypatch.setattr("omnicore.desktop.lifecycle.server_token", lambda: "")
     api = ApiClient()
     session = BackendSession(api, DesktopConfig())
     try:
@@ -66,10 +69,11 @@ def test_crashed_backend_can_be_started_again_with_one_click(desktop, qtbot):
     assert desktop.session.process.processId() != pid
 
 
-def test_failed_process_start_stops_probing_and_reports_an_error(qtbot, monkeypatch):
+def test_failed_process_start_stops_probing_and_reports_an_error(qtbot, monkeypatch, tmp_path):
     import omnicore.desktop.lifecycle as lifecycle
 
     monkeypatch.setattr(lifecycle.sys, "executable", "/missing-omnicore-python")
+    monkeypatch.setenv("OMNICORE_DATA_DIR", str(tmp_path / "data"))
     api = ApiClient()
     session = BackendSession(api, DesktopConfig())
     states = []
