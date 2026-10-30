@@ -242,4 +242,6 @@ Pobrać ten plik na komputer backendu?</string>
     <string name="provider_confirmation_required">Przed użyciem potwierdź świadomie dodanie modelu zewnętrznego.</string>
     <string name="provider_requires_server_auth">Dostawcy zewnętrzni wymagają autoryzacji backendu. Uruchom backend z aplikacji desktopowej lub skonfiguruj jego token API.</string>
     <string name="server_unavailable">Serwer niedostępny</string>
+    <string name="pairing_success">Parowanie zakończone i połączono z serwerem.</string>
+    <string name="pairing_camera_error">Aparat jest niedostępny. Spróbuj ponownie lub połącz się ręcznie tokenem API.</string>
 </resources>

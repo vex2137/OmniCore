@@ -756,11 +756,14 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
 private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -> Unit) {
     var scanned by remember { mutableStateOf<String?>(null) }
     var scanError by remember { mutableStateOf(false) }
+    var cameraError by remember { mutableStateOf(false) }
     var scanning by rememberSaveable { mutableStateOf(false) }
     var deleteCount by remember { mutableStateOf<Int?>(null) }
     val scanPrompt = stringResource(R.string.scan_pairing)
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
+        if (!scanning) return@rememberLauncherForActivityResult
         scanning = false
+        if (result.originalIntent?.getBooleanExtra(com.google.zxing.client.android.Intents.Scan.MISSING_CAMERA_PERMISSION, false) == true) cameraError = true
         result.contents?.let { raw ->
             try { PairingPolicy.parse(raw); scanned = raw; scanError = false }
             catch (_: Exception) { scanError = true }
@@ -796,11 +799,17 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
         Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineSmall)
         Text(stringResource(R.string.connection_hint))
         OutlinedButton(
-            onClick = { scanning = true; scanError = false; scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt(scanPrompt).setBeepEnabled(false).setBarcodeImageEnabled(false)) },
+            onClick = {
+                scanning = true; scanError = false; cameraError = false
+                try { scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt(scanPrompt).setBeepEnabled(false).setBarcodeImageEnabled(false)) }
+                catch (_: Exception) { scanning = false; cameraError = true }
+            },
             enabled = !s.busy && !s.generating && !scanning && scanned == null,
             modifier = Modifier.fillMaxWidth().testTag("scan_pairing"),
         ) { Text(stringResource(R.string.pair_phone)) }
         if (scanError) Text(stringResource(R.string.pairing_invalid), color = MaterialTheme.colorScheme.error)
+        if (cameraError) Text(stringResource(R.string.pairing_camera_error), color = MaterialTheme.colorScheme.error)
+        if (s.pairingSucceeded && s.connected) Text(stringResource(R.string.pairing_success))
         if (s.pairingPending) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = vm::retryPairing, enabled = !s.busy, modifier = Modifier.testTag("pairing_retry")) { Text(stringResource(R.string.pairing_retry)) }
             TextButton(onClick = vm::cancelPairing, enabled = !s.busy) { Text(stringResource(R.string.cancel)) }

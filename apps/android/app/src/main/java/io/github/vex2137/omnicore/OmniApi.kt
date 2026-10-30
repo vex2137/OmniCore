@@ -100,8 +100,8 @@ class OmniApi(
         }
 
     private fun errorCode(response: Response): String {
-        if (response.code == 401 || response.code == 403) return "unauthorized"
-        return try {
+        if (response.code == 401) return "unauthorized"
+        val parsed = try {
             val body = response.peekBody(65536).string()
             val code =
                 WireJson.parseToJsonElement(body)
@@ -114,6 +114,8 @@ class OmniApi(
         } catch (_: Exception) {
             "api_error"
         }
+        if (response.code == 403 && parsed !in setOf("pairing_invalid", "pairing_expired", "pairing_used", "pairing_lan_required")) return "unauthorized"
+        return parsed
     }
 
     override suspend fun health(): Health {

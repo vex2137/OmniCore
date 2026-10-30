@@ -242,4 +242,6 @@ Download this file onto the backend computer?</string>
     <string name="provider_confirmation_required">Explicitly confirm adding an external model before using it.</string>
     <string name="provider_requires_server_auth">External providers require an authenticated backend. Start the backend from the desktop app or configure its API token.</string>
     <string name="server_unavailable">Server unavailable</string>
+    <string name="pairing_success">Paired and connected successfully.</string>
+    <string name="pairing_camera_error">Camera unavailable. Try again or connect manually with an API token.</string>
 </resources>

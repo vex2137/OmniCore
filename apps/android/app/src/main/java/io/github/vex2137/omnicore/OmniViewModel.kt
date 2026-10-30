@@ -47,6 +47,7 @@ data class UiState(
     val autoTitle: Boolean = true,
     val titleMaxLength: Int = 42,
     val pairingPending: Boolean = false,
+    val pairingSucceeded: Boolean = false,
     val providers: List<ProviderInfo> = emptyList(),
     val providerModels: List<String> = emptyList(),
     val providerTest: String? = null,
@@ -324,7 +325,7 @@ class OmniViewModel(
 
     fun pair(raw: String) {
         if (mutable.value.busy || (mutable.value.generating && mutable.value.connected)) return
-        mutable.update { it.copy(busy = true, error = null) }
+        mutable.update { it.copy(busy = true, error = null, pairingSucceeded = false) }
         viewModelScope.launch {
             try {
                 val qr = PairingPolicy.parse(raw)
@@ -376,14 +377,15 @@ class OmniViewModel(
                 }
                 mutable.update {
                     if (changedServer) UiState(url = qr.url, trustedLan = true, theme = it.theme, language = it.language,
-                        parameters = settings.parameters, defaultParameters = settings.parameters, hasToken = true)
-                    else it.copy(url = qr.url, trustedLan = true, busy = false, pairingPending = false,
+                        parameters = settings.parameters, defaultParameters = settings.parameters, hasToken = true, pairingSucceeded = true)
+                    else it.copy(url = qr.url, trustedLan = true, busy = false, pairingPending = false, pairingSucceeded = true,
                         selectedConversation = settings.conversationId, hasToken = true)
                 }
                 connect()
             } catch (e: Exception) {
-                mutable.update { it.copy(busy = false) }
-                error(e)
+                if (e is CancellationException) throw e
+                // Failure of a candidate server must not invalidate an existing session.
+                mutable.update { it.copy(busy = false, error = (e as? ApiFailure)?.code ?: "pairing_invalid") }
             }
         }
     }

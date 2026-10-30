@@ -53,6 +53,7 @@ private class FakeRepository : OmniRepository {
     var healthCalls = 0
     var pairCalls = 0
     var firstNonce: String? = null
+    var pairError: String? = null
     var pairResponseLoss = false
     var pairHealthFailures = 0
     var historySettings = HistorySettings()
@@ -101,6 +102,7 @@ private class FakeRepository : OmniRepository {
 
     override suspend fun redeemPairing(code: String, nonce: String): PairingCredential {
         pairCalls++
+        pairError?.let { throw ApiFailure(it) }
         if (firstNonce == null) firstNonce = nonce
         if (firstNonce != nonce) throw ApiFailure("pairing_used")
         if (pairResponseLoss && pairCalls == 1) throw ApiFailure("connection_error")
@@ -575,6 +577,21 @@ class ViewModelTest {
         assertEquals(1, repo.pairCalls) // Recovery authenticates the issued credential, without consuming a new code.
         assertEquals("http://192.168.1.12:8000", settings.url)
         assertNull(settings.pairing)
+    }
+
+    @Test
+    fun pairingFailuresKeepTheExistingAuthenticatedConnection() = runVmTest {
+        runCurrent()
+        assertTrue(vm.state.value.connected)
+        for (code in listOf("pairing_expired", "pairing_used", "connection_error")) {
+            repo.pairError = code
+            vm.pair(pairingQr())
+            if (code == "connection_error") advanceTimeBy(1600)
+            runCurrent()
+            assertTrue(vm.state.value.connected)
+            assertFalse(vm.state.value.authorizationFailed)
+            assertEquals(code, vm.state.value.error)
+        }
     }
 
     @Test

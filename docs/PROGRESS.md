@@ -1273,3 +1273,24 @@ Testy symulują wiele minut awarii, zanik i powrót sieci, błąd tokenu i ręcz
 test fizycznego Androida, rzeczywistego przełączania Wi-Fi/sieci komórkowej i
 restartu serwera wymaga właściciela. Nowa kompilacja testowa ma osobną nazwę;
 wcześniejszy szkic RC.5 pozostaje zachowany.
+
+## Parowanie QR — porównanie z Kalendarzem
+
+Przejrzano Kalendarz `eba0e65`: React używa strumienia tylnej kamery z jawnym
+sprzątaniem, BarcodeDetector z fallbackiem jsQR, blokady równoległych odczytów,
+walidacji i osobnego potwierdzenia. QR generuje z marginesem 4 i korekcją M.
+Natywne OmniCore zachowuje ZXing oraz własny jednorazowy protokół i Keystore;
+nie przeniesiono protokołu synchronizacji KAL3 ani kamery przeglądarkowej.
+
+Potwierdzony błąd: klient mapował wszystkie HTTP 403 na `unauthorized`, również
+`pairing_expired`, `pairing_used` i `pairing_invalid`. Błąd parowania serwera
+kandydata dodatkowo mógł rozłączyć istniejącą sesję. Nie dowodzi to przyczyny
+konkretnej nieudanej próby na telefonie bez jej diagnostyki. Klient teraz
+zachowuje kody parowania, nie zmienia stanu istniejącej sesji po błędzie kandydata,
+odrzuca powtórny wynik skanera, rozróżnia błąd aparatu i pokazuje sukces dopiero
+po trwałym zapisie i połączeniu. Bez zmian w replay/wygaśnięciu/tokenach.
+
+Backend 222 PASS; dodatkowe testy Androida sprawdzają prawdziwe kodowanie i dekodowanie
+ZXing, uszkodzony obraz, błędy 403 i zachowanie istniejącego połączenia. Fizyczna
+kamera, zmiana Wi-Fi na telefonie i rzeczywisty test parowania przez właściciela
+pozostają niewykonane; emulator i syntetyczny obraz ich nie zastępują.
