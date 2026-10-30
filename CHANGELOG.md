@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-rc.3 — start backendu i przygotowanie podpisu
+
+- Jeden backend na katalog danych, lokalne wykrywanie portu bez zapisu tokenów.
+- Czytelne stany GUI i ponowny start po awarii; AppImage `--serve` dla zaawansowanych.
+- Android: test adresu/tokena bez nadpisania konfiguracji i przycisk reconnect.
+- Podpis właściciela: chroniony manualny job, pin certyfikatu, brak debug fallbacku,
+  sprawdzenie tożsamości aktualizacji oraz instrukcja trwałych kopii klucza.
+- Testowy APK RC3 instaluje się obok wcześniejszych wersji. Produkcyjnego klucza
+  nie utworzono; podpis Stable, aktualizacja na urządzeniu i testy sprzętowe nadal
+  wymagają właściciela. RC.2 zachowuje swoje bajty i sumy.
+
 ## 0.1.0-rc.2 — kandydat do weryfikacji, nie Stable
 
 - Zachowana poprawka PR #6: verbose llama.cpp i rzeczywista weryfikacja offloadu.

@@ -376,3 +376,15 @@ Obie paczki i sumy dostarczono do Actions oraz niepublicznego szkicu; PR #8
 pozostaje do przeglądu. Wyniki i aktualne bramki: RELEASE_GATE.md.
 P1 pozostaje bez specyfikacji, P2 bez uzasadnienia Rust. Pozostają test telefonu,
 akceptacja nowej paczki na RTX4060/CachyOS, podpis produkcyjny i zgoda na Stable.
+
+
+## Dodatkowy priorytet — backend i podpis APK
+
+RC.3 zachowuje automatyczny start GUI, dodaje wyłączność bazy/cyklu życia serwera,
+wykrywanie lokalnego portu, stany i retry oraz headless AppImage --serve. Android
+ma odrębny test konfiguracji bez jej nadpisania i reconnect. Nie skanuje LAN.
+Konfiguracja podpisu właściciela, pin certyfikatu, chroniony ręczny job i kontrola
+tożsamości aktualizacji są przygotowane. Produkcyjny klucz nie powstał w Cloud;
+przygotowano instrukcję bezpiecznego utworzenia, dwóch kopii i odzyskiwania.
+Pozostają: rzeczywista konfiguracja/backup klucza, podpis APK, zgodna aktualizacja
+na urządzeniu, akceptacja sprzętowa oraz osobna zgoda na Stable.

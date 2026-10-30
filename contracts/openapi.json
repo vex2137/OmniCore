@@ -1671,7 +1671,7 @@
   "info": {
     "description": "Local Text AI backend with optional llama.cpp and Ollama. No GUI or Image AI.",
     "title": "OmniCore",
-    "version": "0.1.0rc2"
+    "version": "0.1.0rc3"
   },
   "openapi": "3.1.0",
   "paths": {

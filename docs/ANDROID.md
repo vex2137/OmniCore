@@ -4,16 +4,16 @@ Kotlin + Jetpack Compose + Material 3, bez WebView. Aplikacja korzysta z istniej
 FastAPI REST/SSE. SQLite, inferencja, kolejka i modele pozostają na komputerze.
 **Nie ma lokalnej inferencji GGUF na telefonie ani wymaganego komponentu Rust.**
 
-Identyfikator RC.2: `io.github.vex2137.omnicore.rc2`. Wersja: `0.1.0-rc.2`, versionCode 5.
+Identyfikator RC.3: `io.github.vex2137.omnicore.rc3`. Wersja: `0.1.0-rc.3`, versionCode 6.
 Minimalny Android 8.0/API 26, target/compile SDK 36. Dystrybucyjny plik:
-`OmniCore-0.1.0-rc.2-android-arm64.apk`, ABI arm64-v8a. Jest to build **debug/test**,
+`OmniCore-0.1.0-rc.3-android-arm64.apk`, ABI arm64-v8a. Jest to build **debug/test**,
 podpisany kluczem testowym, nie oficjalnym kluczem produkcyjnym. W APK nie ma
 adresu prywatnego serwera, tokenów użytkownika ani wag modeli.
 
-RC.2 instaluje się **obok** RC.1 i Alpha jako „OmniCore RC2”. Klucze testowe
+RC.3 instaluje się **obok** RC.2, RC.1 i Alpha jako „OmniCore RC3”. Klucze testowe
 runnery CI generują niezależnie, dlatego nie próbujemy zastąpić instalacji RC.1
 APK z niezgodnym podpisem. Nie odinstalowuj starej aplikacji i nie czyść jej danych.
-W RC2 skonfiguruj ponownie adres/token; historia pozostaje na tym samym backendzie.
+W RC3 skonfiguruj ponownie adres/token; historia pozostaje na tym samym backendzie.
 To bezpieczna instalacja równoległa, a nie potwierdzona aktualizacja APK.
 
 Wersjonowanie APK, AppImage i aplikacji pochodzi z
@@ -122,8 +122,8 @@ cd apps/android
 ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
 cd ../..
 python3 scripts/package_android.py
-sha256sum -c dist/OmniCore-0.1.0-rc.2-android-arm64.apk.sha256
-adb install dist/OmniCore-0.1.0-rc.2-android-arm64.apk
+sha256sum -c dist/OmniCore-0.1.0-rc.3-android-arm64.apk.sha256
+adb install dist/OmniCore-0.1.0-rc.3-android-arm64.apk
 ```
 
 Budowanie tworzy oddzielne APK arm64-v8a i x86_64 do emulatora. Skrypt pakowania
@@ -219,3 +219,22 @@ OMNICORE_MODEL_ROOTS (np. katalog Pulpit z modelami), allowed hosts i token zgod
 z powyższą instrukcją. Desktop można potem podłączyć do tego serwera przez
 OMNICORE_DESKTOP_URL i OMNICORE_DESKTOP_TOKEN (token w środowisku, nie w argumentach
 ani logach). Nie uruchamiaj dwóch niezależnych backendów do tej samej bazy.
+
+
+## Test adresu i szybkie ponowne połączenie
+
+W Ustawieniach wpisz adres komputera oraz token. **Test połączenia** sprawdza
+health i uwierzytelnione API modeli, ale nie zapisuje adresu/tokenów i nie przerywa
+aktywnego czatu. **Zapisz i połącz** zapisuje konfigurację; token trafia do Keystore.
+**Połącz ponownie** używa już zapisanej konfiguracji. Zmiana pól usuwa stary wynik testu.
+Localhost/127.0.0.1 telefonu nie wskazuje komputera; użyj jego adresu LAN lub HTTPS.
+Nie ma automatycznego skanowania sieci/mDNS: wykrycie hosta nie uwierzytelnia serwera.
+
+GUI Linux uruchamia domyślnie serwer wyłącznie na loopback. Sam test połączenia
+w telefonie nie włącza zdalnego dostępu. Zaawansowaną konfigurację zdalnego
+serwera AppImage bez Pythona opisuje [instrukcja Linux](LINUX_DESKTOP.md#backend-lokalny-i-serwer-dla-telefonu).
+Nie uruchamiaj drugiego backendu na tej samej bazie — połącz klientów z jednym.
+
+Podpis Stable, kopie klucza i sprawdzenie zgodności aktualizacji:
+[ANDROID_SIGNING.md](ANDROID_SIGNING.md). Skonfigurowanie workflow nie oznacza
+wygenerowania ani sprawdzenia produkcyjnego podpisu.

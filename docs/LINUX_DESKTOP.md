@@ -102,3 +102,69 @@ odłącza podgląd, a jawny Stop anuluje zadanie. Prywatny backend aplikacji jes
 zatrzymywany razem z jej procesami. Eksport raportu diagnostycznego zawiera tylko
 zamknięty zestaw pól: bez tokenów, adresów, ścieżek, treści i surowych logów.
 [CUDA i fallback CPU](CUDA.md) są konfigurowane bez zmian logiki inferencji w GUI.
+
+
+## Backend lokalny i serwer dla telefonu
+
+Zwykłe uruchomienie GUI nie wymaga terminala. Aplikacja sprawdza istniejący serwer,
+a jeśli go nie ma, uruchamia własny backend z tokenem w pamięci na losowym porcie
+loopback. Pasek pokazuje uruchamianie/połączono/rozłączono/błąd. Po awarii przycisk
+**Uruchom backend** ponawia start. Zakończenie GUI zatrzymuje wyłącznie własny proces;
+zewnętrzny serwer pozostaje uruchomiony.
+
+Backend trzyma blokadę `backend.lock` w katalogu danych przez cały cykl życia
+ASGI, przed inicjalizacją bazy i kolejki. Drugi proces z tą samą bazą odmawia startu.
+GUI odczytuje wyłącznie lokalny port aktywnej blokady, nigdy token. Przy istniejącym
+serwerze wymagającym uwierzytelniania podaj `OMNICORE_DESKTOP_TOKEN` w prywatnym
+środowisku GUI. Dowolny inny serwer można wskazać przez `OMNICORE_DESKTOP_URL`;
+zewnętrzny adres desktopu wymaga HTTPS. Błędny token nie powoduje startu duplikatu.
+Nie usuwaj blokady działającego procesu. Nieaktywny plik jest ignorowany i ponownie
+używany; nie zawiera sekretów. Bezpośredni Uvicorn wymaga zgodnego RuntimeConfig;
+preferuj poniższy launcher CLI, który zna rzeczywisty host/port.
+
+AppImage ma jawny tryb headless dla zaawansowanych użytkowników:
+
+```bash
+./OmniCore-0.1.0-rc.3-x86_64.AppImage --serve --host 127.0.0.1 --port 8000
+```
+
+Dane pozostają w dotychczasowym katalogu XDG. Jeśli GUI już używa tej bazy,
+najpierw je zamknij. Dla telefonu właściciel świadomie konfiguruje środowisko
+serwera (np. prywatny plik poza Git z prawami 0600):
+
+- `OMNICORE_ALLOW_REMOTE=1`, `OMNICORE_HOST=0.0.0.0`, `OMNICORE_PORT=8000`;
+- `OMNICORE_API_TOKEN`: własny losowy token ASCII alfanumeryczny, co najmniej 32 znaki;
+- `OMNICORE_ALLOWED_HOSTS`: jawnie adres LAN komputera i loopback dla lokalnego GUI;
+- `OMNICORE_MODEL_ROOTS`: dotychczasowe dozwolone katalogi GGUF;
+- istniejący katalog danych i konfiguracja silnika; nie kopiuj ani nie resetuj bazy.
+
+Nie umieszczaj tokenu w argv, logu, `.desktop`, repozytorium ani czacie. Nie dodawaj
+wildcard Host/Origin/CORS. Natywny Android nie wymaga otwarcia CORS dla wszystkich
+stron. Backend sam odmówi bindu zdalnego bez jawnej zgody i poprawnego tokenu.
+Poza zaufaną siecią wymagany jest poprawnie skonfigurowany HTTPS/WSS z zaufanym
+certyfikatem (np. lokalny reverse proxy). Nie wyłączaj walidacji TLS.
+
+Aby zaawansowany serwer działał po zamknięciu terminala, właściciel może utworzyć
+własny unit systemd --user z następującymi ustawieniami (ścieżki dostosuj lokalnie):
+
+```ini
+[Unit]
+Description=OmniCore authenticated backend
+
+[Service]
+EnvironmentFile=%h/.config/omnicore/server.env
+Environment=APPIMAGE_EXTRACT_AND_RUN=1
+ExecStart=%h/Applications/OmniCore-0.1.0-rc.3-x86_64.AppImage --serve
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+KillMode=control-group
+
+[Install]
+WantedBy=default.target
+```
+
+`server.env` zawiera wyłącznie świadomie wybraną konfigurację i musi być prywatny
+(0600), poza repozytorium. Właściciel włącza/wyłącza usługę przez systemd --user;
+OmniCore nie instaluje jej automatycznie i nie otwiera portów bez zgody. Nie podawaj
+sekretów w zgłoszeniach błędów. Zewnętrzny backend nie jest zatrzymywany przez GUI.

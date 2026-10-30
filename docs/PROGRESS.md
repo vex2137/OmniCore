@@ -1048,3 +1048,25 @@ Current local regression: 164 backend, 28 Qt, 50 JVM PASS; lintDebug/assembleDeb
 assembleDebugAndroidTest PASS. Workflow YAML parsed, ruff/diff checks PASS. The
 old Qt process object is released when a replacement starts; 3 targeted retry/crash
 checks PASS. No user token, key, password or keystore was committed.
+
+### RC.3 — final build handoff for backend/signing follow-up
+
+New distribution 0.1.0-rc.3 / Python 0.1.0rc3 / Android versionCode6 and ID .rc3
+preserves installed Alpha/RC.1/RC.2. Contract export and health/contract tests: 4 PASS.
+Docs describe terminal-free automatic GUI startup, safe manual AppImage --serve,
+explicit authenticated LAN/HTTPS settings and an optional owner-installed user
+service. No remote listener/service was enabled on the user's machine.
+
+Implementation checkpoints: fb3b1c1 backend lifecycle/lock; module2 connection
+changes and 67d2b30 owner-signing preparation are pushed. Local regression 164
+backend + 28 Qt + 50 JVM and Android lint/build PASS; targeted retry after process
+object cleanup 3 PASS. Production signature and matching owner-key update were
+not executed. No production key was generated in Cloud. RC.2 files remain immutable.
+
+Next actions in this same task: CI and canonical RC.3 packages, actual AppImage/
+headless/real-GGUF tests and upload. Final run IDs, source SHA, file hashes and
+observed results will be saved in PR #8 and `validation-report.json` in the RC.3
+draft, avoiding repeated package rebuilds solely to record their own hashes in Git.
+Read those checkpoints when continuing; do not attribute RC.2 hashes to RC.3.
+Stable still requires the owner key/backup/signature/update, hardware checks and
+explicit publication approval in RELEASE_GATE. No final v0.1.0 tag/publication.

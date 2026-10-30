@@ -13,12 +13,12 @@ SmolLM2-135M-Instruct Q4_K_M. Nie oznacza to zgodności wszystkich modeli lub GP
 ([AppImage](https://github.com/vex2137/OmniCore/releases/download/v0.1.0-rc.1/OmniCore-0.1.0-rc.1-x86_64.AppImage),
 [APK ARM64](https://github.com/vex2137/OmniCore/releases/download/v0.1.0-rc.1/OmniCore-0.1.0-rc.1-android-arm64.apk), sumy i test sprzętowy w załącznikach).
 
-Nowy kandydat **RC.2**: [AppImage — artefakt CI](https://github.com/vex2137/OmniCore/actions/runs/40960267646/artifacts/12936111082)
+Poprzedni kandydat **RC.2**: [AppImage — artefakt CI](https://github.com/vex2137/OmniCore/actions/runs/40960267646/artifacts/12936111082)
 · [APK ARM64 — artefakt CI](https://github.com/vex2137/OmniCore/actions/runs/40960267733/artifacts/12936046127)
 (logowanie GitHub; ZIP zawiera paczkę, sumę i manifest). Właściciel ma też prywatny
 szkic z trwałymi załącznikami; [wyniki, sumy i bramki](docs/RELEASE_GATE.md#rc2--dostarczony-kandydat-do-akceptacji).
 
-Gałąź rozwojowa **0.1.0-rc.2** przygotowuje pierwsze Stable (nowe paczki testowe w Actions; RC.1 powyżej pozostaje niezmienione): automatycznie wykrywa lokalne
+Gałąź rozwojowa **0.1.0-rc.3** przygotowuje pierwsze Stable (nowe paczki testowe w Actions; RC.1 powyżej pozostaje niezmienione): automatycznie wykrywa lokalne
 silniki CUDA (m.in. `~/llama.cpp/build/bin/llama-server`), rozróżnia CPU/Auto/CUDA,
 potwierdza offload i zachowuje CPU fallback. AppImage zawiera niezależny silnik CPU;
 CUDA jest opcjonalną integracją, nie domniemaną właściwością dołączonej binarki.
@@ -26,8 +26,15 @@ Reasoning i odpowiedź są oddzielone, także przy znacznikach `<think>` i SSE.
 
 **Stable v0.1.0 nie jest zatwierdzone do publikacji.** PR #6 zawiera zgłoszone przez właściciela udane testy LFM3/Qwen3.5 CPU/Auto/CUDA na RTX4060; nie zastępuje to akceptacji nowej paczki, telefonu i podpisu APK. [Bramka i krótki test
 CachyOS/RTX4060](docs/RELEASE_GATE.md) oraz [konfiguracja CUDA](docs/CUDA.md).
-RC.2 APK ma podpis testowy i osobny identyfikator `.rc2`, więc nie wymaga usuwania Alpha ani RC.1.
+RC.3 APK ma podpis testowy i osobny identyfikator `.rc3`, więc nie wymaga usuwania Alpha, RC.1 ani RC.2.
 Historia backendu pozostaje wspólna. [Zmiany](CHANGELOG.md).
+
+GUI automatycznie uruchamia własny backend lub wykrywa już działający proces.
+Serwer dla telefonu wymaga świadomego włączenia uwierzytelnionego dostępu zdalnego
+([instrukcja Linux](docs/LINUX_DESKTOP.md#backend-lokalny-i-serwer-dla-telefonu)).
+Android pozwala przetestować adres przed zapisaniem konfiguracji.
+[Trwały podpis APK i odzyskiwanie klucza](docs/ANDROID_SIGNING.md): konfiguracja
+jest przygotowana, rzeczywisty klucz/podpis właściciela pozostaje bramką Stable.
 
 ```sh
 uv sync --frozen --extra desktop --group gui-test --group packaging
