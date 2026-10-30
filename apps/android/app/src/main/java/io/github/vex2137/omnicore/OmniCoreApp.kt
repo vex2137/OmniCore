@@ -3,6 +3,9 @@
 package io.github.vex2137.omnicore
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -181,6 +184,9 @@ private fun ErrorBanner(code: String, dismiss: () -> Unit) {
             "invalid_token" -> R.string.error_token
             "token_unavailable" -> R.string.error_keystore
             "invalid_parameters" -> R.string.error_parameters
+            "pairing_invalid" -> R.string.pairing_invalid
+            "pairing_rate_limited" -> R.string.pairing_rate_limited
+            "history_changed" -> R.string.history_changed
             "model_required" -> R.string.error_model
             "conversation_required" -> R.string.error_conversation
             "empty_response" -> R.string.error_empty_response
@@ -270,7 +276,7 @@ private fun HomeScreen(s: UiState, vm: OmniViewModel, navigate: (Int) -> Unit) {
         item {
             Button(
                 onClick = {
-                    vm.createConversation(title)
+                    vm.createConversation("")
                     navigate(1)
                 },
                 enabled = s.connected && !s.busy && !s.generating,
@@ -312,7 +318,7 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
                 !s.generating && !s.busy,
             )
             IconButton(
-                onClick = { vm.createConversation(title) },
+                onClick = { vm.createConversation("") },
                 enabled = s.connected && !s.busy && !s.generating,
                 modifier = Modifier.testTag("new_chat"),
             ) {
@@ -726,6 +732,35 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
 
 @Composable
 private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -> Unit) {
+    var scanned by remember { mutableStateOf<String?>(null) }
+    var scanError by remember { mutableStateOf(false) }
+    var deleteCount by remember { mutableStateOf<Int?>(null) }
+    val scanPrompt = stringResource(R.string.scan_pairing)
+    val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.let { raw ->
+            try { PairingPolicy.parse(raw); scanned = raw }
+            catch (_: Exception) { scanError = true }
+        }
+    }
+    scanned?.let { raw ->
+        val host = try { PairingPolicy.parse(raw).url } catch (_: Exception) { "" }
+        AlertDialog(
+            onDismissRequest = { scanned = null },
+            title = { Text(stringResource(R.string.pair_phone)) },
+            text = { Text(stringResource(R.string.pairing_confirm, host)) },
+            confirmButton = { TextButton(onClick = { scanned = null; vm.pair(raw) }) { Text(stringResource(R.string.connect)) } },
+            dismissButton = { TextButton(onClick = { scanned = null }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
+    deleteCount?.let { count ->
+        AlertDialog(
+            onDismissRequest = { deleteCount = null },
+            title = { Text(stringResource(R.string.delete_all_chats)) },
+            text = { Text(stringResource(R.string.delete_all_confirm, count)) },
+            confirmButton = { TextButton(onClick = { deleteCount = null; vm.deleteAll(count) }, modifier = Modifier.testTag("confirm_delete_all")) { Text(stringResource(R.string.delete)) } },
+            dismissButton = { TextButton(onClick = { deleteCount = null }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
     var url by remember(s.url) { mutableStateOf(s.url) }
     var token by remember { mutableStateOf("") }
     var clear by remember { mutableStateOf(false) }
@@ -736,6 +771,12 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
     ) {
         Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineSmall)
         Text(stringResource(R.string.connection_hint))
+        OutlinedButton(
+            onClick = { scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt(scanPrompt).setBeepEnabled(false).setBarcodeImageEnabled(false)) },
+            enabled = !s.busy && !s.generating,
+            modifier = Modifier.fillMaxWidth().testTag("scan_pairing"),
+        ) { Text(stringResource(R.string.pair_phone)) }
+        if (scanError) Text(stringResource(R.string.pairing_invalid), color = MaterialTheme.colorScheme.error)
         OutlinedTextField(
             url,
             {
@@ -848,6 +889,16 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
             Modifier.fillMaxWidth(),
         )
         GenerationSettings(s, vm)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(s.autoTitle, vm::autoTitle, enabled = s.connected && !s.busy,
+                modifier = Modifier.testTag("auto_title"))
+            Text(stringResource(R.string.auto_title), modifier = Modifier.weight(1f))
+        }
+        OutlinedButton(
+            onClick = { deleteCount = s.conversations.size },
+            enabled = s.connected && !s.busy && s.conversations.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth().testTag("delete_all_chats"),
+        ) { Text(stringResource(R.string.delete_all_chats)) }
         Text(
             stringResource(R.string.about, BuildConfig.VERSION_NAME),
             style = MaterialTheme.typography.bodySmall,

@@ -14,6 +14,7 @@ from omnicore.schemas import ServerEvent, WireModel
 from omnicore.text.conversations import Conversations, MessageRecord
 from omnicore.text.models import ModelManager
 from omnicore.text.store import TextStore, timestamp
+from omnicore.text.titles import Titles
 from omnicore.text.types import GenerationParameters, GenerationStatistics, TextError, TextMessage
 
 TERMINAL = {"completed", "cancelled", "failed", "interrupted"}
@@ -54,6 +55,8 @@ class GenerationManager:
         self.submission_lock = asyncio.Lock()
         self.cancellation_lock = asyncio.Lock()
         self.tasks: dict[str, asyncio.Task] = {}
+        self.titles = Titles(self)
+        self.closing = False
 
     def record(self, job_id):
         return GenerationRecord.model_validate(self.store.job("generation", job_id))
@@ -67,6 +70,10 @@ class GenerationManager:
         )
 
     def initialize(self):
+        self.closing = False
+        for conversation in self.history.list():
+            if conversation.title_status == "generating":
+                self.history.title_state(conversation.id, "interrupted")
         for item in self.store.jobs("generation"):
             if item["state"] not in TERMINAL:
                 record = GenerationRecord.model_validate(item)
@@ -96,6 +103,7 @@ class GenerationManager:
 
     async def submit(self, conversation_id, request: GenerationRequest):
         async with self.submission_lock:
+            await self.titles.interrupt()
             conversation = await asyncio.to_thread(self.history.get, conversation_id)
             model_id = request.model_id or conversation.model_id
             if not model_id:
@@ -305,6 +313,7 @@ class GenerationManager:
                 record.generation_seconds = time.monotonic() - started
                 record.finish_reason = record.finish_reason or "stop"
                 await self._persist(record)
+                self.titles.schedule(record)
         except asyncio.CancelledError:
             record.state, record.error_code = "cancelled", None
             record.finish_reason = "cancelled"
@@ -389,6 +398,8 @@ class GenerationManager:
             return record
 
     async def close(self):
+        self.closing = True
+        await self.titles.interrupt()
         for job_id in list(self.tasks):
             await self.cancel(job_id)
         for engine in self.engines.values():

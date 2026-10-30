@@ -35,6 +35,7 @@ data class UiState(
     val generation: Generation? = null,
     val draft: String = "",
     val parameters: Parameters = Parameters(),
+    val defaultParameters: Parameters = Parameters(),
     val repositories: List<HubRepository> = emptyList(),
     val remoteFiles: List<RemoteFile> = emptyList(),
     val downloads: List<Download> = emptyList(),
@@ -42,6 +43,7 @@ data class UiState(
     val diagnostics: Diagnostics = Diagnostics(),
     val reconnecting: Boolean = false,
     val connectionTest: String? = null,
+    val autoTitle: Boolean = true,
 ) {
     val connectionStatus: ConnectionStatus
         get() =
@@ -70,6 +72,7 @@ class OmniViewModel(
                 language = settings.language,
                 selectedConversation = settings.conversationId,
                 parameters = settings.parameters,
+                defaultParameters = settings.parameters,
             )
         )
     val state = mutable.asStateFlow()
@@ -81,6 +84,7 @@ class OmniViewModel(
     private var recovery: Job? = null
     private var pending: GenerationRequest? = null
     private var pendingConversation: String? = null
+    private var parameterRevision = 0L
 
     init {
         if (settings.url.isNotBlank()) connect()
@@ -280,6 +284,52 @@ class OmniViewModel(
         mutable.update { it.copy(connectionTest = null) }
     }
 
+    fun pair(raw: String) {
+        if (mutable.value.busy || (mutable.value.generating && mutable.value.connected)) return
+        mutable.update { it.copy(busy = true, error = null) }
+        viewModelScope.launch {
+            try {
+                val qr = PairingPolicy.parse(raw)
+                val credential = withContext(io) {
+                    val candidate = repository(qr.url, "")
+                    try { candidate.redeemPairing(qr.code) } finally { candidate.close() }
+                }
+                if (!credential.token.matches(Regex("[a-f0-9]{64}"))) throw ApiFailure("pairing_invalid")
+                withContext(io) {
+                    val candidate = repository(qr.url, credential.token)
+                    try { if (candidate.health().status != "ok") throw ApiFailure("invalid_response") }
+                    finally { candidate.close() }
+                }
+                mutable.update { it.copy(busy = false) }
+                saveConnection(qr.url, credential.token, false, true)
+            } catch (e: Exception) {
+                mutable.update { it.copy(busy = false) }
+                error(e)
+            }
+        }
+    }
+
+    fun autoTitle(enabled: Boolean) = action { service ->
+        service.saveHistorySettings(HistorySettings(enabled))
+        mutable.update { it.copy(autoTitle = enabled) }
+    }
+
+    fun deleteAll(expectedCount: Int) = action { service ->
+        service.deleteAll(expectedCount)
+        epoch++
+        events?.cancel()
+        events = null
+        settings.conversationId = null
+        settings.generationId = null
+        pending = null
+        pendingConversation = null
+        mutable.update {
+            it.copy(conversations = emptyList(), selectedConversation = null,
+                messages = emptyList(), generation = null, draft = "", parameters = settings.parameters)
+        }
+        refresh(service)
+    }
+
     fun saveConnection(raw: String, newToken: String, clearToken: Boolean, trustedLan: Boolean) {
         if ((mutable.value.generating && mutable.value.connected) || mutable.value.busy) return
         mutable.update { it.copy(busy = true, error = null) }
@@ -302,6 +352,8 @@ class OmniViewModel(
                             trustedLan = trustedLan,
                             theme = it.theme,
                             language = it.language,
+                            defaultParameters = settings.parameters,
+                            parameters = settings.parameters,
                         )
                     }
                 } else mutable.update { it.copy(url = url, trustedLan = trustedLan, busy = false) }
@@ -325,21 +377,24 @@ class OmniViewModel(
         mutable.update { it.copy(language = value) }
     }
 
-    fun parameters(value: Parameters) {
+    fun parameters(value: Parameters, defaults: Boolean = false) {
         if (!value.valid()) {
             mutable.update { it.copy(error = "invalid_parameters") }
             return
         }
         if (mutable.value.generating || mutable.value.busy) return
+        parameterRevision++
         val id = mutable.value.selectedConversation
-        if (id == null) {
+        if (id == null || defaults) {
             settings.parameters = value
-            mutable.update { it.copy(parameters = value) }
+            mutable.update { it.copy(defaultParameters = value, parameters = if (id == null) value else it.parameters) }
         } else
             action { service ->
                 service.saveParameters(id, value)
-                settings.parameters = value
-                mutable.update { it.copy(parameters = value) }
+                mutable.update { previous ->
+                    if (previous.selectedConversation == id) previous.copy(parameters = value)
+                    else previous
+                }
                 refresh(service)
             }
     }
@@ -380,11 +435,14 @@ class OmniViewModel(
     }
 
     private suspend fun refresh(service: OmniRepository) {
+        val revision = parameterRevision
+        val selection = mutable.value.selectedConversation
         val conversations = service.conversations()
         val models = service.models()
         val engines = service.engines()
         val downloads = service.downloads()
         val diagnostics = service.diagnostics()
+        val historySettings = service.historySettings()
         mutable.update { previous ->
             previous.copy(
                 conversations = conversations,
@@ -392,6 +450,7 @@ class OmniViewModel(
                 engines = engines,
                 downloads = downloads,
                 diagnostics = diagnostics,
+                autoTitle = historySettings.autoTitle,
                 selectedModel =
                     previous.selectedModel?.takeIf { id -> models.any { it.id == id } }
                         ?: models.firstOrNull()?.id,
@@ -403,7 +462,10 @@ class OmniViewModel(
                 mutable.update {
                     it.copy(
                         selectedModel = conversation.modelId ?: it.selectedModel,
-                        parameters = conversation.parameters,
+                        parameters =
+                            if (it.selectedConversation == selection && parameterRevision == revision)
+                                conversation.parameters
+                            else it.parameters,
                     )
                 }
                 loadMessages(service, id)
@@ -416,6 +478,7 @@ class OmniViewModel(
                         messages = emptyList(),
                         generation = null,
                         draft = "",
+                        parameters = settings.parameters,
                     )
                 }
             }
@@ -503,12 +566,14 @@ class OmniViewModel(
                     mutable.update { it.copy(error = "model_required") }
                     return
                 }
+        val parameters = state.parameters.forBackend(state.models.firstOrNull { it.id == model }?.backend)
         val request =
             pending?.takeIf {
                 pendingConversation == conversation &&
                     it.content == state.draft &&
-                    it.modelId == model
-            } ?: GenerationRequest(state.draft, UUID.randomUUID().toString(), model)
+                    it.modelId == model &&
+                    it.parameters == parameters
+            } ?: GenerationRequest(state.draft, UUID.randomUUID().toString(), model, parameters)
         pending = request
         pendingConversation = conversation
         action { service ->
@@ -639,6 +704,23 @@ class OmniViewModel(
         if (wasPaused && settings.url.isNotBlank()) connect()
     }
 
+    private suspend fun refreshSharedHistory(service: OmniRepository) {
+        val chats = service.conversations()
+        val preferences = service.historySettings()
+        if (mutable.value.busy) return
+        val removed = mutable.value.selectedConversation?.let { id -> chats.none { it.id == id } } == true
+        if (removed) {
+            epoch++
+            events?.cancel()
+            events = null
+            settings.conversationId = null
+            settings.generationId = null
+            mutable.update { it.copy(selectedConversation = null, messages = emptyList(),
+                generation = null, draft = "", parameters = settings.parameters) }
+        }
+        mutable.update { it.copy(conversations = chats, autoTitle = preferences.autoTitle) }
+    }
+
     private fun pollDownloads(service: OmniRepository) {
         downloadUpdates?.cancel()
         downloadUpdates =
@@ -648,6 +730,8 @@ class OmniViewModel(
                     try {
                         val records = service.downloads()
                         mutable.update { it.copy(downloads = records) }
+                        // Shared history includes titles and deletions from Linux.
+                        if (!mutable.value.busy) refreshSharedHistory(service)
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
                         error(e)

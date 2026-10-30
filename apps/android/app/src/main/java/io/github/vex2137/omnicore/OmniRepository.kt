@@ -30,6 +30,14 @@ interface OmniRepository {
 
     suspend fun delete(id: String)
 
+    suspend fun historySettings(): HistorySettings = HistorySettings()
+
+    suspend fun saveHistorySettings(value: HistorySettings) { throw ApiFailure("unsupported") }
+
+    suspend fun deleteAll(expectedCount: Int) { throw ApiFailure("unsupported") }
+
+    suspend fun redeemPairing(code: String): PairingCredential { throw ApiFailure("unsupported") }
+
     suspend fun generate(id: String, payload: GenerationRequest): Generation
 
     suspend fun generation(id: String): Generation

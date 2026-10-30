@@ -33,6 +33,7 @@ private class FakeRepository : OmniRepository {
     var chats = listOf(Conversation("c", "Saved chat", modelId = "m"))
     var history = emptyList<Message>()
     var current = Generation("g", "c", "running", sequence = 1)
+    var lastRequest: GenerationRequest? = null
     var sent = 0
     var cancelled = 0
     var watched = 0
@@ -44,6 +45,8 @@ private class FakeRepository : OmniRepository {
     var parameters: Parameters? = null
     val stream = MutableSharedFlow<Generation>()
     var transfers = emptyList<Download>()
+    var historySettings = HistorySettings()
+    var deletedAll = 0
 
     override suspend fun health(): Health {
         if (offline) throw ApiFailure("connection_error")
@@ -84,8 +87,21 @@ private class FakeRepository : OmniRepository {
         chats = chats.filterNot { it.id == id }
     }
 
+    override suspend fun historySettings() = historySettings
+
+    override suspend fun saveHistorySettings(value: HistorySettings) { historySettings = value }
+
+    override suspend fun deleteAll(expectedCount: Int) {
+        if (expectedCount != chats.size) throw ApiFailure("history_changed")
+        deletedAll++
+        chats = emptyList()
+        history = emptyList()
+        current = current.copy(state = "cancelled")
+    }
+
     override suspend fun generate(id: String, payload: GenerationRequest): Generation {
         sent++
+        lastRequest = payload
         keys += payload.requestKey
         if (throwAfterSubmit) throw ApiFailure("connection_error")
         return current
@@ -391,6 +407,103 @@ class ViewModelTest {
         vm.parameters(Parameters(temperature = Double.NaN))
         runCurrent()
         assertEquals("invalid_parameters", vm.state.value.error)
+    }
+
+    @Test
+    fun cudaSaveRefreshSendReopenAndRecreationPreserveConversationParameters() = runVmTest {
+        runCurrent()
+        val defaults = settings.parameters
+        val gpu = Parameters(device = "cuda", gpuLayers = 23)
+        vm.parameters(gpu)
+        runCurrent()
+        vm.refresh()
+        runCurrent()
+        assertEquals(gpu, vm.state.value.parameters)
+        assertEquals(defaults, settings.parameters)
+        vm.selectModel("m2")
+        runCurrent()
+        vm.draft("GPU prompt")
+        vm.send()
+        runCurrent()
+        assertEquals(gpu, repo.lastRequest?.parameters)
+        vm.cancel()
+        runCurrent()
+        vm.openConversation("c")
+        runCurrent()
+        assertEquals(gpu, vm.state.value.parameters)
+        store.clear()
+        val restored = OmniViewModel(settings, { _, _ -> repo }, dispatcher)
+        store.put("restored", restored)
+        runCurrent()
+        assertEquals(gpu, restored.state.value.parameters)
+    }
+
+    @Test
+    fun newConversationsUseDefaultsInsteadOfLastEditedConversation() = runVmTest {
+        runCurrent()
+        settings.parameters = Parameters(device = "auto", gpuLayers = 99)
+        vm.parameters(Parameters(device = "cuda", gpuLayers = 17))
+        runCurrent()
+        vm.createConversation("")
+        runCurrent()
+        assertEquals(settings.parameters, vm.state.value.parameters)
+        assertEquals("cuda", repo.chats.first { it.id == "c" }.parameters.device)
+    }
+
+    @Test
+    fun sendCannotRaceAnUnfinishedParameterSave() = runVmTest {
+        runCurrent()
+        vm.parameters(Parameters(device = "auto", gpuLayers = 99))
+        vm.draft("Wait for save")
+        vm.send()
+        assertEquals(0, repo.sent)
+        runCurrent()
+        vm.send()
+        runCurrent()
+        assertEquals("auto", repo.lastRequest?.parameters?.device)
+        assertEquals(99, repo.lastRequest?.parameters?.gpuLayers)
+    }
+
+    @Test
+    fun editingDefaultsDoesNotChangeAnExistingConversation() = runVmTest {
+        runCurrent()
+        val conversation = vm.state.value.parameters
+        val defaults = Parameters(device = "auto", gpuLayers = 99)
+        vm.parameters(defaults, defaults = true)
+        runCurrent()
+        assertEquals(conversation, vm.state.value.parameters)
+        assertEquals(defaults, settings.parameters)
+        vm.createConversation("")
+        runCurrent()
+        assertEquals(defaults, vm.state.value.parameters)
+    }
+
+    @Test
+    fun bulkDeletionClearsActiveStateAndSynchronizesSharedHistory() = runVmTest {
+        runCurrent()
+        vm.draft("Hi")
+        vm.send()
+        runCurrent()
+        vm.deleteAll(1)
+        runCurrent()
+        assertEquals(1, repo.deletedAll)
+        assertFalse(vm.state.value.generating)
+        assertNull(settings.conversationId)
+        assertNull(settings.generationId)
+        assertTrue(vm.state.value.messages.isEmpty())
+        assertTrue(vm.state.value.conversations.isEmpty())
+    }
+
+    @Test
+    fun historySettingsAreSharedAndRefreshedFromBackend() = runVmTest {
+        runCurrent()
+        vm.autoTitle(false)
+        runCurrent()
+        assertFalse(repo.historySettings.autoTitle)
+        repo.historySettings = HistorySettings(true)
+        vm.refresh()
+        runCurrent()
+        assertTrue(vm.state.value.autoTitle)
     }
 
     @Test

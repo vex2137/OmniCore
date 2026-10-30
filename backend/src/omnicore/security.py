@@ -3,12 +3,14 @@
 import secrets
 from urllib.parse import urlsplit
 
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from omnicore.config import RuntimeConfig, is_loopback
 from omnicore.localization import message
+from omnicore.pairing import private_peer
 
 
 def error_response(code: str, status: int, language: str | None = None) -> JSONResponse:
@@ -21,9 +23,10 @@ def error_response(code: str, status: int, language: str | None = None) -> JSONR
 
 
 class SecurityBoundary:
-    def __init__(self, app: ASGIApp, config: RuntimeConfig):
+    def __init__(self, app: ASGIApp, config: RuntimeConfig, device_auth=None):
         self.app = app
         self.config = config
+        self.device_auth = device_auth
         self.origins = set(config.allowed_origins)
         self.hosts = {host.lower() for host in config.allowed_hosts}
         if config.host not in {"0.0.0.0", "::"}:  # noqa: S104 — comparison, not a binding.
@@ -56,9 +59,20 @@ class SecurityBoundary:
             host = None
         if host not in self.hosts:
             code, status = "forbidden_host", 403
-        if self.config.api_token and not preflight:
-            if not secrets.compare_digest(token.encode(), self.config.api_token.encode()):
+        redeem = (
+            not websocket
+            and scope["method"] == "POST"
+            and scope["path"] == "/api/v1/pairing/redeem"
+        )
+        if self.config.api_token and not preflight and not redeem:
+            master = secrets.compare_digest(token.encode(), self.config.api_token.encode())
+            paired = (
+                not master and self.device_auth and await run_in_threadpool(self.device_auth, token)
+            )
+            if not master and not paired:
                 code, status = "unauthorized", 401
+        if self.config.lan_only and not private_peer((scope.get("client") or ("",))[0]):
+            code, status = "forbidden_network", 403
         if code is None and "origin" in headers and headers["origin"] not in self.origins:
             code, status = "forbidden_origin", 403
         if code:
@@ -96,4 +110,12 @@ class SecurityBoundary:
                 return {"type": "http.request", "body": bytes(body), "more_body": False}
             return await receive()
 
-        await self.app(scope, bounded_receive, send)
+        async def private_send(event):
+            if event["type"] == "http.response.start" and scope["path"].startswith(
+                "/api/v1/pairing/"
+            ):
+                event = dict(event)
+                event["headers"] = [*event.get("headers", []), (b"cache-control", b"no-store")]
+            await send(event)
+
+        await self.app(scope, bounded_receive, private_send)

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "omnicore"
-version = "0.1.0rc3"
+version = "0.1.0rc4"
 description = "Local AI platform with a native Linux desktop client"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -22,7 +22,7 @@ omnicore = "omnicore.cli:main"
 omnicore-desktop = "omnicore.desktop.main:main"
 
 [project.optional-dependencies]
-desktop = ["PySide6-Essentials==6.8.3"]
+desktop = ["PySide6-Essentials==6.8.3", "qrcode>=8.2,<9"]
 
 [dependency-groups]
 dev = [

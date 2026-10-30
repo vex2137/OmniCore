@@ -170,6 +170,12 @@ fun acceptSnapshot(previous: Generation?, next: Generation): Boolean =
 
 @Serializable data class ParameterSelection(val parameters: Parameters)
 
+@Serializable data class HistorySettings(@SerialName("auto_title") val autoTitle: Boolean = true)
+@Serializable data class HistoryDelete(val confirmed: Boolean, @SerialName("expected_count") val expectedCount: Int)
+@Serializable data class PairingCode(val code: String)
+@Serializable data class PairingCredential(@SerialName("device_id") val deviceId: String, val token: String)
+@Serializable data class PairingQr(val omnicore: Int, val url: String, val code: String, @SerialName("expires_at") val expiresAt: Double)
+
 @Serializable
 data class Health(
     val status: String,
@@ -229,4 +235,9 @@ fun Parameters.valid(): Boolean =
         topP <= 1 &&
         maxTokens in 1..32768 &&
         context in 128..131072 &&
-        systemPrompt.length <= 16384
+        systemPrompt.length <= 16384 &&
+        gpuLayers in 0..999 &&
+        device.matches(Regex("^(cpu|auto|[A-Za-z0-9][A-Za-z0-9_.:-]{0,63})$"))
+
+fun Parameters.forBackend(backend: String?): Parameters =
+    if (backend == "ollama") copy(device = "cpu", gpuLayers = 0) else this

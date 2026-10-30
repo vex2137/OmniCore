@@ -51,6 +51,12 @@ TEXT_MIGRATIONS = (
         request_key TEXT PRIMARY KEY, job_id TEXT NOT NULL, fingerprint TEXT NOT NULL
     );
     """,
+    """
+    CREATE TABLE text_history_settings (
+        id INTEGER PRIMARY KEY CHECK(id=1), auto_title INTEGER NOT NULL
+    );
+    INSERT INTO text_history_settings VALUES(1,1);
+    """,
 )
 
 

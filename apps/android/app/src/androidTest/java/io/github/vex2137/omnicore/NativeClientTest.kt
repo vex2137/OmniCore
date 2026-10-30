@@ -21,6 +21,8 @@ import org.junit.runner.RunWith
 class NativeClientTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private val token = "a".repeat(48)
+    @Volatile private var parameters = Parameters()
+    @Volatile private var requestedParameters: Parameters? = null
     @Volatile private var exists = false
     @Volatile private var title = "New conversation"
     @Volatile private var selectedModelId = "m1"
@@ -34,7 +36,7 @@ class NativeClientTest {
     private fun transfer() =
         """{"id":"d","source":{"repository":"owner/repo","revision":"abc","filename":"model.gguf","size_bytes":123},"state":"$downloadState","received_bytes":60,"percent":48}"""
 
-    private fun conversation() = """{"id":"c1","title":"$title","model_id":"$selectedModelId"}"""
+    private fun conversation() = WireJson.encodeToString(Conversation.serializer(), Conversation("c1", title, parameters, selectedModelId))
 
     private fun job(
         state: String = jobState,
@@ -72,6 +74,7 @@ class NativeClientTest {
                         }
                         path == "/api/v1/text/downloads" ->
                             json(if (downloaded) "[${transfer()}]" else "[]")
+                        path == "/api/v1/text/history/settings" -> json("""{"auto_title":true}""")
                         path == "/api/v1/text/diagnostics" -> json("""{"generations":[]}""")
                         path == "/api/v1/text/huggingface/files" ->
                             json(
@@ -89,11 +92,18 @@ class NativeClientTest {
                             exists = true
                             json(conversation()).setResponseCode(201)
                         }
+                        path == "/api/v1/text/conversations" && request.method == "DELETE" -> {
+                            exists = false
+                            content = ""
+                            jobState = "cancelled"
+                            json("""{"deleted":1}""")
+                        }
                         path == "/api/v1/text/conversations" ->
                             json(if (exists) "[${conversation()}]" else "[]")
                         path == "/api/v1/text/conversations/c1" && request.method == "PATCH" -> {
                             val patch =
                                 WireJson.parseToJsonElement(request.body.readUtf8()).jsonObject
+                            patch["parameters"]?.let { parameters = WireJson.decodeFromString<Parameters>(it.toString()) }
                             patch["title"]?.let { title = it.jsonPrimitive.content }
                             patch["model_id"]?.let { selectedModelId = it.jsonPrimitive.content }
                             json(conversation())
@@ -110,11 +120,9 @@ class NativeClientTest {
                                     """[{"id":"u","role":"user","content":"$content"},{"id":"a","role":"assistant","content":"Hello from backend","generation_id":"j$generationNumber","status":"${if(jobState == "cancelled") "cancelled" else "completed"}"}]"""
                             )
                         path.endsWith("/generations") && request.method == "POST" -> {
-                            content =
-                                WireJson.parseToJsonElement(request.body.readUtf8())
-                                    .jsonObject["content"]!!
-                                    .jsonPrimitive
-                                    .content
+                            val submitted = WireJson.decodeFromString<GenerationRequest>(request.body.readUtf8())
+                            content = submitted.content
+                            requestedParameters = submitted.parameters
                             generationNumber++
                             jobState = "running"
                             json(job(answer = "", sequence = 0)).setResponseCode(202)
@@ -185,8 +193,19 @@ class NativeClientTest {
                 compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty()
             }
             assertEquals("m2", selectedModelId)
+            compose.onNodeWithTag("nav_3").performClick()
+            compose.onNodeWithTag("device_cuda").performScrollTo().performClick()
+            compose.waitUntil(10000) { parameters.device == "cuda" && compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty() }
+            compose.onNodeWithTag("gpu_layers").performScrollTo().performTextClearance()
+            compose.onNodeWithTag("gpu_layers").performTextInput("23")
+            compose.onNodeWithTag("parameters_save").performScrollTo().performClick()
+            compose.waitUntil(10000) { parameters.gpuLayers == 23 && compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty() }
+            compose.onNodeWithTag("nav_1").performClick()
             compose.onNodeWithTag("composer").performTextInput("Hello")
             compose.onNodeWithTag("send").performClick()
+            compose.waitUntil(10000) { requestedParameters != null }
+            assertEquals("cuda", requestedParameters?.device)
+            assertEquals(23, requestedParameters?.gpuLayers)
             compose.waitUntil(15000) {
                 compose.onAllNodesWithText("Completed").fetchSemanticsNodes().isNotEmpty()
             }
@@ -288,6 +307,15 @@ class NativeClientTest {
                         .isNotEmpty()
             }
             compose.onNodeWithText("Hello from backend").assertDoesNotExist()
+            compose.onNodeWithTag("new_chat").performClick()
+            compose.waitUntil(10000) { exists && compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty() }
+            compose.onNodeWithTag("nav_3").performClick()
+            compose.onNodeWithTag("delete_all_chats").performScrollTo().performClick()
+            compose.onNodeWithText("Cancel", useUnmergedTree = true).performClick()
+            assertTrue(exists)
+            compose.onNodeWithTag("delete_all_chats").performScrollTo().performClick()
+            compose.onNodeWithTag("confirm_delete_all").performClick()
+            compose.waitUntil(10000) { !exists && compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty() }
         } catch (failure: Throwable) {
             // Capture fixture pixels before querying Compose, which itself may not be idle.
             runCatching {

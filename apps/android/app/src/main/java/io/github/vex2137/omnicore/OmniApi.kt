@@ -211,6 +211,20 @@ class OmniApi(
         )
     }
 
+    override suspend fun historySettings(): HistorySettings =
+        WireJson.decodeFromString(exchange("GET", "/api/v1/text/history/settings"))
+
+    override suspend fun saveHistorySettings(value: HistorySettings) {
+        exchange("PUT", "/api/v1/text/history/settings", WireJson.encodeToString(value))
+    }
+
+    override suspend fun deleteAll(expectedCount: Int) {
+        exchange("DELETE", "/api/v1/text/conversations", WireJson.encodeToString(HistoryDelete(true, expectedCount)))
+    }
+
+    override suspend fun redeemPairing(code: String): PairingCredential =
+        WireJson.decodeFromString(exchange("POST", "/api/v1/pairing/redeem", WireJson.encodeToString(PairingCode(code))))
+
     private fun query(value: String) = java.net.URLEncoder.encode(value, "UTF-8")
 
     override suspend fun search(query: String): List<HubRepository> =

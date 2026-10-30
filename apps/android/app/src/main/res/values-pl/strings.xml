@@ -157,9 +157,26 @@ Pobrać ten plik na komputer backendu?</string>
   <string name="mode_cpu">CPU</string>
   <string name="mode_cuda">CUDA</string>
   <string name="error_gpu">Backend nie mógł użyć GPU. Wybierz Auto dla fallback CPU lub sprawdź diagnostykę silnika na komputerze.</string>
-  <string name="launcher_name">OmniCore RC3</string>
+  <string name="launcher_name">OmniCore RC4</string>
   <string name="test_connection">Test połączenia</string>
   <string name="connection_test_passed">Test połączenia zakończony pomyślnie. Ustawienia nie zostały zmienione.</string>
   <string name="connection_test_running">Testowanie połączenia…</string>
   <string name="connection_test_failed">Test połączenia nie powiódł się. Sprawdź komunikat błędu.</string>
+    <string name="gpu_layers">Warstwy GPU</string>
+    <string name="gpu_layers_hint">0–999; 99 żąda wszystkich dostępnych warstw. Zapisz, aby zastosować własną liczbę.</string>
+    <string name="selected_device">Wybrany tryb przetwarzania</string>
+    <string name="execution_device">Rzeczywiste urządzenie wykonania</string>
+    <string name="pair_phone">Sparuj z komputerem (QR)</string>
+    <string name="scan_pairing">Zeskanuj kod QR w OmniCore → Serwer i urządzenia</string>
+    <string name="pairing_confirm">Połączyć z %1$s? Sprawdź, czy ten adres należy do Twojego komputera. Paruj tylko w zaufanej sieci lokalnej; HTTP nie szyfruje ruchu. Otrzymasz dostęp do wspólnej historii.</string>
+    <string name="pairing_invalid">Błędny lub wygasły kod parowania. Utwórz nowy kod na komputerze.</string>
+    <string name="auto_title">Automatycznie generuj nazwy rozmów</string>
+    <string name="delete_all_chats">Usuń wszystkie rozmowy</string>
+    <string name="delete_all_confirm">Trwale usunąć wszystkie rozmowy (%1$d) i ich wiadomości? Ta operacja jest nieodwracalna. Aktywne generowanie zostanie anulowane. Modele, pobrane pliki i ustawienia pozostaną.</string>
+    <string name="pairing_rate_limited">Zbyt wiele prób parowania. Poczekaj minutę i utwórz nowy kod.</string>
+    <string name="history_changed">Historia zmieniła się na innym urządzeniu. Odśwież i ponownie potwierdź usunięcie.</string>
+    <string name="fallback_gpu_unavailable">GPU jest niedostępne na komputerze backendu. Tryb Auto wybrał CPU.</string>
+    <string name="fallback_offload_unverified">Silnik nie potwierdził przeniesienia warstw na GPU. Tryb Auto wybrał CPU.</string>
+    <string name="fallback_cuda_runtime">Silnik CUDA nie mógł wystartować z zainstalowanymi bibliotekami. Tryb Auto wybrał CPU.</string>
+    <string name="fallback_other">Tryb Auto wybrał CPU po błędzie GPU (%1$s).</string>
 </resources>

@@ -57,5 +57,11 @@
   "error.engine_invalid_response": "The inference engine returned an invalid response.",
   "error.gpu_offload_unverified": "The engine did not confirm moving any layers to GPU. Auto can use CPU; check GPU settings and engine compatibility.",
   "error.cuda_runtime_unavailable": "The CUDA engine cannot load its runtime libraries or driver. Check diagnostics or use Auto/CPU.",
-  "error.gpu_layers_required": "Select at least one GPU layer to require CUDA."
+  "error.gpu_layers_required": "Select at least one GPU layer to require CUDA.",
+  "error.pairing_invalid": "The pairing code is invalid, expired, cancelled or already used. Create a new code.",
+  "error.pairing_rate_limited": "Too many pairing attempts. Wait one minute.",
+  "error.history_changed": "History changed on another device. Refresh and confirm deletion again.",
+  "error.forbidden_network": "This server accepts private LAN connections only.",
+  "error.pairing_admin_required": "Manage pairing from the computer that owns the server.",
+  "error.pairing_lan_required": "Enable the private LAN server before pairing."
 }
