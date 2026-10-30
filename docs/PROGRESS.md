@@ -1148,3 +1148,51 @@ Faktyczne testy instrumentacyjne na emulatorze nie były uruchamiane: brak /dev/
 Testy kamery, fizycznego Androida, RTX4060 i natywnego CachyOS pozostają niewykonane.
 Silnik CPU llama.cpp z przypiętego commita zbudowano; wyniki paczek zostaną zapisane
 w kolejnym punkcie kontrolnym. Nie publikowano wydania ani Stable.
+
+
+### RC.4 — końcowy checkpoint paczek i CI
+
+Kanoniczny kod paczek: **`f9c3386f0ad13c2c903a9b944f607f8af47bad49`**.
+Wypchnięte commity funkcji: `8256d3e`, `d0c54ac`; dodatkowo `65c8b31` usuwa stare
+napisy wersji w GUI, a `f9c3386` domyka sprzątanie workerów przed usunięciem historii.
+Późniejszy commit tego raportu nie zmienia kodu paczek.
+
+- [Backend CI](https://github.com/vex2137/OmniCore/actions/runs/41077175040): SUCCESS.
+- [Linux CI](https://github.com/vex2137/OmniCore/actions/runs/41077175089): SUCCESS,
+  **223 PASS, 0 FAIL/ERROR/SKIP** na rzeczywistym Qt xcb/Xvfb, budowa silnika CPU i
+  rzeczywistego AppImage oraz start/restart, HTTP, --serve, autoryzacja, odmowa
+  duplikatu i dołączenie GUI bez zatrzymania obcego backendu PASS.
+- [Android CI](https://github.com/vex2137/OmniCore/actions/runs/41077175081): SUCCESS,
+  **60 JVM PASS**, lint i oba buildy PASS; **2 UI PASS na API 30 oraz 2 UI PASS na API 36**,
+  0 FAIL/ERROR/SKIP według pobranych XML wybranego runu. Rozszerzony test UI obejmuje
+  zapis CUDA/23 warstw i snapshot żądania oraz anulowanie/potwierdzenie usuwania całości.
+  Emulator korzysta z kontrolowanego backendu; nie potwierdza CUDA ani kamery.
+- [Wysłanie artefaktów](https://github.com/vex2137/OmniCore/actions/runs/41078896686):
+  SUCCESS. Szkic RC.4, ID **429156174**, **draft=true**, 11 załączników. Nie opublikowano
+  nowego release ani Stable i nie scalono PR #8. Poprzednie wydania pozostają bez zmian.
+  Bezpośredni upload z Cloud miał 401 dla uploads.github.com, dlatego użyto
+  istniejącego workflow z tokenem Actions. Pierwsza walidacja uploadu wykryła
+  zmieniony przez edycję roboczy tag szkicu; poprawiono jawnie tag RC.4 i ponowiono
+  dopiero po potwierdzeniu metadanych. Żaden z tych błędów nie dotyczył testów aplikacji.
+
+Kanoniczne pliki pobrano z CI, sprawdzono manifesty źródła i SHA-256, a następnie
+porównano ich rozmiary i hashe z digestami załączników szkicu GitHuba:
+
+| Plik | B | SHA-256 |
+| --- | ---: | --- |
+| OmniCore-0.1.0-rc.4-x86_64.AppImage | 98802168 | `f233e1ddb1c5b6472893658419ce91d31ce3fe20a75b0d6077950aa2948a84b5` |
+| OmniCore-0.1.0-rc.4-android-arm64.apk | 18592633 | `9f42e2f7588ba7595e05432f09aaf68304d2125c27fe53ab840867cde46c1a14` |
+
+Lokalne buildy Cloud mają własne sumy i testowy klucz APK; nie są bajtowo tożsame
+z plikami CI wskazanymi powyżej. AppImage z CI ma silnik CPU, bez wag. Załączony
+opcjonalny silnik CUDA SM89 pochodzi z wcześniejszego, udanego runu 40914492143;
+nie jest nowym testem inferencji GPU. APK RC.4 jest testowo podpisany, ID `.rc4`,
+versionCode 7; nie zastępuje bezpiecznie owner-signed aplikacji innym kluczem.
+
+Fizyczny Android, skanowanie QR kamerą, RTX4060/VRAM/offload, natywne CachyOS i
+jakość tytułów z rzeczywistym modelem pozostają do akceptacji właściciela. LAN HTTP
+jest nieszyfrowany i wymaga zaufanej sieci. Odwołanie tokenu blokuje nowe żądania;
+wcześniej otwarty strumień kończy się według swojego cyklu życia. Sparowane urządzenia
+współdzielą historię, nie otrzymują osobnych kont. Tekstowa migracja 3→4 jest addytywna
+transakcyjna; przed powrotem do starego backendu zachowaj kopię danych — starszy
+backend bezpiecznie odmawia pracy z nowszym schematem, nie wykonuje downgrade.

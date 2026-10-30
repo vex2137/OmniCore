@@ -142,3 +142,10 @@ RC.4 obejmuje parametry GPU Androida, zarządzanie LAN/QR i funkcje historii.
 - [ ] Osobna zgoda na publiczne wydanie i Stable.
 
 Testy JVM/Qt/backendu i build APK nie zastępują kamery, telefonu ani GPU.
+
+
+RC.4: kanoniczne paczki kodu `f9c3386f0ad13c2c903a9b944f607f8af47bad49` są w
+niepublicznym szkicu ID 429156174 na [liście wydań właściciela](https://github.com/vex2137/OmniCore/releases).
+Backend/Linux/Android i wysłanie załączników mają SUCCESS; 223 Python/Qt,
+60 JVM oraz 2+2 UI emulatorów PASS. Sumy, rozmiary i runy są w PROGRESS.md.
+To kandydat do testów właściciela, nie zatwierdzenie sprzętu lub publikacji.
