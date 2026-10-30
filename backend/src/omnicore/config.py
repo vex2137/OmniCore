@@ -22,6 +22,7 @@ class RuntimeConfig:
     host: str = "127.0.0.1"
     port: int = 8000
     allow_remote: bool = False
+    lan_only: bool = False
     api_token: str | None = field(default=None, repr=False)
     allowed_origins: tuple[str, ...] = ()
     allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "::1")
@@ -73,6 +74,7 @@ class RuntimeConfig:
             host=os.environ.get("OMNICORE_HOST", "127.0.0.1"),
             port=int(os.environ.get("OMNICORE_PORT", "8000")),
             allow_remote=os.environ.get("OMNICORE_ALLOW_REMOTE") == "1",
+            lan_only=os.environ.get("OMNICORE_LAN_ONLY") == "1",
             api_token=os.environ.get("OMNICORE_API_TOKEN"),
             allowed_origins=tuple(
                 origin.strip()

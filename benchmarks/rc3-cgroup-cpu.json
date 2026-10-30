@@ -1,0 +1,73 @@
+{
+  "date": "2026-10-30",
+  "platform": "Cloud Linux CPU only; not RTX4060 or CachyOS",
+  "model": "SmolLM2-135M-Instruct-Q4_K_M.gguf",
+  "logical_cpus": 5,
+  "affinity_cpus": 5,
+  "visible_cpu_max": "400000 100000",
+  "native_default_threads_observed": 5,
+  "before": {
+    "scenario": "Frozen GUI 48-token GGUF smoke concurrently with frozen hardware CPU/Auto 32-token tests; GUI failed its 180-second smoke deadline.",
+    "hardware_metrics": [
+      {
+        "mode": "cpu",
+        "passed": true,
+        "output_tokens": 32,
+        "generation_seconds": 177.27430895800353,
+        "tokens_per_second": 0.19383063839133677,
+        "ttft_seconds": 17.328402471001027
+      },
+      {
+        "mode": "auto",
+        "passed": true,
+        "output_tokens": 32,
+        "generation_seconds": 3.255462505010655,
+        "tokens_per_second": 49.09374529848205,
+        "ttft_seconds": 2.6188201230106642
+      }
+    ]
+  },
+  "after": {
+    "scenario": "Local prototype frozen GUI/hardware workloads concurrently, with threads4/batch4/poll0; both passed. The local CPU engine build is not byte-identical to the CI baseline.",
+    "hardware_metrics": [
+      {
+        "mode": "cpu",
+        "passed": true,
+        "output_tokens": 32,
+        "generation_seconds": 13.07765818599728,
+        "tokens_per_second": 32.59897996740102,
+        "ttft_seconds": 12.121265604000655
+      },
+      {
+        "mode": "auto",
+        "passed": true,
+        "output_tokens": 32,
+        "generation_seconds": 4.450104092000402,
+        "tokens_per_second": 30.914151401557874,
+        "ttft_seconds": 3.439512607001234
+      }
+    ]
+  },
+  "limitations": "Single warm-cache observations; scheduling uncontrolled, workloads/build contexts differ. This is evidence of the restricted-CPU regression, not a general speedup claim. Final canonical CI binaries must also pass the overlapping workload; see validation report. Unrestricted thread selection is preserved.",
+  "same_ci_engine_source_test": {
+    "scenario": "Two concurrent source-API CPU32 jobs using the CPU binary extracted from the baseline CI AppImage; both passed. Different workload from the GUI/acceptance overlap.",
+    "metrics": [
+      {
+        "mode": "cpu",
+        "passed": true,
+        "output_tokens": 32,
+        "generation_seconds": 12.559815107000759,
+        "tokens_per_second": 3.1960591559620166,
+        "ttft_seconds": 2.9246958669973537
+      },
+      {
+        "mode": "cpu",
+        "passed": true,
+        "output_tokens": 32,
+        "generation_seconds": 12.839032981995842,
+        "tokens_per_second": 3.1743915484999414,
+        "ttft_seconds": 3.118381406995468
+      }
+    ]
+  }
+}

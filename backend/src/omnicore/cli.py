@@ -7,6 +7,7 @@ from pathlib import Path
 import uvicorn
 
 from omnicore.app import create_app
+from omnicore.backend_lock import discover_backend
 from omnicore.config import RuntimeConfig
 
 
@@ -22,6 +23,12 @@ def main() -> None:
         config = replace(config, **overrides)
     except ValueError as exc:
         parser.error(str(exc))
+    try:
+        occupied = discover_backend(config.data_dir) is not None
+    except OSError:
+        parser.exit(74, "OmniCore: backend_lock_error; check data directory permissions.\n")
+    if occupied:
+        parser.exit(73, "OmniCore: backend_in_use; configure the existing server connection.\n")
     uvicorn.run(
         create_app(config),
         host=config.host,

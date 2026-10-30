@@ -173,7 +173,10 @@ def main():
         else None
     )
     window.show()
-    QTimer.singleShot(0, session.start)
+    if config.auto_start_backend or smoke:
+        QTimer.singleShot(0, session.start)
+    else:
+        window.backend_state("disconnected")
     result = app.exec()
     lock.unlock()
     return (0 if smoke.ok else 1) if smoke else result

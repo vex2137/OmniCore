@@ -13,40 +13,51 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun GenerationSettings(s: UiState, vm: OmniViewModel) {
+    var defaults by rememberSaveable { mutableStateOf(false) }
+    val editingDefaults = defaults || s.selectedConversation == null
+    val effective = if (editingDefaults) s.defaultParameters else s.parameters
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(selected = editingDefaults, onClick = { defaults = true }, label = { Text(stringResource(R.string.parameters_defaults)) })
+        if (s.selectedConversation != null) FilterChip(selected = !editingDefaults, onClick = { defaults = false }, label = { Text(stringResource(R.string.parameters_conversation)) })
+    }
     var temperature by
-        rememberSaveable(s.parameters) { mutableStateOf(s.parameters.temperature.toString()) }
-    var topP by rememberSaveable(s.parameters) { mutableStateOf(s.parameters.topP.toString()) }
+        remember(s.selectedConversation, editingDefaults, effective) { mutableStateOf(effective.temperature.toString()) }
+    var topP by remember(s.selectedConversation, editingDefaults, effective) { mutableStateOf(effective.topP.toString()) }
     var tokens by
-        rememberSaveable(s.parameters) { mutableStateOf(s.parameters.maxTokens.toString()) }
+        remember(s.selectedConversation, editingDefaults, effective) { mutableStateOf(effective.maxTokens.toString()) }
     var context by
-        rememberSaveable(s.parameters) { mutableStateOf(s.parameters.context.toString()) }
-    var device by rememberSaveable(s.parameters) { mutableStateOf(s.parameters.device) }
-    val llama = s.models.firstOrNull { it.id == s.selectedModel }?.backend != "ollama"
-    var thinking by rememberSaveable(s.parameters) { mutableStateOf(s.parameters.thinking) }
-    var prompt by rememberSaveable(s.parameters) { mutableStateOf(s.parameters.systemPrompt) }
+        remember(s.selectedConversation, editingDefaults, effective) { mutableStateOf(effective.context.toString()) }
+    // Device selection is the saved backend/default snapshot, never a restored form draft.
+    val device = effective.device
+    var layers by remember(s.selectedConversation, editingDefaults, effective) {
+        mutableStateOf(effective.gpuLayers.toString())
+    }
+    val llama = s.models.firstOrNull { it.id == s.selectedModel }?.backend.let { it == null || it == "llama.cpp" }
+    var thinking by remember(s.selectedConversation, editingDefaults, effective) { mutableStateOf(effective.thinking) }
+    var prompt by remember(s.selectedConversation, editingDefaults, effective) { mutableStateOf(effective.systemPrompt) }
     val parameters =
-        s.parameters.copy(
+        effective.copy(
             temperature = temperature.toDoubleOrNull() ?: Double.NaN,
             topP = topP.toDoubleOrNull() ?: Double.NaN,
             maxTokens = tokens.toIntOrNull() ?: 0,
             context = context.toIntOrNull() ?: 0,
             systemPrompt = prompt,
             thinking = thinking,
-            device = if (llama) device else s.parameters.device,
+            device = if (llama) device else effective.device,
             gpuLayers =
-                if (!llama) s.parameters.gpuLayers
-                else if (device == "cpu") 0 else s.parameters.gpuLayers.takeIf { it > 0 } ?: 99,
+                if (!llama) effective.gpuLayers
+                else if (device == "cpu") 0 else layers.toIntOrNull() ?: -1,
         )
     Text(stringResource(R.string.generation), style = MaterialTheme.typography.titleMedium)
     Text(
         stringResource(
-            if (s.selectedConversation != null) R.string.parameters_conversation
+            if (!editingDefaults) R.string.parameters_conversation
             else R.string.parameters_defaults
         ),
         style = MaterialTheme.typography.bodySmall,
     )
     if (llama) {
-        Text(stringResource(R.string.processing_backend))
+        Text(stringResource(R.string.selected_device))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(
                     "auto" to R.string.mode_auto,
@@ -56,11 +67,26 @@ fun GenerationSettings(s: UiState, vm: OmniViewModel) {
                 .forEach { (mode, label) ->
                     FilterChip(
                         selected = device == mode || (mode == "cuda" && device.startsWith("CUDA")),
-                        onClick = { device = mode },
+                        onClick = {
+                            val count = if (mode == "cpu") 0 else layers.toIntOrNull()?.takeIf { it > 0 } ?: 99
+                            // Persist selection before leaving this screen or sending a prompt.
+                            vm.parameters(parameters.copy(device = mode, gpuLayers = count), editingDefaults)
+                        },
+                        enabled = !s.busy && !s.generating && (s.connected || editingDefaults),
                         label = { Text(stringResource(label)) },
+                        modifier = Modifier.testTag("device_$mode"),
                     )
                 }
         }
+        OutlinedTextField(
+            layers,
+            { layers = it.take(3) },
+            label = { Text(stringResource(R.string.gpu_layers)) },
+            supportingText = { Text(stringResource(R.string.gpu_layers_hint)) },
+            enabled = device != "cpu",
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth().testTag("gpu_layers"),
+        )
     }
     listOf(
             Triple(R.string.temperature, temperature, { value: String -> temperature = value }),
@@ -93,12 +119,12 @@ fun GenerationSettings(s: UiState, vm: OmniViewModel) {
     if (!parameters.valid())
         Text(stringResource(R.string.error_parameters), color = MaterialTheme.colorScheme.error)
     Button(
-        onClick = { vm.parameters(parameters) },
+        onClick = { vm.parameters(parameters, editingDefaults) },
         enabled =
             parameters.valid() &&
                 !s.busy &&
                 !s.generating &&
-                (s.connected || s.selectedConversation == null),
+                (s.connected || editingDefaults),
         modifier = Modifier.testTag("parameters_save"),
     ) {
         Text(stringResource(R.string.save_parameters))

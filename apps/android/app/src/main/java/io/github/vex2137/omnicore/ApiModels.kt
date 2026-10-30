@@ -93,6 +93,8 @@ data class GenerationStatistics(
     @SerialName("context_limit_tokens") val contextLimitTokens: Int? = null,
     @SerialName("finish_reason") val finishReason: String? = null,
     @SerialName("tokens_per_second") val tokensPerSecond: Double? = null,
+    @SerialName("execution_provider") val executionProvider: String? = null,
+    @SerialName("execution_model") val executionModel: String? = null,
 )
 
 @Serializable
@@ -118,6 +120,8 @@ data class Generation(
     @SerialName("context_used_tokens") val contextUsedTokens: Int? = null,
     @SerialName("context_limit_tokens") val contextLimitTokens: Int? = null,
     @SerialName("finish_reason") val finishReason: String? = null,
+    @SerialName("execution_provider") val executionProvider: String? = null,
+    @SerialName("execution_model") val executionModel: String? = null,
 ) {
     fun statistics() =
         GenerationStatistics(
@@ -134,6 +138,8 @@ data class Generation(
             contextLimitTokens,
             finishReason,
             tokensPerSecond,
+            executionProvider = executionProvider,
+            executionModel = executionModel,
         )
 
     val terminal: Boolean
@@ -169,6 +175,20 @@ fun acceptSnapshot(previous: Generation?, next: Generation): Boolean =
         (next.sequence >= previous.sequence && (!previous.terminal || next.terminal))
 
 @Serializable data class ParameterSelection(val parameters: Parameters)
+
+@Serializable data class HistorySettings(@SerialName("auto_title") val autoTitle: Boolean = true, @SerialName("title_max_length") val titleMaxLength: Int = 42)
+@Serializable data class HistoryDelete(val confirmed: Boolean, @SerialName("expected_count") val expectedCount: Int)
+@Serializable data class PairingCode(val code: String, val nonce: String? = null) { override fun toString() = "PairingCode(redacted)" }
+@Serializable data class PendingPairing(val qr: String, val nonce: String) { override fun toString() = "PendingPairing(redacted)" }
+@Serializable data class ProviderInfo(val id: String, val kind: String, val label: String, val endpoint: String,
+    @SerialName("key_present") val keyPresent: Boolean = false, val sampling: Boolean = false)
+@Serializable data class ProviderInput(val kind: String, val label: String, val endpoint: String,
+    @SerialName("api_key") val apiKey: String? = null, @SerialName("clear_key") val clearKey: Boolean = false,
+    val sampling: Boolean = false) { override fun toString() = "ProviderInput(kind=$kind, key=redacted)" }
+@Serializable data class CloudModelSelection(@SerialName("model_id") val modelId: String, @SerialName("confirmed_external") val confirmedExternal: Boolean = true)
+
+@Serializable data class PairingCredential(@SerialName("device_id") val deviceId: String, val token: String) { override fun toString() = "PairingCredential(redacted)" }
+@Serializable data class PairingQr(val omnicore: Int, val url: String, val code: String, @SerialName("expires_at") val expiresAt: Double) { override fun toString() = "PairingQr(redacted)" }
 
 @Serializable
 data class Health(
@@ -229,4 +249,9 @@ fun Parameters.valid(): Boolean =
         topP <= 1 &&
         maxTokens in 1..32768 &&
         context in 128..131072 &&
-        systemPrompt.length <= 16384
+        systemPrompt.length <= 16384 &&
+        gpuLayers in 0..999 &&
+        device.matches(Regex("^(cpu|auto|[A-Za-z0-9][A-Za-z0-9_.:-]{0,63})$"))
+
+fun Parameters.forBackend(backend: String?): Parameters =
+    if (backend == "ollama") copy(device = "cpu", gpuLayers = 0) else this

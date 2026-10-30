@@ -7,14 +7,14 @@ from pathlib import Path
 import pytest
 
 from omnicore.text.engines import LlamaEngine
-from omnicore.text.native import engine_candidates, native_environment
+from omnicore.text.native import engine_candidates, native_environment, restricted_cpu_threads
 from omnicore.text.types import GenerationParameters, TextError
 
 
-def controlled_server(path, *, gpu=False, offload=False):
+def controlled_server(path, *, gpu=False, offload=False, verbose=False):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        f"#!{sys.executable}\nGPU={gpu!r}\nOFFLOAD={offload!r}\n"
+        f"#!{sys.executable}\nGPU={gpu!r}\nOFFLOAD={offload!r}\nVERBOSE={verbose!r}\n"
         + """
 import sys, argparse
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -26,7 +26,9 @@ if '--list-devices' in sys.argv:
  sys.exit(0)
 p=argparse.ArgumentParser(); p.add_argument('--port', type=int)
 a,_=p.parse_known_args()
+assert sys.argv[sys.argv.index('-lv') + 1] == '4'
 if OFFLOAD: print('load_tensors: offloaded 20/30 layers to GPU', file=sys.stderr, flush=True)
+if VERBOSE: sys.stderr.write('private prompt text ' * 100000); sys.stderr.flush()
 class Handler(BaseHTTPRequestHandler):
  def do_GET(self):
   self.send_response(200); self.end_headers(); self.wfile.write(b'{}')
@@ -63,6 +65,30 @@ def test_bounded_discovery_includes_user_llama_build_without_scanning(tmp_path, 
                 assert engine.offloaded_layers == (0 if device == "cpu" else 20)
         finally:
             await engine.stop()
+
+    asyncio.run(exercise())
+
+
+def test_verbose_engine_output_is_bounded_without_losing_offload_evidence(tmp_path):
+    cuda = controlled_server(tmp_path / "cuda", gpu=True, offload=True, verbose=True)
+
+    async def exercise():
+        engine = LlamaEngine(cuda, startup_timeout=5)
+        try:
+            await engine.load(
+                tmp_path / "fixture.gguf", GenerationParameters(device="cuda", gpu_layers=20)
+            )
+            assert engine.execution_device == "CUDA0"
+            assert engine.offloaded_layers == 20
+            assert 0 < len(engine._log) <= 131072
+            assert b"offloaded" not in engine._log  # Evidence survives eviction from the tail.
+            assert engine._log_task and not engine._log_task.done()
+            process = engine.process
+        finally:
+            await engine.stop()
+        assert process.returncode is not None
+        assert engine._log_task is None
+        assert not engine._log
 
     asyncio.run(exercise())
 
@@ -135,3 +161,33 @@ def test_nested_frozen_guard_removes_internal_from_original_path(monkeypatch):
     )
     assert result["LD_LIBRARY_PATH"] == "/usr/local/cuda/lib64"
     assert result["LD_LIBRARY_PATH_ORIG"] == "/usr/local/cuda/lib64"
+
+
+@pytest.mark.parametrize(
+    "quota,affinity,logical,expected",
+    [
+        ("max 100000", 8, 8, None),
+        ("400000 100000", 8, 8, (4, 4)),
+        ("50000 100000", 8, 8, (1, 1)),
+        ("50000 100000", 1, 1, (1, 1)),
+        ("max 100000", 2, 8, (2, 2)),
+        ("invalid", 8, 8, None),
+    ],
+)
+def test_only_restricted_cpu_pools_are_capped(monkeypatch, quota, affinity, logical, expected):
+    import os
+
+    monkeypatch.setattr(os, "cpu_count", lambda: logical)
+    monkeypatch.setattr(os, "sched_getaffinity", lambda _: set(range(affinity)))
+    monkeypatch.delenv("LLAMA_ARG_THREADS", raising=False)
+    monkeypatch.delenv("LLAMA_ARG_THREADS_BATCH", raising=False)
+    original = Path.read_text
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda p, *a, **k: quota if str(p) == "/sys/fs/cgroup/cpu.max" else original(p, *a, **k),
+    )
+    assert restricted_cpu_threads() == expected
+    if expected:
+        monkeypatch.setenv("LLAMA_ARG_THREADS", "1")
+        assert restricted_cpu_threads() == (1, 1)

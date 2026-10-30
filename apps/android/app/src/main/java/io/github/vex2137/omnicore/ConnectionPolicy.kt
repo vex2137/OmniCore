@@ -38,7 +38,7 @@ object ConnectionPolicy {
         return origin(first) == origin(second)
     }
 
-    private fun privateHost(raw: String): Boolean {
+    internal fun privateHost(raw: String): Boolean {
         val host = raw.removePrefix("[").removeSuffix("]").lowercase()
         if (host == "localhost" || host == "::1") return true
         val octets = host.split('.').map { it.toIntOrNull() ?: return false }

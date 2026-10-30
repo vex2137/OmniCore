@@ -68,7 +68,7 @@ jobs:
           cmake --build "$RUNNER_TEMP/llama.cpp/build" --target llama-server -j 2
       - name: Build AppImage
         run: uv run --frozen python scripts/build_appimage.py --llama-server "$RUNNER_TEMP/llama.cpp/build/bin/llama-server"
-      - name: Run actual AppImage twice and verify persistence and process cleanup
+      - name: Run actual AppImage startup, restart, headless reuse and process cleanup
         run: xvfb-run -a uv run --frozen python scripts/test_appimage.py
       - uses: actions/upload-artifact@v4
         with:

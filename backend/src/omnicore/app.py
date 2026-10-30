@@ -16,11 +16,16 @@ from starlette.exceptions import HTTPException
 from starlette.websockets import WebSocketDisconnect
 
 from omnicore import __version__
+from omnicore.access import routes as access_routes
 from omnicore.adapters import AdapterRegistry
+from omnicore.backend_lock import BackendLease
 from omnicore.config import RuntimeConfig
 from omnicore.database import Database
 from omnicore.events import EventHub
 from omnicore.localization import catalog, message
+from omnicore.pairing import Pairings
+from omnicore.pairing import routes as pairing_routes
+from omnicore.providers.api import routes as provider_routes
 from omnicore.schemas import (
     BackendInfo,
     ClientEvent,
@@ -44,15 +49,19 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
     registry = AdapterRegistry()
     settings_lock = asyncio.Lock()
     text = TextService(db, config, hub)
+    pairings = Pairings(db)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        await run_in_threadpool(db.initialize)
-        try:
-            await run_in_threadpool(text.initialize)
-            yield
-        finally:
-            await text.close()
+        # Enforce this for every ASGI entry point, not only the desktop launcher.
+        with BackendLease(config.data_dir, config.host, config.port):
+            await run_in_threadpool(db.initialize)
+            await run_in_threadpool(pairings.initialize)
+            try:
+                await run_in_threadpool(text.initialize)
+                yield
+            finally:
+                await text.close()
 
     errors = {
         code: {"model": ErrorResponse}
@@ -71,7 +80,11 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
     app.state.registry = registry
     app.state.hub = hub
     app.state.text = text
+    app.state.pairings = pairings
     app.include_router(routes(text))
+    app.include_router(pairing_routes(pairings, config))
+    app.include_router(access_routes(pairings, config))
+    app.include_router(provider_routes(text))
 
     def openapi():
         if app.openapi_schema is None:
@@ -98,7 +111,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         allow_methods=["GET", "PUT", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Accept-Language"],
     )
-    app.add_middleware(SecurityBoundary, config=config)
+    app.add_middleware(SecurityBoundary, config=config, device_auth=pairings.authenticate)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, exc: RequestValidationError):

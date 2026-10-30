@@ -3,13 +3,90 @@
 import argparse
 import json
 import os
+import secrets
 import signal
+import socket
 import subprocess
 import tempfile
+import time
 from pathlib import Path
+
+import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = json.loads((ROOT / "backend/src/omnicore/distribution.json").read_text())["version"]
+
+
+def headless_reuse(image, environment, directory, previous):
+    """Exercise the bundled server and real GUI with the same isolated database."""
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    token = secrets.token_hex(32)
+    server_env = dict(environment)
+    for name in ("DISPLAY", "WAYLAND_DISPLAY", "QT_QPA_PLATFORM"):
+        server_env.pop(name, None)
+    server_env.update(
+        OMNICORE_API_TOKEN=token,
+        OMNICORE_HOST="127.0.0.1",
+        OMNICORE_PORT=str(port),
+        OMNICORE_ALLOWED_HOSTS="127.0.0.1,localhost,::1",
+        OMNICORE_ALLOW_REMOTE="0",
+        OMNICORE_OLLAMA_ENABLED="0",
+    )
+    server = subprocess.Popen(  # noqa: S603 — verified image; token is environment-only.
+        [str(image), "--serve"],
+        env=server_env,
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        with httpx.Client(trust_env=False, timeout=1) as client:
+            url = f"http://127.0.0.1:{port}/api/v1/health"
+            headers = {"Authorization": f"Bearer {token}"}
+            deadline = time.monotonic() + 40
+            while time.monotonic() < deadline:
+                assert server.poll() is None, "Headless AppImage exited during startup"
+                try:
+                    if client.get(url, headers=headers).status_code == 200:
+                        break
+                except httpx.TransportError:
+                    pass
+                time.sleep(0.1)
+            else:
+                raise AssertionError("Headless AppImage startup timeout")
+            assert client.get(url).status_code == 401
+            duplicate = subprocess.run(  # noqa: S603 — no shell or secrets in arguments.
+                [str(image), "--serve"],
+                env=server_env,
+                capture_output=True,
+                timeout=30,
+            )
+            assert duplicate.returncode == 73, "A second backend was not refused"
+            gui_env = {**environment, "OMNICORE_DESKTOP_TOKEN": token}
+            report = directory / "external-gui.json"
+            subprocess.run(  # noqa: S603
+                [str(image), "--smoke-output", str(report)],
+                env=gui_env,
+                check=True,
+                timeout=90,
+            )
+            record = json.loads(report.read_text())
+            assert record["ok"] and not record["owned"], "GUI did not reuse the existing server"
+            assert record["history_digest"] == previous["history_digest"]
+            assert server.poll() is None and client.get(url, headers=headers).status_code == 200
+    finally:
+        if server.poll() is None:
+            os.killpg(server.pid, signal.SIGTERM)
+            try:
+                server.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                os.killpg(server.pid, signal.SIGKILL)
+                server.wait(timeout=10)
+                raise AssertionError("Headless server did not stop safely") from None
+    print("PASS: bundled --serve without display, authentication, duplicate refusal and GUI reuse")
+    return record
 
 
 def main():
@@ -52,9 +129,23 @@ def main():
             environment["PATH"] = "/usr/bin:/bin"
             process = subprocess.Popen(command, env=environment, start_new_session=True)  # noqa: S603
             try:
-                assert process.wait(timeout=220) == 0, "AppImage smoke failed"
+                status = process.wait(timeout=220)
+                if status:
+                    record = json.loads(report.read_text()) if report.is_file() else {}
+                    job = record.get("generation") or {}
+                    # Controlled smoke data only: never dump prompts, paths or credentials.
+                    detail = {
+                        "exit": status,
+                        "stage": record.get("stage"),
+                        "ok": record.get("ok"),
+                        "owned": record.get("owned"),
+                        "generation_state": job.get("state"),
+                        "error_code": job.get("error_code"),
+                    }
+                    raise AssertionError(f"AppImage smoke failed: {detail}")
             except BaseException:
-                os.killpg(process.pid, signal.SIGKILL)
+                if process.poll() is None:
+                    os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=10)
                 raise
             record = json.loads(report.read_text())
@@ -99,6 +190,7 @@ def main():
             check=True,
             timeout=30,
         )
+        result.append(headless_reuse(args.appimage.resolve(), environment, directory, result[-1]))
     (ROOT / "dist/appimage-test.json").write_text(json.dumps(result, indent=2) + "\n")
     print(
         "PASS: actual AppImage startup, HTTP, screenshot, shutdown, restart and persistent catalog"

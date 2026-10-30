@@ -1,6 +1,6 @@
 # OmniCore — ROADMAP
 
-Plan rozwoju lokalnej platformy AI. Wersja rozwojowa: **0.1.0 Alpha**.
+Plan rozwoju lokalnej platformy AI. Wersja rozwojowa: **0.1.0 RC → Stable**.
 Ostatnia aktualizacja: **2026-10-29**.
 
 ## Status i sposób realizacji
@@ -97,7 +97,8 @@ deklarować zgodności modeli na podstawie zmiany języka.
 - [x] Android: język systemowy i trwały wybór, nawigacja, reconnect/statusy/retry/refresh.
 - [x] Opcjonalna binarka CUDA + niezależny CPU, jawny fallback w auto, build SM 89.
 - [x] Zweryfikować kompilację CUDA w CI.
-- [ ] Zweryfikować rzeczywistą inferencję RTX 4060.
+- [x] Właściciel zgłosił test obu GGUF CPU/Auto/CUDA na RTX4060 w PR #6;
+  osobna akceptacja nowej paczki pozostaje bramką Stable.
 - [x] Zbudować i uruchomić AppImage/APK Alpha.3 oraz CI/emulatory (szkic zachowany).
 - [ ] LFM3/Qwen3.5: zweryfikować dokładne pliki użytkownika i powtórzyć dłuższe prompty.
 - [ ] Fizyczne POCO/Xiaomi, CachyOS i NVIDIA: testy na właściwych urządzeniach.
@@ -351,3 +352,59 @@ Nie publikować v0.1.0 przed [potwierdzeniem](RELEASE_GATE.md).
 RC.1 jest udostępniona jako publiczne prerelease z 11 załącznikami. Main zawiera
 implementację po PR #5, CI źródła i main PASS. Następny krok: potwierdzenie raportu
 CachyOS/RTX4060 i telefonu oraz docelowego podpisywania, zgodnie z RELEASE_GATE.md.
+
+
+## Bieżąca sesja Stable — ustalony zakres
+
+- P0: zachować scalone PR #6/#7, ograniczyć log silnika, poprawić odzyskiwanie
+  współdzielonego streamingu Androida i transport SSE Qt; testy i paczki RC.2.
+- P1: brak specyfikacji „wydzielenia paska” i „algorytmu” w dokumentacji,
+  pasującej historii commitów oraz zgłoszeniach repozytorium (brak issues).
+  Nie ustalono, który pasek, ani wejść/wyjść i reguł algorytmu. Pominięte;
+  wymagany jest konkretny widok/komponent oraz przykłady oczekiwanego zachowania.
+- P2: zachować decyzję z pomiarów `benchmarks/linux-cpu-baseline.json` i plan
+  `native/README.md`. Python/FastAPI/SQLite/orkiestracja, C++/CUDA w llama.cpp,
+  Kotlin/Compose/API w Androidzie; Rust dopiero po wykazaniu potrzeby i korzyści.
+  Błąd rosnącego logu usuwa ograniczony bufor i lifecycle asyncio bez nowego ABI.
+- P4: istniejący znak, bez zmiany marki; Android adaptive icon i marginesy.
+- P5: artefakty na GitHubie, PR do zatwierdzenia; brak automatycznego merge
+  ani finalnego tagu/release. Telefon, docelowy podpis i zgoda właściciela są bramkami.
+
+
+RC.2: poprawki P0/P4, CI i kanoniczne paczki kodu 064005b są zweryfikowane.
+Obie paczki i sumy dostarczono do Actions oraz niepublicznego szkicu; PR #8
+pozostaje do przeglądu. Wyniki i aktualne bramki: RELEASE_GATE.md.
+P1 pozostaje bez specyfikacji, P2 bez uzasadnienia Rust. Pozostają test telefonu,
+akceptacja nowej paczki na RTX4060/CachyOS, podpis produkcyjny i zgoda na Stable.
+
+
+## Dodatkowy priorytet — backend i podpis APK
+
+RC.3 zachowuje automatyczny start GUI, dodaje wyłączność bazy/cyklu życia serwera,
+wykrywanie lokalnego portu, stany i retry oraz headless AppImage --serve. Android
+ma odrębny test konfiguracji bez jej nadpisania i reconnect. Nie skanuje LAN.
+Konfiguracja podpisu właściciela, pin certyfikatu, chroniony ręczny job i kontrola
+tożsamości aktualizacji są przygotowane. Produkcyjny klucz nie powstał w Cloud;
+przygotowano instrukcję bezpiecznego utworzenia, dwóch kopii i odzyskiwania.
+Pozostają: rzeczywista konfiguracja/backup klucza, podpis APK, zgodna aktualizacja
+na urządzeniu, akceptacja sprzętowa oraz osobna zgoda na Stable.
+
+
+## RC.4 — parametry Androida, LAN i wspólna historia
+
+Zrealizowany zakres źródeł: natychmiastowy zapis urządzenia Androida, jawny snapshot
+generowania i rozdzielenie domyślnych/rozmowy; serwer LAN zarządzany w Qt z zachowaniem
+własności procesu i blokady danych; jednorazowe parowanie QR oraz skaner Androida;
+wspólne automatyczne tytuły i zbiorcze usuwanie historii. Zachowane CPU i CUDA,
+bez nowego silnika, Rust, Web lub Image AI. RC.4 nie stanowi zgody na Stable.
+Pozostają akceptacja paczek i rzeczywiste CUDA/telefon/kamera oraz podpis właściciela.
+
+
+## RC.5 — parowanie, tokeny i świadomy wybór zewnętrznego AI
+
+Zaimplementowane: bezpieczne odzyskiwanie tej samej wymiany QR, ręczne tokeny z
+zakresami i metadanymi, pięć adapterów API w istniejącej kolejce czatu, konfiguracja
+Linux/Android i systemowy magazyn sekretów, ograniczone tytuły oraz trwały splitter.
+Właściciel potwierdził RC.4 Android/CUDA0/25 warstw/~109 tok./s; RC.5 wymaga osobnej
+akceptacji nowych paczek, kamery i rzeczywistych kont API. Płatnych wywołań Cloud
+nie wykonywał. Nie zmienia to bramki podpisu produkcyjnego i zgody na Stable.
