@@ -259,7 +259,6 @@ class BackendSession(QObject):
             self.closing = False
             self._spawn()
         elif self.closing:
-            self.owned = False
             self.state_changed.emit("disconnected")
             self.stopped.emit()
         else:

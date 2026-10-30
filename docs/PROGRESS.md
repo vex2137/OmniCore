@@ -1070,3 +1070,22 @@ draft, avoiding repeated package rebuilds solely to record their own hashes in G
 Read those checkpoints when continuing; do not attribute RC.2 hashes to RC.3.
 Stable still requires the owner key/backup/signature/update, hardware checks and
 explicit publication approval in RELEASE_GATE. No final v0.1.0 tag/publication.
+
+### RC.3 — packaging regressions found and fixed
+
+CI 83ba1c9 caught a Gradle Kotlin DSL `java` extension shadowing the package in
+`java.io.File`; explicit File import fixes script compilation. Full local Android
+JVM/lint/debug/test-APK build then PASS. Release without secrets still fails closed
+with the intended missing-signing-config message (expected negative check).
+CI also caught ownership being cleared during normal GUI shutdown: the frozen
+report then incorrectly called its own stopped backend external. Preserve creation
+ownership independently of process liveness; new targeted lifecycle suite 6 PASS.
+
+Added a real packaged headless regression: no display, authenticated --serve,
+401 without token, duplicate backend exit73, GUI automatic port discovery/reuse,
+unchanged history and external server still alive after GUI closes, then safe
+server shutdown. Local precommit AppImage with existing real SmolLM2 GGUF passed
+this full flow and original start/restart/library guard checks. This local test
+build is not the canonical downloadable package; final CI rebuild uses committed
+source. Qt/isolated acceptance real GGUF: 2 PASS; actual Kotlin/FastAPI/GGUF: PASS.
+No production key or physical GPU/phone test was added or claimed.

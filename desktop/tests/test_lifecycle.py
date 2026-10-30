@@ -15,6 +15,15 @@ def test_repeated_start_reuses_the_owned_process(desktop, qtbot):
     assert desktop.connection.text() == desktop.tr("connected")
 
 
+def test_safe_stop_preserves_ownership_history_for_packaged_reports(desktop, qtbot):
+    session = desktop.session
+    with qtbot.waitSignal(session.stopped, timeout=12000):
+        session.stop()
+    assert session.process.state() == QProcess.NotRunning
+    assert session.owned  # Identifies who created it, independently of process liveness.
+    assert not desktop.is_connected
+
+
 def test_discover_owned_server_on_random_port_without_starting_or_stopping_another(
     desktop, qtbot, monkeypatch
 ):

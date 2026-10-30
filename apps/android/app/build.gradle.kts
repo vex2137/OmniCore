@@ -1,4 +1,5 @@
 import groovy.json.JsonSlurper
+import java.io.File
 
 plugins {
     id("com.android.application")
@@ -16,7 +17,7 @@ val signingEnv = listOf("OMNICORE_ANDROID_KEYSTORE", "OMNICORE_ANDROID_STORE_PAS
     "OMNICORE_ANDROID_CERT_SHA256").associateWith { System.getenv(it).orEmpty() }
 if (releaseRequested) {
     require(signingEnv.values.all { it.isNotBlank() }) { "Release signing requires all OMNICORE_ANDROID signing variables; no debug fallback." }
-    require(java.io.File(signingEnv.getValue("OMNICORE_ANDROID_KEYSTORE")).isAbsolute) { "Keystore path must be absolute." }
+    require(File(signingEnv.getValue("OMNICORE_ANDROID_KEYSTORE")).isAbsolute) { "Keystore path must be absolute." }
     val keyFile = file(signingEnv.getValue("OMNICORE_ANDROID_KEYSTORE")).canonicalFile
     val projectRoot = rootProject.file("../..").canonicalFile.toPath()
     require(keyFile.isFile && !keyFile.toPath().startsWith(projectRoot)) { "Keystore must exist outside the repository." }
