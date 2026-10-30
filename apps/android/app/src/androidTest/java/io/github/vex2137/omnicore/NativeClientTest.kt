@@ -151,12 +151,21 @@ class NativeClientTest {
             compose.onNodeWithTag("url").performTextInput(server.url("/").toString().trimEnd('/'))
             compose.onNodeWithTag("token").performTextInput(token)
             compose.onNodeWithTag("trusted_lan").performScrollTo().performClick()
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val savedUrl = SecureSettings(context).url
+            compose.onNodeWithTag("test_connection").performScrollTo().performClick()
+            compose.waitUntil(10000) {
+                compose
+                    .onAllNodesWithText(context.getString(R.string.connection_test_passed))
+                    .fetchSemanticsNodes()
+                    .isNotEmpty()
+            }
+            assertEquals(savedUrl, SecureSettings(context).url)
             compose.onNodeWithTag("connect").performScrollTo().assertIsEnabled().performClick()
             compose.waitUntil(15000) {
                 compose.onAllNodesWithText("Connected").fetchSemanticsNodes().isNotEmpty() &&
                     compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty()
             }
-            val context = InstrumentationRegistry.getInstrumentation().targetContext
             val preferences = context.getSharedPreferences("omnicore", 0)
             assertFalse(preferences.all.toString().contains(token))
             assertEquals(token, SecureSettings(context).readToken())

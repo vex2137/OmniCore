@@ -1025,3 +1025,26 @@ scan/mDNS pairing was added: discovering an address does not authenticate a serv
 Manual explicit address remains the simple supported flow.
 Targeted ViewModel22 + resource parity1 = 23 JVM PASS; UI field state changes are
 included in the final native regression/build. No physical phone claim.
+
+### Backend start/signing follow-up — module 3, owner signing preparation
+
+No production key was generated in Cloud: current runtime has no protected signing
+binding/recovery mechanism. ANDROID_SIGNING.md supplies local key generation,
+encrypted backup/recovery verification, environment protection, certificate pinning
+and migration guidance. Gradle release requires owner key/passwords/alias outside
+Git plus explicit stable ID and certificate pin; no debug fallback. Manual main-only
+workflow job references the protected android-release environment, restores a 0600
+key outside checkout, verifies identity/alignment and removes its own temporary key.
+It uploads an artifact only and never publishes a release. Owner must configure
+and approve the environment; this job has not run with an owner's key.
+
+Actual checks: release without secrets fails closed (expected); actual apksigner
+verified existing debug APK and it was rejected as release; update identity checker
+rejected incompatible RC.1/RC.2 and non-increasing code without touching a device.
+Positive owner signing/compatible in-place update remain unverified, not PASS.
+APK helper now records public signer fingerprint. Added an emulator flow assertion
+that connection testing does not save configuration before Save and connect.
+Current local regression: 164 backend, 28 Qt, 50 JVM PASS; lintDebug/assembleDebug/
+assembleDebugAndroidTest PASS. Workflow YAML parsed, ruff/diff checks PASS. The
+old Qt process object is released when a replacement starts; 3 targeted retry/crash
+checks PASS. No user token, key, password or keystore was committed.

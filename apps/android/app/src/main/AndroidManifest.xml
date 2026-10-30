@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <application android:allowBackup="false" android:label="@string/launcher_name"
+    <application android:allowBackup="false" android:label="${launcherLabel}"
         android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true" android:theme="@style/Theme.OmniCore"
         android:usesCleartextTraffic="true" android:localeConfig="@xml/locales_config">

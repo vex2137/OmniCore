@@ -162,6 +162,8 @@ class BackendSession(QObject):
             environment.remove("OMNICORE_LLAMA_CUDA_SERVER")
         for key, value in values.items():
             environment.insert(key, value)
+        if self.process and self.process.state() == QProcess.NotRunning:
+            self.process.deleteLater()
         process = QProcess(self)
         self.process = process
         process.setProcessEnvironment(environment)

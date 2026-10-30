@@ -1,5 +1,6 @@
-"""Stage the actual debug-signed ARM64 APK and verify its identity/signature."""
+"""Stage a verified ARM64 APK; owner release signing is opt-in and pinned."""
 
+import argparse
 import hashlib
 import json
 import os
@@ -9,16 +10,34 @@ import subprocess
 import zipfile
 from pathlib import Path
 
+from android_identity import apk_identity, verify_release
+
 ROOT = Path(__file__).resolve().parents[1]
 DISTRIBUTION = json.loads((ROOT / "backend/src/omnicore/distribution.json").read_text())
 VERSION = DISTRIBUTION["version"]
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--release", action="store_true")
+    args = parser.parse_args()
+    variant = "release" if args.release else "debug"
     sdk = Path(os.environ["ANDROID_HOME"]) / "build-tools/36.0.0"
-    apk = ROOT / "apps/android/app/build/outputs/apk/debug/app-arm64-v8a-debug.apk"
+    apk = ROOT / f"apps/android/app/build/outputs/apk/{variant}/app-arm64-v8a-{variant}.apk"
     if not apk.is_file():
-        raise SystemExit("Build apps/android :app:assembleDebug before packaging")
+        raise SystemExit(f"Build apps/android :app:assemble{variant.title()} before packaging")
+    identity = apk_identity(apk, sdk)
+    if args.release:
+        verify_release(
+            identity,
+            os.environ.get("OMNICORE_ANDROID_CERT_SHA256", ""),
+            os.environ.get("OMNICORE_ANDROID_RELEASE_ID", ""),
+        )
+    expected_id = (
+        os.environ["OMNICORE_ANDROID_RELEASE_ID"]
+        if args.release
+        else DISTRIBUTION["android_application_id"]
+    )
     # Android 15/16 devices may use 16 KiB pages. Check both ZIP and ELF alignment.
     subprocess.run([str(sdk / "zipalign"), "-c", "-P", "16", "4", str(apk)], check=True)  # noqa: S603
     with zipfile.ZipFile(apk) as archive:
@@ -37,7 +56,7 @@ def main():
     metadata = subprocess.check_output(  # noqa: S603
         [str(sdk / "aapt"), "dump", "badging", str(apk)], text=True
     )
-    assert f"name='{DISTRIBUTION['android_application_id']}'" in metadata
+    assert f"name='{expected_id}'" in metadata
     assert f"versionName='{VERSION}'" in metadata
     assert f"versionCode='{DISTRIBUTION['android_version_code']}'" in metadata
     assert "targetSdkVersion:'36'" in metadata
@@ -54,8 +73,11 @@ def main():
         json.dumps(
             {
                 "version": VERSION,
-                "application_id": DISTRIBUTION["android_application_id"],
-                "build_type": "debug, test signing key; not a production signature",
+                "application_id": expected_id,
+                "build_type": "release, supplied owner identity; persistence requires owner backup"
+                if args.release
+                else "debug, test signing key; not a production signature",
+                "certificate_sha256": identity["certificate_sha256"],
                 "abi": "arm64-v8a",
                 "min_sdk": 26,
                 "target_sdk": 36,
