@@ -158,7 +158,8 @@ class MainWindow(QMainWindow):
         brand = QLabel("◈  OmniCore")
         brand.setObjectName("brand")
         side.addWidget(brand)
-        side.addWidget(self.label("alpha"))
+        self.version_label = QLabel(distribution_version())
+        side.addWidget(self.version_label)
         side.addSpacing(38)
         self.nav = []
         for index, key in enumerate(
@@ -533,7 +534,7 @@ class MainWindow(QMainWindow):
         for index, key in enumerate(("parameters_conversation", "parameters_defaults")):
             self.parameter_scope.setItemText(index, self.tr(key))
         self.connection.setText(self.tr(self._connection_key))
-        self.about.setText(self.tr("about", path=data_path()))
+        self.about.setText(self.tr("about", path=data_path(), version=distribution_version()))
         self.refresh_model_table()
         self.render_messages()
         self._fill_conversations()
