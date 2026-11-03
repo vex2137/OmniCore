@@ -12,6 +12,7 @@ from pydantic import Field
 
 from omnicore.schemas import ServerEvent, WireModel
 from omnicore.text.conversations import Conversations, MessageRecord
+from omnicore.text.engines import LlamaEngine
 from omnicore.text.models import ModelManager
 from omnicore.text.store import TextStore, timestamp
 from omnicore.text.types import GenerationParameters, GenerationStatistics, TextError, TextMessage
@@ -244,8 +245,10 @@ class GenerationManager:
                 model = await asyncio.to_thread(self.store.model, record.model_id)
                 unload_name = model.location if model.backend == "ollama" else None
                 engine = self.engines.get(model.backend)
-                engine_info = await engine.probe() if engine else None
-                if engine_info is None or not engine_info.available:
+                if engine is None:
+                    raise TextError("engine_unavailable", 503)
+                engine_info = await engine.probe() if not isinstance(engine, LlamaEngine) else None
+                if engine_info is not None and not engine_info.available:
                     raise TextError("engine_unavailable", 503)
                 history = await asyncio.to_thread(self.history.messages, record.conversation_id)
                 messages = [
@@ -288,7 +291,7 @@ class GenerationManager:
                     )
                     model.metadata["last_inference"] = {
                         "at": timestamp(),
-                        "engine_version": engine_info.version,
+                        "engine_version": engine_info.version if engine_info else engine.version,
                         "device": record.execution_device
                         if model.backend == "llama.cpp"
                         else "engine-managed",
