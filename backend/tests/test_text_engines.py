@@ -321,3 +321,96 @@ HTTPServer(('127.0.0.1',a.port),Handler).serve_forever()
                 )
 
     asyncio.run(exercise())
+
+
+@pytest.fixture(autouse=True)
+def isolate_native_engine_discovery(monkeypatch):
+    from omnicore.text import engines
+
+    def controlled_candidates(configured_cuda=None, configured_cpu=None):
+        return [
+            Path(candidate).absolute()
+            for candidate in (configured_cuda, configured_cpu)
+            if candidate is not None
+        ]
+
+    monkeypatch.setattr(engines, "engine_candidates", controlled_candidates)
+
+
+def test_llama_fast_path_skips_probe_for_running_model(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    async def exercise():
+        engine = LlamaEngine(tmp_path / "llama-server")
+        model = tmp_path / "model.gguf"
+        parameters = GenerationParameters(
+            device="cpu", gpu_layers=0, context_size=4096
+        )
+
+        class RunningProcess:
+            returncode = None
+            pid = 12345
+
+        engine.process = RunningProcess()
+        engine.parameters = (
+            str(model), 4096, 0, "cpu", str(engine.executable)
+        )
+        engine._cpu_executable = engine.executable
+        engine.devices = []
+
+        probe = AsyncMock()
+        monkeypatch.setattr(engine, "probe", probe)
+
+        await engine.load(model, parameters)
+        probe.assert_not_awaited()
+
+    asyncio.run(exercise())
+
+
+def test_llama_fast_path_reprobes_on_context_change_or_dead_process(
+    tmp_path, monkeypatch
+):
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+
+    async def exercise():
+        engine = LlamaEngine(tmp_path / "llama-server")
+        model = tmp_path / "model.gguf"
+
+        class Process:
+            returncode = None
+
+        process = Process()
+        engine.process = process
+        engine._cpu_executable = engine.executable
+        engine.devices = []
+        engine.parameters = (
+            str(model), 4096, 0, "cpu", str(engine.executable)
+        )
+
+        probe = AsyncMock(return_value=SimpleNamespace(
+            available=True
+        ))
+        load_selected = AsyncMock()
+
+        monkeypatch.setattr(engine, "probe", probe)
+        monkeypatch.setattr(engine, "_load_selected", load_selected)
+
+        await engine.load(
+            model, GenerationParameters(
+                device="cpu", gpu_layers=0, context_size=8192
+            )
+        )
+        probe.assert_awaited_once()
+
+        probe.reset_mock()
+        process.returncode = 1
+
+        await engine.load(
+            model, GenerationParameters(
+                device="cpu", gpu_layers=0, context_size=4096
+            )
+        )
+        probe.assert_awaited_once()
+
+    asyncio.run(exercise())
