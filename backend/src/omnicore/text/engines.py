@@ -445,7 +445,63 @@ class LlamaEngine:
 
     async def load(self, path: Path, parameters: GenerationParameters, file_descriptor=None):
         async with self._lock:
-            if not (await self.probe()).available:
+            # Fast path: reuse a running engine without probing hardware.
+            wants_gpu = parameters.gpu_layers > 0 and parameters.device != "cpu"
+            requested_device = parameters.device
+
+            if not parameters.gpu_layers and requested_device not in {"cpu", "auto"}:
+                raise TextError("gpu_layers_required", 422)
+
+            if requested_device in {"cuda", "CUDA"}:
+                requested_device = next(
+                    (device for device in self.devices if device.startswith("CUDA")),
+                    "CUDA0",
+                )
+            elif requested_device == "auto":
+                requested_device = (
+                    self.devices[0] if wants_gpu and self.devices else "cpu"
+                )
+
+            if not parameters.gpu_layers:
+                requested_device = "cpu"
+
+            if (
+                self.process is not None
+                and self.process.returncode is None
+                and self.parameters is not None
+                and requested_device in {"cpu", *self.devices}
+            ):
+                selected = self._device_executables.get(
+                    requested_device, self._cpu_executable
+                )
+                fallback = (
+                    "gpu_unavailable"
+                    if wants_gpu and requested_device == "cpu"
+                    else None
+                )
+                layers = parameters.gpu_layers if requested_device != "cpu" else 0
+                desired = (
+                    str(path),
+                    parameters.context_size,
+                    layers,
+                    requested_device,
+                    str(selected),
+                )
+
+                if selected is not None and self.parameters == desired:
+                    await self._load_selected(
+                        path,
+                        parameters.context_size,
+                        selected,
+                        requested_device,
+                        layers,
+                        fallback,
+                        file_descriptor,
+                    )
+                    return
+
+            _result = await self.probe()
+            if not _result.available:
                 raise TextError("engine_unavailable", 503)
             wants_gpu = parameters.gpu_layers > 0 and parameters.device != "cpu"
             selected_device = parameters.device
