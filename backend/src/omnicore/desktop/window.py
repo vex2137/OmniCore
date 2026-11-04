@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlencode
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer, Signal
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut, QTextDocument
 from PySide6.QtWidgets import (
     QApplication,
@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -42,7 +43,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from omnicore.desktop.composer import Composer
 from omnicore.desktop.config import data_path
+from omnicore.desktop.history import grouped_history
 from omnicore.desktop.i18n import Translator
 from omnicore.desktop.model_card import safe_card_markdown
 from omnicore.desktop.report import diagnostic_report, save_report
@@ -232,6 +235,8 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         body.addWidget(self.pages, 1)
         self._build_chat()
+        self.compact_spacer = QWidget()
+        self.side_layout.addWidget(self.compact_spacer, 1)
         self.side_layout.addWidget(self.nav[3])
         self.side_layout.addWidget(self.nav[2])
         self._apply_sidebar()
@@ -269,6 +274,11 @@ class MainWindow(QMainWindow):
         left.addWidget(self.history_search)
         self.conversation_list = QListWidget()
         self.conversation_list.setObjectName("conversations")
+        self.conversation_list.setWordWrap(True)
+        self.conversation_list.setTextElideMode(Qt.ElideNone)
+        self.conversation_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.conversation_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.conversation_list.customContextMenuRequested.connect(self.conversation_menu)
         self.conversation_list.currentItemChanged.connect(self.select_conversation)
         left.addWidget(self.conversation_list, 1)
         left.addLayout(
@@ -307,16 +317,30 @@ class MainWindow(QMainWindow):
         chat.addWidget(self.transcript, 1)
         self.generation_status = self.label("ready")
         chat.addWidget(self.generation_status)
-        self.composer = QPlainTextEdit()
+        self.composer = Composer()
+        self.composer.submitted.connect(self.send_message)
         self.composer.setObjectName("composer")
-        self.composer.setMaximumHeight(120)
-        self.composer.setMinimumHeight(72)
         chat.addWidget(self.composer)
+        self.context_usage = QLabel()
+        self.context_usage.setWordWrap(True)
+        chat.addWidget(self.context_usage)
+        self.context_meter = QProgressBar()
+        self.context_meter.setRange(0, 100)
+        self.context_meter.setMaximumHeight(8)
+        self.context_meter.setTextVisible(False)
+        chat.addWidget(self.context_meter)
+        self.regenerate_button = self.button("regenerate", self.regenerate_answer)
+        self.regenerate_button.setToolTip(self.tr("regenerate_branch"))
         self.send_button = self.button("send", self.send_message, primary=True)
         self.stop_button = self.button("stop", self.stop_generation)
         self.stop_button.setEnabled(False)
         chat.addLayout(
-            self.row(self.button("copy", self.copy_answer), self.stop_button, self.send_button)
+            self.row(
+                self.button("copy", self.copy_answer),
+                self.regenerate_button,
+                self.stop_button,
+                self.send_button,
+            )
         )
         outer.addWidget(pane, 1)
         self.pages.addWidget(page)
@@ -594,6 +618,7 @@ class MainWindow(QMainWindow):
         self.sidebar_toggle.setToolTip(self.tr("sidebar_expand" if compact else "sidebar_collapse"))
         self.sidebar_width.setToolTip(self.tr("sidebar_width"))
         self.history_panel.setVisible(not compact)
+        self.compact_spacer.setVisible(compact)
         for button, key, symbol in zip(
             (self.new_button, *self.nav),
             ("new_chat", "chat", "models", "settings", "diagnostics"),
@@ -606,6 +631,7 @@ class MainWindow(QMainWindow):
                 else (self.tr(key) if key == "new_chat" else f"{symbol}  {self.tr(key)}")
             )
             button.setToolTip(self.tr(key))
+            button.setStyleSheet("padding: 8px 0;" if compact else "")
 
     def navigate(self, index):
         self.pages.setCurrentIndex(index)
@@ -694,7 +720,8 @@ class MainWindow(QMainWindow):
             "oled": "#a99bff",
         }.get(self.config.theme, "#8b80f9" if dark else "#6957d9")
         self.setStyleSheet(f"""
-            QMainWindow, QWidget {{ background: {bg};
+            QMainWindow,
+    QMenu, QWidget {{ background: {bg};
                 color: {fg};
                 font: 14px 'Sans Serif';
                 }}
@@ -907,12 +934,29 @@ class MainWindow(QMainWindow):
         current = select or self.current_id
         self.conversation_list.blockSignals(True)
         self.conversation_list.clear()
-        for record in self.conversations:
-            item = QListWidgetItem(record["title"] or self.tr("untitled"))
-            item.setData(Qt.UserRole, record["id"])
-            self.conversation_list.addItem(item)
-            if record["id"] == current:
-                self.conversation_list.setCurrentItem(item)
+        for group, records in grouped_history(self.conversations).items():
+            for index, record in enumerate(records):
+                title = record["title"] or self.tr("untitled")
+                item = QListWidgetItem(title)
+                item.setData(Qt.UserRole, record["id"])
+                item.setToolTip(title)
+                self.conversation_list.addItem(item)
+                if index == 0:
+                    row = QWidget()
+                    column = QVBoxLayout(row)
+                    column.setContentsMargins(4, 8, 4, 4)
+                    heading = QLabel(self.tr("history_" + group))
+                    heading.setObjectName("messageStats")
+                    column.addWidget(heading)
+                    label = QLabel(title)
+                    label.setTextFormat(Qt.PlainText)
+                    label.setWordWrap(True)
+                    column.addWidget(label)
+                    row.setAttribute(Qt.WA_TransparentForMouseEvents)
+                    item.setSizeHint(QSize(0, max(92, row.sizeHint().height() + 32)))
+                    self.conversation_list.setItemWidget(item, row)
+                if record["id"] == current:
+                    self.conversation_list.setCurrentItem(item)
         self.conversation_list.blockSignals(False)
         if (
             current
@@ -925,6 +969,33 @@ class MainWindow(QMainWindow):
             self.render_messages()
         elif select:
             self.open_conversation(select)
+
+    def conversation_menu(self, position):
+        item = self.conversation_list.itemAt(position)
+        if not item or self.active_job or self._submitting:
+            return
+        self.conversation_list.setCurrentItem(item)
+        record = next((r for r in self.conversations if r["id"] == item.data(Qt.UserRole)), None)
+        if not record:
+            return
+        menu = QMenu(self)
+        menu.addAction(self.tr("rename"), self.rename_conversation)
+        menu.addAction(
+            self.tr("unpin" if record.get("pinned") else "pin"),
+            lambda: self.pin_conversation(record),
+        )
+        menu.addAction(self.tr("delete"), self.delete_conversation)
+        menu.exec(self.conversation_list.viewport().mapToGlobal(position))
+
+    def pin_conversation(self, record):
+        if self.active_job or self._submitting:
+            return
+        self.api.request(
+            "PATCH",
+            TEXT + f"/conversations/{record['id']}",
+            {"pinned": not record.get("pinned", False)},
+            success=lambda _: self.refresh_conversations(),
+        )
 
     def refresh_shared_history(self):
         self.refresh_conversations()
@@ -1037,6 +1108,7 @@ class MainWindow(QMainWindow):
         self.api.request("DELETE", TEXT + f"/conversations/{self.current_id}", success=deleted)
 
     def model_selected(self):
+        self.render_messages()
         self._context_dirty = False
         self._render_model_context()
         self._refresh_model_context()
@@ -1278,6 +1350,86 @@ class MainWindow(QMainWindow):
             elif job.get("content") or job.get("reasoning_content"):
                 messages.append(replacement)
         self.transcript.set_messages(messages, self.tr)
+        self.regenerate_button.setEnabled(
+            self.is_connected
+            and bool(self.model_combo.currentData())
+            and not self.active_job
+            and not self._submitting
+            and any(m["role"] == "assistant" and m.get("content") for m in messages)
+        )
+        latest = next(
+            (m.get("statistics") or {} for m in reversed(messages) if m["role"] == "assistant"), {}
+        )
+        used, limit = latest.get("context_used_tokens"), latest.get("context_limit_tokens")
+        if used is not None and limit:
+            self.context_usage.setText(
+                self.tr("context_last", used=used, limit=limit, percent=round(100 * used / limit))
+            )
+            self.context_meter.setValue(min(100, round(100 * used / limit)))
+            self.context_meter.show()
+        else:
+            self.context_usage.setText(self.tr("context_unavailable"))
+            self.context_meter.hide()
+        self.context_usage.setToolTip("")
+        device = latest.get("execution_device")
+        if device:
+            actual = "GPU" if latest.get("gpu_offloaded_layers", 0) else "CPU"
+            self.context_usage.setText(self.context_usage.text() + " · " + actual)
+            self.context_usage.setToolTip(str(device))
+
+    def regenerate_answer(self):
+        if self.active_job or self._submitting or not self.current_id or not self.is_connected:
+            return
+        if self.composer.toPlainText().strip():
+            self.notify(self.tr("regenerate_draft"))
+            return
+        source = self.current_id
+        self._submitting = True
+        self.regenerate_button.setEnabled(False)
+
+        def failed(code):
+            self._submitting = False
+            self.show_error(code)
+            self.render_messages()
+
+        def exported(document):
+            messages = document["messages"]
+            last_user = next(
+                (i for i in range(len(messages) - 1, -1, -1) if messages[i]["role"] == "user"), None
+            )
+            if (
+                last_user is None
+                or self.current_id != source
+                or not any(
+                    m["role"] == "assistant" and m["content"].strip()
+                    for m in messages[last_user + 1 :]
+                )
+            ):
+                failed("no_answer")
+                return
+            content = messages[last_user]["content"]
+            document["messages"] = messages[:last_user]
+            document["title"] = (document["title"][:220] + " · " + self.tr("regenerate"))[:256]
+
+            def imported(record):
+                self._submitting = False
+                if self.current_id != source:
+                    self.refresh_conversations()
+                    return
+                self.current_id = record["id"]
+                self.messages = document["messages"]
+                self.last_job = None
+                self.composer.setPlainText(content)
+                self.refresh_conversations()
+                self.send_message()
+
+            self.api.request(
+                "POST", TEXT + "/conversations/import", document, success=imported, failure=failed
+            )
+
+        self.api.request(
+            "GET", TEXT + f"/conversations/{source}/export", success=exported, failure=failed
+        )
 
     def copy_answer(self):
         content = self.last_job.get("content") if self.last_job else None

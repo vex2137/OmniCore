@@ -12,7 +12,7 @@
   "send": "Send ↗",
   "stop": "Stop",
   "copy": "Copy answer",
-  "composer": "Ask your local model…  Ctrl+Enter to send",
+  "composer": "Write a message… Enter sends, Shift+Enter adds a line",
   "chat_hint": "Start a conversation, select a model, and keep your ideas local.",
   "no_model": "No model yet — import a GGUF in Models.",
   "no_conversation": "Create or select a conversation first.",
@@ -227,5 +227,18 @@
   "forest": "Forest",
   "sidebar_expand": "Expand sidebar",
   "sidebar_collapse": "Collapse sidebar",
-  "sidebar_width": "Sidebar width"
+  "sidebar_width": "Sidebar width",
+  "history_pinned": "Pinned",
+  "history_today": "Today",
+  "history_yesterday": "Yesterday",
+  "history_last_week": "Last 7 days",
+  "history_last_month": "Last 30 days",
+  "history_older": "Older",
+  "pin": "Pin",
+  "unpin": "Unpin",
+  "regenerate": "Regenerate",
+  "regenerate_branch": "Regeneration creates a new conversation branch.",
+  "regenerate_draft": "Send or clear the draft first.",
+  "context_last": "Last request: {used}/{limit} tokens ({percent}%)",
+  "context_unavailable": "Last request context: unavailable"
 }

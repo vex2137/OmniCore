@@ -58,6 +58,7 @@ class ConversationCreate(WireModel):
 
 
 class ConversationUpdate(WireModel):
+    pinned: bool = False
     title: str | None = Field(default=None, max_length=256)
     model_id: str | None = None
     parameters: GenerationParameters | None = None

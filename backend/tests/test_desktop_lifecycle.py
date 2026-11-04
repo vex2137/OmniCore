@@ -1,14 +1,14 @@
 import pytest
 
 pytest.importorskip("PySide6")
-from PySide6.QtCore import QCoreApplication
+from PySide6.QtWidgets import QApplication
 
 from omnicore import __version__
 from omnicore.desktop.lifecycle import BackendSession
 
 
 def test_reused_backend_requires_matching_version():
-    app = QCoreApplication.instance() or QCoreApplication([])
+    app = QApplication.instance() or QApplication(["test", "-platform", "offscreen"])
     session = BackendSession(None, None)
     ready, failures = [], []
     session.ready.connect(lambda: ready.append(True))
@@ -21,7 +21,7 @@ def test_reused_backend_requires_matching_version():
 
 
 def test_startup_output_is_classified_without_exposing_log():
-    app = QCoreApplication.instance() or QCoreApplication([])
+    app = QApplication.instance() or QApplication(["test", "-platform", "offscreen"])
     session = BackendSession(None, None)
 
     class Process:

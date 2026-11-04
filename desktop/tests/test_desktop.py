@@ -401,7 +401,9 @@ def test_native_markdown_code_model_identity_statistics_and_safe_resources(qtbot
         "Strong" in b.toPlainText() and "**Strong**" not in b.toPlainText() for b in browsers
     )
     assert any(
-        "Output tokens: 2" in label.text() and "token limit" in label.text()
+        "2 Output tokens" in label.text()
+        and "0.10 s TTFT" in label.text()
+        and "token limit" in label.toolTip()
         for label in card.findChildren(QLabel)
     )
     assert card.findChild(QPlainTextEdit).toPlainText() == 'print("hello")'
@@ -513,3 +515,112 @@ def test_sidebar_width_is_persistent_and_restored_after_compacting(desktop, tmp_
     path = tmp_path / "prefs.json"
     window.config.save(path)
     assert DesktopConfig.load(path).sidebar_width == 280
+
+
+def test_regeneration_branches_without_deleting_original(desktop, qtbot, monkeypatch):
+    w = desktop
+    record = request(w, "POST", "/api/v1/text/conversations", {"title": "Original"})
+    source = record["id"]
+    url = f"/api/v1/text/conversations/{source}"
+    for role, content in (
+        ("user", "First"),
+        ("assistant", "One"),
+        ("user", "Second"),
+        ("assistant", "Two"),
+    ):
+        request(w, "POST", url + "/messages", {"role": role, "content": content})
+    w.current_id = source
+    captured = []
+    monkeypatch.setattr(w, "send_message", lambda: captured.append(w.composer.toPlainText()))
+    w.regenerate_answer()
+    qtbot.waitUntil(lambda: bool(captured))
+    assert captured == ["Second"]
+    assert w.current_id != source
+    original = request(w, "GET", url + "/messages")
+    assert [m["content"] for m in original] == ["First", "One", "Second", "Two"]
+    branch = request(w, "GET", f"/api/v1/text/conversations/{w.current_id}/messages")
+    assert [m["content"] for m in branch] == ["First", "One"]
+
+
+def test_context_meter_uses_last_request_not_history(desktop):
+    w = desktop
+    w.messages = [
+        {
+            "role": "assistant",
+            "content": "Answer",
+            "statistics": {
+                "context_used_tokens": 128,
+                "context_limit_tokens": 512,
+                "execution_device": "CUDA0",
+                "gpu_offloaded_layers": 25,
+            },
+        }
+    ]
+    w.render_messages()
+    assert w.context_meter.value() == 25
+    assert "128/512" in w.context_usage.text()
+    assert "GPU" in w.context_usage.text()
+    w.messages = [{"role": "user", "content": "A long history" * 100}]
+    w.render_messages()
+    assert w.context_meter.isHidden()
+    assert "128/512" not in w.context_usage.text()
+
+
+def test_pin_updates_real_history_without_duplicates(desktop, qtbot):
+    w = desktop
+    record = request(w, "POST", "/api/v1/text/conversations", {"title": "Pin me"})
+    w.refresh_conversations(record["id"])
+    qtbot.waitUntil(lambda: len(w.conversations) == 1)
+    w.pin_conversation(record)
+    qtbot.waitUntil(lambda: bool(w.conversations[0].get("pinned")))
+    assert w.conversation_list.count() == 1
+    assert request(w, "GET", f"/api/v1/text/conversations/{record['id']}")["pinned"]
+
+
+def test_capture_real_sidebar_chat_if_requested(desktop, qtbot):
+    from pathlib import Path
+
+    output = os.environ.get("OMNICORE_VISUAL_OUTPUT")
+    if not output:
+        return
+    destination = Path(output)
+    destination.mkdir(parents=True, exist_ok=True)
+    w = desktop
+    w.onboarding.hide()
+    record = request(w, "POST", "/api/v1/text/conversations", {"title": "RC8 — UI review"})
+    url = f"/api/v1/text/conversations/{record['id']}"
+    for role, content in (
+        ("user", "How do I connect a local GGUF model?"),
+        (
+            "assistant",
+            "## Local models\n\n1. Import your GGUF.\n2. Select the engine.\n\n"
+            "```python\nprint('OmniCore')\n```",
+        ),
+    ):
+        request(w, "POST", url + "/messages", {"role": role, "content": content})
+    request(w, "PATCH", url, {"pinned": True})
+    w.refresh_conversations(record["id"])
+    qtbot.waitUntil(lambda: len(w.messages) == 2)
+    for width, height in ((1280, 720), (1366, 768), (1920, 1080), (2560, 1440)):
+        w.resize(width, height)
+        qtbot.wait(100)
+        assert w.grab().save(str(destination / f"chat-{width}x{height}.png"))
+    w.toggle_sidebar()
+    qtbot.wait(100)
+    assert w.grab().save(str(destination / "chat-compact.png"))
+
+
+def test_composer_enter_shift_enter_and_growth(qtbot):
+    from omnicore.desktop.composer import Composer
+
+    composer = Composer()
+    qtbot.addWidget(composer)
+    composer.show()
+    composer.setPlainText("Draft")
+    with qtbot.waitSignal(composer.submitted):
+        qtbot.keyClick(composer, Qt.Key_Return)
+    assert composer.toPlainText() == "Draft"
+    qtbot.keyClick(composer, Qt.Key_Return, Qt.ShiftModifier)
+    assert "\n" in composer.toPlainText()
+    composer.setPlainText("Line\n" * 50)
+    assert 72 <= composer.height() <= 160

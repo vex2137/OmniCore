@@ -12,7 +12,7 @@
   "send": "Wyślij ↗",
   "stop": "Zatrzymaj",
   "copy": "Kopiuj odpowiedź",
-  "composer": "Zapytaj lokalny model…  Ctrl+Enter, aby wysłać",
+  "composer": "Napisz wiadomość… Enter wysyła, Shift+Enter dodaje wiersz",
   "chat_hint": "Utwórz rozmowę, wybierz model i zachowaj swoje pomysły lokalnie.",
   "no_model": "Brak modelu — zaimportuj GGUF w zakładce Modele.",
   "no_conversation": "Najpierw utwórz lub wybierz rozmowę.",
@@ -227,5 +227,18 @@
   "forest": "Forest",
   "sidebar_expand": "Rozwiń pasek",
   "sidebar_collapse": "Zwiń pasek",
-  "sidebar_width": "Szerokość paska"
+  "sidebar_width": "Szerokość paska",
+  "history_pinned": "Przypięte",
+  "history_today": "Dzisiaj",
+  "history_yesterday": "Wczoraj",
+  "history_last_week": "Ostatnie 7 dni",
+  "history_last_month": "Ostatnie 30 dni",
+  "history_older": "Starsze",
+  "pin": "Przypnij",
+  "unpin": "Odepnij",
+  "regenerate": "Generuj ponownie",
+  "regenerate_branch": "Ponowna generacja tworzy nową gałąź rozmowy.",
+  "regenerate_draft": "Najpierw wyślij lub usuń szkic wiadomości.",
+  "context_last": "Ostatnie żądanie: {used}/{limit} tokenów ({percent}%)",
+  "context_unavailable": "Kontekst ostatniego żądania: niedostępny"
 }

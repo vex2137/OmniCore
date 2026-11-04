@@ -79,6 +79,11 @@
           "parameters": {
             "$ref": "#/components/schemas/GenerationParameters"
           },
+          "pinned": {
+            "default": false,
+            "title": "Pinned",
+            "type": "boolean"
+          },
           "title": {
             "default": "",
             "maxLength": 256,
@@ -211,6 +216,11 @@
                 "type": "null"
               }
             ]
+          },
+          "pinned": {
+            "default": false,
+            "title": "Pinned",
+            "type": "boolean"
           },
           "title": {
             "anyOf": [

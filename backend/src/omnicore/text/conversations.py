@@ -17,6 +17,7 @@ class Conversation(WireModel):
     created_at: str
     updated_at: str
     title_status: str | None = None
+    pinned: bool = False
 
 
 class MessageRecord(WireModel):

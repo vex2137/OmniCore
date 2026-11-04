@@ -89,6 +89,7 @@ class MessageCard(QFrame):
     def __init__(self, message, tr, parent=None):
         super().__init__(parent)
         self.setObjectName("userBubble" if message["role"] == "user" else "assistantBubble")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         self.message = message
         self.layout_ = QVBoxLayout(self)
         self.layout_.setContentsMargins(18, 10, 18, 16)
@@ -120,7 +121,19 @@ class MessageCard(QFrame):
         self._body(message["content"], tr)
         details = statistics_text(message.get("statistics"), tr)
         if details:
-            label = QLabel(details)
+            stats = message.get("statistics") or {}
+            summary = []
+            for key, suffix in (
+                ("tokens_per_second", "tok/s"),
+                ("output_tokens", tr("output_tokens")),
+                ("ttft_seconds", "s TTFT"),
+            ):
+                value = stats.get(key)
+                if value is not None:
+                    number = f"{value:.2f}" if isinstance(value, float) else str(value)
+                    summary.append(f"{number} {suffix}")
+            label = QLabel(" · ".join(summary))
+            label.setToolTip(details)
             label.setObjectName("messageStats")
             label.setTextFormat(Qt.PlainText)
             label.setWordWrap(True)

@@ -353,18 +353,14 @@ def test_llama_fast_path_skips_probe_for_running_model(tmp_path, monkeypatch):
     async def exercise():
         engine = LlamaEngine(tmp_path / "llama-server")
         model = tmp_path / "model.gguf"
-        parameters = GenerationParameters(
-            device="cpu", gpu_layers=0, context_size=4096
-        )
+        parameters = GenerationParameters(device="cpu", gpu_layers=0, context_size=4096)
 
         class RunningProcess:
             returncode = None
             pid = 12345
 
         engine.process = RunningProcess()
-        engine.parameters = (
-            str(model), 4096, 0, "cpu", str(engine.executable)
-        )
+        engine.parameters = (str(model), 4096, 0, "cpu", str(engine.executable))
         engine._cpu_executable = engine.executable
         engine.devices = []
 
@@ -377,11 +373,9 @@ def test_llama_fast_path_skips_probe_for_running_model(tmp_path, monkeypatch):
     asyncio.run(exercise())
 
 
-def test_llama_fast_path_reprobes_on_context_change_or_dead_process(
-    tmp_path, monkeypatch
-):
-    from unittest.mock import AsyncMock
+def test_llama_fast_path_reprobes_on_context_change_or_dead_process(tmp_path, monkeypatch):
     from types import SimpleNamespace
+    from unittest.mock import AsyncMock
 
     async def exercise():
         engine = LlamaEngine(tmp_path / "llama-server")
@@ -394,22 +388,16 @@ def test_llama_fast_path_reprobes_on_context_change_or_dead_process(
         engine.process = process
         engine._cpu_executable = engine.executable
         engine.devices = []
-        engine.parameters = (
-            str(model), 4096, 0, "cpu", str(engine.executable)
-        )
+        engine.parameters = (str(model), 4096, 0, "cpu", str(engine.executable))
 
-        probe = AsyncMock(return_value=SimpleNamespace(
-            available=True
-        ))
+        probe = AsyncMock(return_value=SimpleNamespace(available=True))
         load_selected = AsyncMock()
 
         monkeypatch.setattr(engine, "probe", probe)
         monkeypatch.setattr(engine, "_load_selected", load_selected)
 
         await engine.load(
-            model, GenerationParameters(
-                device="cpu", gpu_layers=0, context_size=8192
-            )
+            model, GenerationParameters(device="cpu", gpu_layers=0, context_size=8192)
         )
         probe.assert_awaited_once()
 
@@ -417,9 +405,7 @@ def test_llama_fast_path_reprobes_on_context_change_or_dead_process(
         process.returncode = 1
 
         await engine.load(
-            model, GenerationParameters(
-                device="cpu", gpu_layers=0, context_size=4096
-            )
+            model, GenerationParameters(device="cpu", gpu_layers=0, context_size=4096)
         )
         probe.assert_awaited_once()
 

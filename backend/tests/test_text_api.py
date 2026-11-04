@@ -442,3 +442,14 @@ def test_model_context_reaches_engine_when_generation_has_no_override(text_app):
             ).context_size
             == 8192
         )
+
+
+def test_pin_survives_restart_and_rename(config):
+    with TestClient(create_app(config), base_url="http://localhost") as client:
+        record = client.post("/api/v1/text/conversations", json={"title": "Keep"}).json()
+        url = f"/api/v1/text/conversations/{record['id']}"
+        assert client.patch(url, json={"pinned": True}).json()["pinned"]
+        assert client.patch(url, json={"title": "Renamed"}).json()["pinned"]
+    with TestClient(create_app(config), base_url="http://localhost") as client:
+        assert client.get(url).json()["pinned"]
+        assert not client.patch(url, json={"pinned": False}).json()["pinned"]

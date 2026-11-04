@@ -923,3 +923,33 @@ Przeniesiono istniejącą historię rozmów do paska; dodano dwa rozmiary (232 i
 ### RC8 — regulacja paska i układ czatu (częściowo)
 
 Dodano zapisywaną szerokość rozwiniętego paska 200–360 px, zachowując kompaktowe 52 px. Usunięto ramkę odpowiedzi AI i ograniczono wysokość pola wiadomości. Testy Qt: 24 zaliczone, następnie test szerokości ponownie zaliczony po zmianie pola; Ruff zaliczony. Uruchomiono rzeczywiste GUI offscreen z backendem i oceniono zrzut 1280×820 bez załadowanego modelu. Wciąż brak grupowania i przypinania historii, menu kontekstowego, regeneracji, wskaźnika kontekstu, uproszczonych statystyk i pełnej walidacji wizualnej. RC8 pozostaje nieukończone.
+
+### RC8 — historia i funkcjonalny czat
+
+- Rozłączne grupy historii: przypięte, dzisiaj, wczoraj, ostatnie 7 dni,
+  ostatnie 30 dni, starsze; sortowanie według aktywności. Przypięcia są trwałe
+  w SQLite/API, bez duplikowania w grupach czasowych. Menu kontekstowe:
+  zmiana nazwy, przypinanie/odpinanie i istniejące usuwanie z potwierdzeniem.
+- Regeneracja ostatniej odpowiedzi tworzy nową gałąź przez istniejące API
+  eksportu/importu i generacji. Oryginał zostaje zachowany; szkic i aktywne
+  generowanie blokują tę operację. Nie zmieniano logiki inferencji.
+- Krótkie statystyki tok/s, tokeny wyjściowe, TTFT; szczegóły w podpowiedzi.
+  Pasek kontekstu pod polem dotyczy ostatniego żądania i wyświetla brak danych
+  zamiast szacować historię. CPU/GPU wynika z faktycznego offloadu.
+- Pole wiadomości rośnie do ograniczonej wysokości; Enter wysyła, Shift+Enter
+  dodaje linię. Poprawiono układ kompaktowego paska i przycinanie nagłówka grup.
+- Pełna regresja: 212 testów backendu i Qt zaliczonych, Ruff i kontrakty
+  zweryfikowane. Wcześniejszy łączny przebieg przerwał się przez QCoreApplication
+  tworzone przez testy lifecycle; użycie QApplication naprawiło wspólny przebieg.
+  Po ostatniej zmianie zawijania historii: 3 testy związane z historią/GUI zaliczone.
+- Rzeczywista generacja GGUF i regeneracja przez GUI/API na CPU przeszły.
+  Pierwsza próba dodatkowego skryptu regeneracji nie miała skonfigurowanej binarki
+  silnika; po wskazaniu istniejącego llama-server zakończyła się powodzeniem.
+  Zrzuty i raporty: docs/screenshots/rc8. Testy offscreen nie dowodzą CUDA ani
+  działania na fizycznym pulpicie; nie pobierano nowych wag.
+
+RC8 całościowo nadal nieukończone: pozostały zwijane sekcje historii, dopracowanie
+akcji bezpośrednio pod poszczególnymi wiadomościami, panel szczegółów kontekstu,
+pełna przebudowa/filtrowanie/sortowanie/ulubione modeli, akcenty i podglądy
+motywów, skalowanie UI i wizualna regresja pozostałych widoków. Nie budowano
+paczek ani nie publikowano wydania.
