@@ -173,26 +173,25 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         self.setCentralWidget(root)
-        sidebar = QFrame()
-        sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(204)
-        side = QVBoxLayout(sidebar)
-        side.setContentsMargins(20, 28, 20, 24)
-        brand = QLabel("◈  OmniCore")
-        brand.setObjectName("brand")
-        side.addWidget(brand)
-        side.addWidget(self.label("alpha"))
-        side.addSpacing(38)
+        self.sidebar = QFrame()
+        self.sidebar.setObjectName("sidebar")
+        self.side_layout = QVBoxLayout(self.sidebar)
+        self.side_layout.setContentsMargins(8, 12, 8, 12)
+        self.brand = QLabel("◈  OmniCore")
+        self.brand.setObjectName("brand")
+        self.side_layout.addWidget(self.brand)
+        self.sidebar_toggle = QPushButton()
+        self.sidebar_toggle.clicked.connect(self.toggle_sidebar)
+        self.side_layout.addWidget(self.sidebar_toggle)
         self.nav = []
         for index, key in enumerate(("chat", "models", "settings", "diagnostics")):
             button = self.button(key, lambda checked=False, i=index: self.navigate(i))
             button.setCheckable(True)
             button.setObjectName("nav")
-            side.addWidget(button)
             self.nav.append(button)
-        side.addStretch()
-        side.addWidget(self.label("tagline"))
-        layout.addWidget(sidebar)
+        self.side_layout.addWidget(self.nav[0])
+        self.side_layout.addWidget(self.nav[1])
+        layout.addWidget(self.sidebar)
         main = QWidget()
         body = QVBoxLayout(main)
         body.setContentsMargins(28, 22, 28, 22)
@@ -233,6 +232,9 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         body.addWidget(self.pages, 1)
         self._build_chat()
+        self.side_layout.addWidget(self.nav[3])
+        self.side_layout.addWidget(self.nav[2])
+        self._apply_sidebar()
         self._build_models()
         self._build_settings()
         self._build_diagnostics()
@@ -245,11 +247,9 @@ class MainWindow(QMainWindow):
         page = QWidget()
         outer = QHBoxLayout(page)
         outer.setContentsMargins(0, 12, 0, 0)
-        splitter = QSplitter()
-        outer.addWidget(splitter)
-        collection = QWidget()
-        left = QVBoxLayout(collection)
-        left.setContentsMargins(0, 0, 16, 0)
+        self.history_panel = QWidget()
+        left = QVBoxLayout(self.history_panel)
+        left.setContentsMargins(0, 0, 0, 0)
         self.new_button = self.button("new_chat", self.new_conversation, primary=True)
         left.addWidget(self.new_button)
         left.addWidget(self.button("refresh", self.refresh_shared_history))
@@ -271,7 +271,9 @@ class MainWindow(QMainWindow):
                 self.button("delete", self.delete_conversation),
             )
         )
-        splitter.addWidget(collection)
+        self.side_layout.insertWidget(2, self.new_button)
+        left.removeWidget(self.new_button)
+        self.side_layout.addWidget(self.history_panel, 1)
         pane = QWidget()
         chat = QVBoxLayout(pane)
         chat.setContentsMargins(0, 0, 0, 0)
@@ -310,9 +312,7 @@ class MainWindow(QMainWindow):
         chat.addLayout(
             self.row(self.button("copy", self.copy_answer), self.stop_button, self.send_button)
         )
-        splitter.addWidget(pane)
-        splitter.setSizes([242, 730])
-        splitter.setStretchFactor(1, 1)
+        outer.addWidget(pane, 1)
         self.pages.addWidget(page)
 
     def _build_models(self):
@@ -569,6 +569,31 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.logs, 1)
         self.pages.addWidget(page)
 
+    def toggle_sidebar(self):
+        self.config.sidebar_compact = not self.config.sidebar_compact
+        self._apply_sidebar()
+        self.config.save()
+
+    def _apply_sidebar(self):
+        compact = self.config.sidebar_compact
+        self.sidebar.setFixedWidth(52 if compact else 232)
+        self.brand.setText("◈" if compact else "◈  OmniCore")
+        self.sidebar_toggle.setText("›" if compact else "‹")
+        self.sidebar_toggle.setToolTip(self.tr("sidebar_expand" if compact else "sidebar_collapse"))
+        self.history_panel.setVisible(not compact)
+        for button, key, symbol in zip(
+            (self.new_button, *self.nav),
+            ("new_chat", "chat", "models", "settings", "diagnostics"),
+            ("＋", "◉", "▣", "⚙", "◌"),
+            strict=True,
+        ):
+            button.setText(
+                symbol
+                if compact
+                else (self.tr(key) if key == "new_chat" else f"{symbol}  {self.tr(key)}")
+            )
+            button.setToolTip(self.tr(key))
+
     def navigate(self, index):
         self.pages.setCurrentIndex(index)
         self.page_title.setText(self.tr(("chat", "models", "settings", "diagnostics")[index]))
@@ -591,6 +616,7 @@ class MainWindow(QMainWindow):
         self.page_title.setText(
             self.tr(("chat", "models", "settings", "diagnostics")[self.pages.currentIndex()])
         )
+        self._apply_sidebar()
         self.composer.setPlaceholderText(self.tr("composer"))
         self.history_search.setPlaceholderText(self.tr("search_history"))
         self.context_mode.setItemText(0, self.tr("context_auto"))

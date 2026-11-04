@@ -224,5 +224,7 @@
   "graphite": "Graphite",
   "oled": "OLED Black",
   "ocean": "Ocean",
-  "forest": "Forest"
+  "forest": "Forest",
+  "sidebar_expand": "Expand sidebar",
+  "sidebar_collapse": "Collapse sidebar"
 }

@@ -36,6 +36,7 @@ class DesktopConfig:
     ollama_enabled: bool = True
     parameters: dict = field(default_factory=dict)
     onboarding_complete: bool = False
+    sidebar_compact: bool = False
 
     @classmethod
     def load(cls, path: Path | None = None):

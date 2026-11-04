@@ -486,3 +486,17 @@ def test_desktop_theme_variants_survive_reload(desktop, tmp_path):
         assert desktop.config.theme == name
         desktop.config.save(config_file)
         assert DesktopConfig.load(config_file).theme == name
+
+
+def test_sidebar_compact_preserves_history_and_setting(desktop, qtbot, tmp_path):
+    w = desktop
+    assert w.sidebar.width() == 232
+    qtbot.mouseClick(w.sidebar_toggle, Qt.LeftButton)
+    assert w.sidebar.width() == 52
+    assert w.history_panel.isHidden()
+    path = tmp_path / "desktop.json"
+    w.config.save(path)
+    assert DesktopConfig.load(path).sidebar_compact
+    qtbot.mouseClick(w.sidebar_toggle, Qt.LeftButton)
+    assert w.sidebar.width() == 232
+    assert not w.history_panel.isHidden()

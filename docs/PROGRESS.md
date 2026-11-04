@@ -915,3 +915,7 @@ Pole i kontrakty ustawień kontekstu dopuszczają do 1 000 000 tokenów, z zacho
 ### RC8 — kontynuacja: transfery i motywy
 
 Obsłużono brak procentowego postępu transferu bez wyjątku i wydzielono istniejące sterowanie do zakładki Transfery obok Moich modeli i Hugging Face. Desktop oferuje siedem palet z zapisem lokalnym; istniejące ustawienie dark pozostaje zgodne. Testy desktopu i Hugging Face: 21 zaliczonych; osobne testy podziału zakładek i trwałości motywów: po 1 zaliczonym. Nadal potrzebne: przebudowa paska i historii z przypinaniem, czatu i statystyk, lista i filtry modeli, akcenty i podgląd motywów, responsywność oraz wizualna weryfikacja i zrzuty. RC8 pozostaje nieukończone.
+
+### RC8 — pasek boczny (częściowo)
+
+Przeniesiono istniejącą historię rozmów do paska; dodano dwa rozmiary (232 i 52 px) oraz trwały wybór i podpowiedzi. Testy Qt: 23 zaliczone; Ruff zaliczony. Nie zaimplementowano jeszcze grupowania, przypinania, menu kontekstowego ani regulacji szerokości. Nadal wymagane są pozostałe zmiany czatu, modeli, akcentów i przegląd wizualny; RC8 nie jest ukończone.
