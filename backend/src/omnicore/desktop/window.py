@@ -1609,7 +1609,7 @@ class MainWindow(QMainWindow):
             for record in records:
                 self.download_list.addItem(
                     f"{record['source']['filename']} · {self.tr(record['state'])}"
-                    f" · {record['percent']:.0f}%",
+                    + (f" · {record['percent']:.0f}%" if record.get("percent") is not None else ""),
                     record["id"],
                 )
             index = self.download_list.findData(current)
@@ -1621,7 +1621,12 @@ class MainWindow(QMainWindow):
 
     def _show_download_progress(self, *_):
         record = self.selected_download()
-        self.download_progress.setValue(int(record["percent"]) if record else 0)
+        percent = record.get("percent") if record else None
+        self.download_progress.setRange(0, 0 if record and percent is None else 100)
+        if percent is not None:
+            self.download_progress.setValue(max(0, min(100, int(percent))))
+        elif not record:
+            self.download_progress.setValue(0)
         state = record.get("state") if record else None
         self.cancel_download_button.setVisible(state in {"queued", "running"})
         self.resume_download_button.setVisible(state in {"failed", "cancelled", "interrupted"})
