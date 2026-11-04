@@ -556,7 +556,7 @@
         "properties": {
           "context_size": {
             "default": 2048,
-            "maximum": 131072.0,
+            "maximum": 1000000.0,
             "minimum": 128.0,
             "title": "Context Size",
             "type": "integer"
@@ -1396,7 +1396,7 @@
         "properties": {
           "manual_tokens": {
             "default": 2048,
-            "maximum": 9999.0,
+            "maximum": 1000000.0,
             "minimum": 128.0,
             "title": "Manual Tokens",
             "type": "integer"

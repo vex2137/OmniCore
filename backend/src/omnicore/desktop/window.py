@@ -286,7 +286,7 @@ class MainWindow(QMainWindow):
         self.context_mode.currentIndexChanged.connect(self._context_mode_changed)
         self.context_mode.currentIndexChanged.connect(self._context_edited)
         self.context_tokens = QSpinBox()
-        self.context_tokens.setRange(128, 9999)
+        self.context_tokens.setRange(128, 1_000_000)
         self.context_tokens.setSingleStep(256)
         self.context_tokens.setValue(2048)
         self.context_tokens.valueChanged.connect(self._context_edited)

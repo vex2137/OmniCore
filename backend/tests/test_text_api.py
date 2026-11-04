@@ -377,7 +377,7 @@ def test_context_settings_are_per_model_and_survive_restart(config):
             == 200
         )
         assert (
-            client.put(second_url, json={"mode": "manual", "manual_tokens": 10000}).status_code
+            client.put(second_url, json={"mode": "manual", "manual_tokens": 1_000_001}).status_code
             == 422
         )
     with TestClient(create_app(config), base_url="http://localhost") as client:
@@ -386,6 +386,11 @@ def test_context_settings_are_per_model_and_survive_restart(config):
         assert client.put(second_url, json={"mode": "auto"}).status_code == 200
         assert client.get(second_url).json()["mode"] == "auto"
         assert client.get(first_url).json()["effective_tokens"] == 8192
+        assert (
+            client.put(second_url, json={"mode": "manual", "manual_tokens": 1_000_000}).status_code
+            == 200
+        )
+        assert client.get(second_url).json()["effective_tokens"] == 1_000_000
 
 
 def test_context_is_capped_to_known_model_limit(client, app):

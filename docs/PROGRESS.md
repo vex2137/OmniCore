@@ -907,3 +907,7 @@ w RELEASE_GATE.md. Trwałe dane użytkownika nie były resetowane ani usuwane.
   przekazywanie `num_ctx` sprawdzono testem protokołu.
 - Końcowy zestaw: 181 testów Python; odczyt i sanitację rzeczywistej karty
   modelu oraz listy plików sprawdzono z Hugging Face. Nie budowano pakietów.
+
+### RC8 — kontekst (etap częściowy)
+
+Pole i kontrakty ustawień kontekstu dopuszczają do 1 000 000 tokenów, z zachowaniem znanego limitu modelu i zachowawczego trybu Auto. To nie gwarantuje dostępności pamięci ani obsługi takiego kontekstu przez silnik. Test API: 12 zaliczonych; testy Qt/Hugging Face: 20 zaliczonych, jeden błąd w obsłudze rekordu transferu bez pola `percent`. Przebudowa UI RC8 pozostaje do wykonania.

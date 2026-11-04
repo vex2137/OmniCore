@@ -19,7 +19,7 @@ def context_settings(model):
     if not isinstance(saved, dict):
         saved = {}
     limit = model_context_limit(model)
-    maximum = min(9999, limit) if limit else 9999
+    maximum = min(1_000_000, limit) if limit else 1_000_000
     manual = saved.get("manual_tokens")
     if not isinstance(manual, int) or isinstance(manual, bool) or not 128 <= manual <= maximum:
         manual = min(2048, maximum)

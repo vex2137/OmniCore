@@ -48,7 +48,7 @@ class ModelDelete(WireModel):
 
 class ModelContext(WireModel):
     mode: Literal["auto", "manual"]
-    manual_tokens: int = Field(default=2048, ge=128, le=9999)
+    manual_tokens: int = Field(default=2048, ge=128, le=1_000_000)
 
 
 class ConversationCreate(WireModel):

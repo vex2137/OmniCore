@@ -18,7 +18,7 @@ class GenerationParameters(WireModel):
     top_k: int = Field(default=40, ge=0, le=1000)
     repeat_penalty: float = Field(default=1.1, gt=0, le=3)
     max_tokens: int = Field(default=256, ge=1, le=32768)
-    context_size: int = Field(default=2048, ge=128, le=131072)
+    context_size: int = Field(default=2048, ge=128, le=1_000_000)
     seed: int = Field(default=0, ge=0, le=2**31 - 1)
     system_prompt: str = Field(default="", max_length=16384)
     gpu_layers: int = Field(default=0, ge=0, le=999)
