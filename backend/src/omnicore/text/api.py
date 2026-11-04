@@ -139,7 +139,9 @@ class TextService:
             self.engines["ollama"] = OllamaEngine(
                 config.ollama_url, timeout=config.generation_timeout
             )
-        self.downloads = DownloadManager(self.store, HuggingFace(config.hf_token), directory)
+        self.downloads = DownloadManager(
+            self.store, HuggingFace(config.hf_token), directory, self.models.import_gguf
+        )
         self.generations = GenerationManager(
             self.store, self.models, self.engines, hub, timeout=config.generation_timeout
         )
@@ -284,8 +286,21 @@ def routes(service: TextService):
             return {"status": "removed"}
 
     @router.get("/huggingface/search", response_model=list[dict[str, str | None]])
-    async def hf_search(query: str = Query(default="", max_length=256)):
-        return await service.downloads.hub.search(query)
+    async def hf_search(
+        query: str = Query(default="", max_length=256),
+        sort: Literal["downloads", "likes", "lastModified"] = "downloads",
+    ):
+        return await service.downloads.hub.search(query, sort)
+
+    @router.get("/huggingface/details")
+    async def hf_details(repository: str = Query(max_length=256)):
+        return await service.downloads.hub.details(repository)
+
+    @router.get("/huggingface/readme")
+    async def hf_readme(
+        repository: str = Query(max_length=256), revision: str = Query(max_length=40)
+    ):
+        return {"markdown": await service.downloads.hub.readme(repository, revision)}
 
     @router.get("/huggingface/files", response_model=list[RemoteFile])
     async def hf_files(
@@ -315,6 +330,10 @@ def routes(service: TextService):
     @router.get("/downloads/{job_id}", response_model=DownloadRecord)
     def download(job_id: str):
         return service.downloads.record(job_id)
+
+    @router.post("/downloads/{job_id}/import", response_model=DownloadRecord)
+    async def import_download(job_id: str):
+        return await service.downloads.import_completed(service.downloads.record(job_id))
 
     @router.post("/downloads/{job_id}/cancel", response_model=DownloadRecord)
     async def cancel_download(job_id: str):

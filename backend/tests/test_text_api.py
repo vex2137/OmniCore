@@ -315,3 +315,42 @@ def test_independent_clients_share_history_detach_and_cancel(text_app):
         thread.join(timeout=5)
         sock.close()
     assert not thread.is_alive()
+
+
+def test_hf_details_readme_and_sort_endpoints(client, app, monkeypatch):
+    hub = app.state.text.downloads.hub
+
+    async def search(query, sort):
+        assert (query, sort) == ("model", "likes")
+        return [{"repository": "author/model", "license": "mit"}]
+
+    async def details(repository):
+        return {"repository": repository, "revision": "a" * 40, "downloads": 17}
+
+    async def readme(repository, revision):
+        assert revision == "a" * 40
+        return "# Model"
+
+    monkeypatch.setattr(hub, "search", search)
+    monkeypatch.setattr(hub, "details", details)
+    monkeypatch.setattr(hub, "readme", readme)
+    assert (
+        client.get(
+            "/api/v1/text/huggingface/search", params={"query": "model", "sort": "likes"}
+        ).status_code
+        == 200
+    )
+    assert (
+        client.get(
+            "/api/v1/text/huggingface/details", params={"repository": "author/model"}
+        ).json()["downloads"]
+        == 17
+    )
+    assert (
+        client.get(
+            "/api/v1/text/huggingface/readme",
+            params={"repository": "author/model", "revision": "a" * 40},
+        ).json()["markdown"]
+        == "# Model"
+    )
+    assert client.get("/api/v1/text/huggingface/search", params={"sort": "bad"}).status_code == 422

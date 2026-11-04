@@ -74,6 +74,18 @@
       "default": null,
       "title": "Error Code"
     },
+    "eta_seconds": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Eta Seconds"
+    },
     "etag": {
       "anyOf": [
         {
@@ -90,10 +102,39 @@
       "title": "Id",
       "type": "string"
     },
+    "import_error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Import Error"
+    },
+    "import_pending": {
+      "default": false,
+      "title": "Import Pending",
+      "type": "boolean"
+    },
     "integrity_verified": {
       "default": false,
       "title": "Integrity Verified",
       "type": "boolean"
+    },
+    "model_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Id"
     },
     "path": {
       "anyOf": [
@@ -119,6 +160,18 @@
     },
     "source": {
       "$ref": "#/$defs/RemoteFile"
+    },
+    "speed_bytes_per_second": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Speed Bytes Per Second"
     },
     "state": {
       "default": "queued",
