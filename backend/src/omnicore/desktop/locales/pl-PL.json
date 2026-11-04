@@ -37,7 +37,7 @@
   "unload": "Zwolnij",
   "remove_entry": "Usuń wpis",
   "remove_model": "Usunąć wpis z katalogu? Plik modelu pozostanie na dysku.",
-  "installed": "Lokalna kolekcja",
+  "installed": "Moje modele",
   "download": "Hugging Face",
   "model_name": "Model",
   "engine": "Silnik",
@@ -218,5 +218,6 @@
   "context_on_start": "Zostanie zastosowany przy uruchomieniu modelu.",
   "context_saved": "Zapisano ustawienie modelu.",
   "multipart_short": "model wieloczęściowy",
-  "multipart_gguf_unsupported": "Ten model składa się z kilku plików. Pobieranie pojedynczych części nie jest obsługiwane; wybierz kompletny plik GGUF."
+  "multipart_gguf_unsupported": "Ten model składa się z kilku plików. Pobieranie pojedynczych części nie jest obsługiwane; wybierz kompletny plik GGUF.",
+  "transfers": "Transfery"
 }

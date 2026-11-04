@@ -403,18 +403,20 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.hf_file_info)
         self.download_button = self.button("download_file", self.download_file, primary=True)
         right_layout.addWidget(self.download_button)
+        transfers = QWidget()
+        transfer_layout = QVBoxLayout(transfers)
         self.download_list = QComboBox()
-        right_layout.addWidget(self.download_list)
+        transfer_layout.addWidget(self.download_list)
         self.download_progress = QProgressBar()
         self.download_progress.setValue(0)
-        right_layout.addWidget(self.download_progress)
+        transfer_layout.addWidget(self.download_progress)
         self.download_status = QLabel()
-        right_layout.addWidget(self.download_status)
+        transfer_layout.addWidget(self.download_status)
         self.download_list.currentIndexChanged.connect(self._show_download_progress)
         self.cancel_download_button = self.button("cancel_download", self.cancel_download)
         self.resume_download_button = self.button("resume_download", self.resume_download)
         self.import_download_button = self.button("import_download", self.import_download)
-        right_layout.addLayout(
+        transfer_layout.addLayout(
             self.row(
                 self.cancel_download_button,
                 self.resume_download_button,
@@ -437,6 +439,8 @@ class MainWindow(QMainWindow):
         splitter.setSizes([390, 700])
         hf.addWidget(splitter, 1)
         self.model_tabs.addTab(remote, "")
+        transfer_layout.addStretch()
+        self.model_tabs.addTab(transfers, "")
         self.pages.addWidget(page)
 
     def _build_settings(self):
@@ -599,6 +603,7 @@ class MainWindow(QMainWindow):
         self._show_download_progress()
         self.model_tabs.setTabText(0, self.tr("installed"))
         self.model_tabs.setTabText(1, self.tr("download"))
+        self.model_tabs.setTabText(2, self.tr("transfers"))
         for index, key in enumerate(("system", "light", "dark")):
             self.theme.setItemText(index, self.tr(key))
         for index, key in enumerate(("auto", "cpu", "cuda")):

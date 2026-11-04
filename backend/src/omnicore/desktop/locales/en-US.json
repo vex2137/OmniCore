@@ -37,7 +37,7 @@
   "unload": "Unload",
   "remove_entry": "Remove entry",
   "remove_model": "Remove this catalog entry? The model file stays on disk.",
-  "installed": "Local collection",
+  "installed": "My models",
   "download": "Hugging Face",
   "model_name": "Model",
   "engine": "Engine",
@@ -218,5 +218,6 @@
   "context_on_start": "Applied when the model starts.",
   "context_saved": "Model setting saved.",
   "multipart_short": "multi-part model",
-  "multipart_gguf_unsupported": "This model has multiple parts. Downloading a single part is not supported; choose a complete GGUF file."
+  "multipart_gguf_unsupported": "This model has multiple parts. Downloading a single part is not supported; choose a complete GGUF file.",
+  "transfers": "Transfers"
 }

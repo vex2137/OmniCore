@@ -468,3 +468,10 @@ def test_long_history_is_incremental_and_earlier_messages_remain_accessible(qtbo
     assert len(widget.cards) == 120
     widget.more.click()
     assert len(widget.cards) == 180
+
+
+def test_model_tabs_separate_transfers(desktop):
+    tabs = desktop.model_tabs
+    assert tabs.count() == 3
+    assert desktop.download_list.parentWidget() is tabs.widget(2)
+    assert desktop.download_button.parentWidget() is not tabs.widget(2)
