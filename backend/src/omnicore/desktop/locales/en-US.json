@@ -207,5 +207,16 @@
   "memory_estimate": "Estimate: weights require about {size} RAM; full GPU offload needs at least {size} VRAM plus overhead. Context and the engine increase requirements. Check llama.cpp compatibility.",
   "download_speed": "Speed: {value}/s",
   "download_eta": "About {seconds} s remaining",
-  "model_import_failed": "Model import failed. Use the import button to retry."
+  "model_import_failed": "Model import failed. Use the import button to retry.",
+  "context_auto": "Context: automatic",
+  "context_manual": "Context: manual",
+  "context_save": "Save context",
+  "context_choose_model": "Select a model to set its context.",
+  "context_configured": "Configured context: {tokens} tokens",
+  "context_applied": "Running model: {tokens} tokens",
+  "context_reload": "The change applies when the model is restarted.",
+  "context_on_start": "Applied when the model starts.",
+  "context_saved": "Model setting saved.",
+  "multipart_short": "multi-part model",
+  "multipart_gguf_unsupported": "This model has multiple parts. Downloading a single part is not supported; choose a complete GGUF file."
 }

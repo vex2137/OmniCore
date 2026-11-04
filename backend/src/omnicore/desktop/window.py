@@ -44,9 +44,12 @@ from PySide6.QtWidgets import (
 
 from omnicore.desktop.config import data_path
 from omnicore.desktop.i18n import Translator
+from omnicore.desktop.model_card import safe_card_markdown
 from omnicore.desktop.report import diagnostic_report, save_report
 from omnicore.desktop.transcript import ChatTranscript
 from omnicore.release import distribution_version
+from omnicore.text.context import context_settings
+from omnicore.text.downloads import is_multipart_gguf
 
 TEXT = "/api/v1/text"
 TERMINAL = {"completed", "failed", "cancelled", "interrupted"}
@@ -74,7 +77,8 @@ class ModelCardBrowser(QTextBrowser):
 
     def set_safe_markdown(self, text):
         self.document().setMarkdown(
-            text, QTextDocument.MarkdownDialectGitHub | QTextDocument.MarkdownNoHTML
+            safe_card_markdown(text),
+            QTextDocument.MarkdownDialectGitHub | QTextDocument.MarkdownNoHTML,
         )
 
 
@@ -98,6 +102,10 @@ class MainWindow(QMainWindow):
         self.last_job = None
         self.downloads, self.remote_files = [], []
         self._hf_search_sequence = 0
+        self.model_contexts = {}
+        self._context_saving = False
+        self._context_dirty = False
+        self._context_generation = 0
         self.engines = []
         self.is_connected = False
         self._connection_key = "connecting"
@@ -272,6 +280,21 @@ class MainWindow(QMainWindow):
         self.model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.model_combo.currentIndexChanged.connect(self.model_selected)
         chat.addLayout(self.row(self.model_combo, self.button("refresh", self.refresh_models)))
+        self.context_mode = QComboBox()
+        self.context_mode.addItem(self.tr("context_auto"), "auto")
+        self.context_mode.addItem(self.tr("context_manual"), "manual")
+        self.context_mode.currentIndexChanged.connect(self._context_mode_changed)
+        self.context_mode.currentIndexChanged.connect(self._context_edited)
+        self.context_tokens = QSpinBox()
+        self.context_tokens.setRange(128, 9999)
+        self.context_tokens.setSingleStep(256)
+        self.context_tokens.setValue(2048)
+        self.context_tokens.valueChanged.connect(self._context_edited)
+        self.context_save = self.button("context_save", self.save_model_context)
+        chat.addLayout(self.row(self.context_mode, self.context_tokens, self.context_save))
+        self.context_status = QLabel()
+        self.context_status.setWordWrap(True)
+        chat.addWidget(self.context_status)
         self.transcript = ChatTranscript()
         chat.addWidget(self.transcript, 1)
         self.generation_status = self.label("ready")
@@ -378,7 +401,8 @@ class MainWindow(QMainWindow):
         self.hf_file_info.setWordWrap(True)
         self.hf_files.currentIndexChanged.connect(self._hf_file_info)
         right_layout.addWidget(self.hf_file_info)
-        right_layout.addWidget(self.button("download_file", self.download_file, primary=True))
+        self.download_button = self.button("download_file", self.download_file, primary=True)
+        right_layout.addWidget(self.download_button)
         self.download_list = QComboBox()
         right_layout.addWidget(self.download_list)
         self.download_progress = QProgressBar()
@@ -387,17 +411,30 @@ class MainWindow(QMainWindow):
         self.download_status = QLabel()
         right_layout.addWidget(self.download_status)
         self.download_list.currentIndexChanged.connect(self._show_download_progress)
+        self.cancel_download_button = self.button("cancel_download", self.cancel_download)
+        self.resume_download_button = self.button("resume_download", self.resume_download)
+        self.import_download_button = self.button("import_download", self.import_download)
         right_layout.addLayout(
             self.row(
-                self.button("cancel_download", self.cancel_download),
-                self.button("resume_download", self.resume_download),
-                self.button("import_download", self.import_download),
+                self.cancel_download_button,
+                self.resume_download_button,
+                self.import_download_button,
             )
         )
+        for button in (
+            self.cancel_download_button,
+            self.resume_download_button,
+            self.import_download_button,
+        ):
+            button.hide()
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setWidget(right)
         splitter.addWidget(left)
-        splitter.addWidget(right)
+        splitter.addWidget(right_scroll)
         splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(1, 2)
+        splitter.setSizes([390, 700])
         hf.addWidget(splitter, 1)
         self.model_tabs.addTab(remote, "")
         self.pages.addWidget(page)
@@ -473,7 +510,6 @@ class MainWindow(QMainWindow):
             "top_k": 40,
             "repeat_penalty": 1.1,
             "max_tokens": 256,
-            "context_size": 2048,
             "seed": 0,
             "gpu_layers": 99,
         }
@@ -483,7 +519,6 @@ class MainWindow(QMainWindow):
             "top_k": (0, 1000),
             "repeat_penalty": (0.01, 3),
             "max_tokens": (1, 32768),
-            "context_size": (128, 131072),
             "seed": (0, 2**31 - 1),
             "gpu_layers": (0, 999),
         }
@@ -493,18 +528,16 @@ class MainWindow(QMainWindow):
             if isinstance(default, float):
                 box.setSingleStep(0.05)
             box.setValue(self.config.parameters.get(key, default))
-            (basic if key in {"max_tokens", "temperature", "top_p"} else form).addRow(
-                self.label(key), box
-            )
+            form.addRow(self.label(key), box)
             self.parameter_inputs[key] = box
         self.device.currentIndexChanged.connect(self.execution_mode_changed)
         self.thinking = QCheckBox(self.tr("thinking"))
         self.thinking.setChecked(self.config.parameters.get("thinking", False))
         self._texts.append((self.thinking, "thinking"))
-        basic.addRow(self.thinking)
+        form.addRow(self.thinking)
         self.system_prompt = QPlainTextEdit(self.config.parameters.get("system_prompt", ""))
         self.system_prompt.setMaximumHeight(100)
-        basic.addRow(self.label("system_prompt"), self.system_prompt)
+        form.addRow(self.label("system_prompt"), self.system_prompt)
         basic.addRow(self.label("settings_hint"))
         basic.addRow(self.button("save", self.save_settings, primary=True))
         self.about = QLabel()
@@ -554,6 +587,9 @@ class MainWindow(QMainWindow):
         )
         self.composer.setPlaceholderText(self.tr("composer"))
         self.history_search.setPlaceholderText(self.tr("search_history"))
+        self.context_mode.setItemText(0, self.tr("context_auto"))
+        self.context_mode.setItemText(1, self.tr("context_manual"))
+        self._render_model_context()
         self.hf_query.setPlaceholderText(self.tr("hf_query"))
         self.hf_quant_filter.setPlaceholderText(self.tr("filter_quantization"))
         self.hf_size_filter.setSpecialValueText(self.tr("all_sizes"))
@@ -863,6 +899,9 @@ class MainWindow(QMainWindow):
                 self.model_combo.blockSignals(True)
                 self.model_combo.setCurrentIndex(index)
                 self.model_combo.blockSignals(False)
+                self._context_dirty = False
+                self._render_model_context()
+                self._refresh_model_context()
         self.refresh_messages()
 
     def refresh_messages(self):
@@ -935,6 +974,9 @@ class MainWindow(QMainWindow):
         self.api.request("DELETE", TEXT + f"/conversations/{self.current_id}", success=deleted)
 
     def model_selected(self):
+        self._context_dirty = False
+        self._render_model_context()
+        self._refresh_model_context()
         if self.current_id and self.model_combo.currentData() and not self.active_job:
             self.api.request(
                 "PATCH",
@@ -942,15 +984,115 @@ class MainWindow(QMainWindow):
                 {"model_id": self.model_combo.currentData()},
             )
 
-    def request_parameters(self):
+    def _selected_chat_model(self):
+        return next((m for m in self.models if m["id"] == self.model_combo.currentData()), None)
+
+    def _context_edited(self, *_):
+        self._context_dirty = True
+
+    def _context_mode_changed(self, *_):
+        self.context_tokens.setEnabled(
+            bool(self._selected_chat_model())
+            and self.context_mode.currentData() == "manual"
+            and not self._context_saving
+        )
+
+    def _render_model_context(self):
+        if not hasattr(self, "context_mode"):
+            return
+        model = self._selected_chat_model()
+        self.context_mode.setEnabled(bool(model) and not self._context_saving)
+        self.context_save.setEnabled(
+            bool(model) and not self._context_saving and not self.active_job
+        )
+        if not model:
+            self.context_tokens.setEnabled(False)
+            self.context_status.setText(self.tr("context_choose_model"))
+            return
+        if self._context_dirty:
+            self._context_mode_changed()
+            return
+        saved = self.model_contexts.get(model["id"]) or context_settings(model)
+        self.context_mode.blockSignals(True)
+        self.context_mode.setCurrentIndex(self.context_mode.findData(saved["mode"]))
+        self.context_mode.blockSignals(False)
+        self.context_tokens.blockSignals(True)
+        self.context_tokens.setMaximum(saved["maximum"])
+        self.context_tokens.setValue(saved["manual_tokens"])
+        self.context_tokens.blockSignals(False)
+        self._context_mode_changed()
+        applied = saved.get("applied_tokens")
+        text = self.tr("context_configured", tokens=saved["effective_tokens"])
+        if applied is not None:
+            text += " · " + self.tr("context_applied", tokens=applied)
+            if applied != saved["effective_tokens"]:
+                text += " · " + self.tr("context_reload")
+        else:
+            text += " · " + self.tr("context_on_start")
+        self.context_status.setText(text)
+
+    def _refresh_model_context(self):
+        model = self._selected_chat_model()
+        if not model:
+            return
+        model_id = model["id"]
+        self._context_generation += 1
+        generation = self._context_generation
+
+        def received(settings):
+            if generation != self._context_generation:
+                return
+            self.model_contexts[model_id] = settings
+            if self.model_combo.currentData() == model_id and not self._context_dirty:
+                self._render_model_context()
+
+        self.api.request("GET", TEXT + f"/models/{model_id}/context", success=received)
+
+    def save_model_context(self):
+        model = self._selected_chat_model()
+        if not model or self._context_saving or self.active_job:
+            return
+        model_id = model["id"]
+        body = {
+            "mode": self.context_mode.currentData(),
+            "manual_tokens": self.context_tokens.value(),
+        }
+        self._context_saving = True
+        self.context_save.setEnabled(False)
+        self.context_mode.setEnabled(False)
+        self.context_tokens.setEnabled(False)
+
+        def saved(record):
+            self._context_saving = False
+            self._context_dirty = False
+            self.models = [record if item["id"] == model_id else item for item in self.models]
+            self.model_contexts[model_id] = context_settings(record)
+            self._refresh_model_context()
+            self._render_model_context()
+            self.notify(self.tr("context_saved"))
+
+        def failed(code):
+            self._context_saving = False
+            self._render_model_context()
+            self.show_error(code)
+
+        self.api.request(
+            "PUT", TEXT + f"/models/{model_id}/context", body, success=saved, failure=failed
+        )
+
+    def _parameters_for_model(self, model):
         parameters = dict(self.config.parameters)
-        model = next((m for m in self.models if m["id"] == self.model_combo.currentData()), None)
-        if model and model["backend"] == "ollama":
-            parameters.update(device="cpu", gpu_layers=0)
+        if model:
+            parameters["context_size"] = context_settings(model)["effective_tokens"]
+            if model["backend"] == "ollama":
+                parameters.update(device="cpu", gpu_layers=0)
         return parameters
 
+    def request_parameters(self):
+        return self._parameters_for_model(self._selected_chat_model())
+
     def send_message(self):
-        if self.active_job or self._submitting or not self.is_connected:
+        if self.active_job or self._submitting or self._context_saving or not self.is_connected:
             return
         if not self.current_id:
             self.show_error("no_conversation")
@@ -981,6 +1123,7 @@ class MainWindow(QMainWindow):
             self.conversation_list.setEnabled(False)
             self.new_button.setEnabled(False)
             self.model_combo.setEnabled(False)
+            self._render_model_context()
             self.generation_snapshot(record)
             self.api.watch(record["id"])
 
@@ -1026,6 +1169,7 @@ class MainWindow(QMainWindow):
         self.conversation_list.setEnabled(True)
         self.new_button.setEnabled(True)
         self.model_combo.setEnabled(True)
+        self._render_model_context()
 
     def stream_closed(self):
         if self.active_job:
@@ -1106,6 +1250,8 @@ class MainWindow(QMainWindow):
             self.model_combo.setCurrentIndex(max(index, 0))
             self.model_combo.blockSignals(False)
             self.refresh_model_table()
+            self._render_model_context()
+            self._refresh_model_context()
             self._loaded("models")
 
         self.api.request("GET", TEXT + "/models", success=received)
@@ -1212,6 +1358,7 @@ class MainWindow(QMainWindow):
             self.notify(self.tr("loaded"))
             self.model_combo.setCurrentIndex(self.model_combo.findData(record["id"]))
             self.refresh_models()
+            self._refresh_model_context()
 
         def failure(code):
             self._loading_model = False
@@ -1221,7 +1368,7 @@ class MainWindow(QMainWindow):
         self.api.request(
             "POST",
             TEXT + f"/models/{record['id']}/load",
-            self.config.parameters,
+            self._parameters_for_model(record),
             success=loaded,
             failure=failure,
             timeout=130000,
@@ -1233,7 +1380,7 @@ class MainWindow(QMainWindow):
             self.api.request(
                 "POST",
                 TEXT + f"/models/{record['id']}/unload",
-                success=lambda _: self.notify(self.tr("unloaded")),
+                success=lambda _: (self.notify(self.tr("unloaded")), self._refresh_model_context()),
             )
 
     def remove_model(self):
@@ -1269,7 +1416,17 @@ class MainWindow(QMainWindow):
                 repository = record.get("repository")
                 if not repository:
                     continue
-                item = QListWidgetItem(repository)
+                author, _, model_name = repository.partition("/")
+                title = model_name.replace("-", " ").replace("_", " ") or repository
+                license_name = record.get("license")
+                details = [author]
+                if record.get("downloads") and str(record["downloads"]).isdigit():
+                    details.append(f"{self.tr('downloads_count')}: {int(record['downloads']):,}")
+                if license_name:
+                    details.append(str(license_name))
+                subtitle = " · ".join(details)
+                item = QListWidgetItem(f"{title}\n{subtitle}")
+                item.setToolTip(repository)
                 item.setData(Qt.UserRole, record)
                 self.hf_results.addItem(item)
             if self.hf_results.count():
@@ -1363,7 +1520,14 @@ class MainWindow(QMainWindow):
             current = self.hf_results.currentItem()
             if not current or current.data(Qt.UserRole)["repository"] != repository:
                 return
-            self.remote_files = records
+            self.remote_files = sorted(
+                records,
+                key=lambda record: (
+                    is_multipart_gguf(record["filename"]),
+                    "mmproj" in record["filename"].casefold(),
+                    record["size_bytes"],
+                ),
+            )
             self._filter_hf_files()
 
         self.api.request(
@@ -1382,8 +1546,13 @@ class MainWindow(QMainWindow):
             if query in record["filename"].casefold() and (
                 not maximum or record["size_bytes"] <= maximum
             ):
+                suffix = (
+                    f" · {self.tr('multipart_short')}"
+                    if is_multipart_gguf(record["filename"])
+                    else ""
+                )
                 self.hf_files.addItem(
-                    f"{record['filename']} · {human_size(record['size_bytes'])}", record
+                    f"{record['filename']} · {human_size(record['size_bytes'])}{suffix}", record
                 )
         for index in range(self.hf_files.count()):
             if self.hf_files.itemData(index)["filename"] == name:
@@ -1395,8 +1564,15 @@ class MainWindow(QMainWindow):
         record = self.hf_files.currentData()
         if not record:
             self.hf_file_info.clear()
+            self.download_button.setEnabled(False)
             return
-        self.hf_file_info.setText(self.tr("memory_estimate", size=human_size(record["size_bytes"])))
+        multipart = is_multipart_gguf(record["filename"])
+        self.download_button.setEnabled(not multipart)
+        self.hf_file_info.setText(
+            self.tr("multipart_gguf_unsupported")
+            if multipart
+            else self.tr("memory_estimate", size=human_size(record["size_bytes"]))
+        )
 
     def download_file(self):
         record = self.hf_files.currentData()
@@ -1446,6 +1622,12 @@ class MainWindow(QMainWindow):
     def _show_download_progress(self, *_):
         record = self.selected_download()
         self.download_progress.setValue(int(record["percent"]) if record else 0)
+        state = record.get("state") if record else None
+        self.cancel_download_button.setVisible(state in {"queued", "running"})
+        self.resume_download_button.setVisible(state in {"failed", "cancelled", "interrupted"})
+        self.import_download_button.setVisible(
+            bool(record and state == "completed" and not record.get("model_id"))
+        )
         if not record:
             self.download_status.clear()
             return
@@ -1563,7 +1745,7 @@ class MainWindow(QMainWindow):
         self.config.model_roots, self.config.llama_server = roots, path
         self.config.llama_cuda_server = cuda_path
         self.config.ollama_url, self.config.ollama_enabled = url, self.ollama_enabled.isChecked()
-        self.config.parameters = {k: box.value() for k, box in self.parameter_inputs.items()}
+        self.config.parameters.update({k: box.value() for k, box in self.parameter_inputs.items()})
         self.config.parameters.update(
             system_prompt=self.system_prompt.toPlainText(),
             device=self.device.currentData(),

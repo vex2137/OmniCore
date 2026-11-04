@@ -893,3 +893,17 @@ w RELEASE_GATE.md. Trwałe dane użytkownika nie były resetowane ani usuwane.
 - Testy: 174 Python, w tym offscreen Qt; odczyt metadanych, README i listy
   plików sprawdzono również z rzeczywistym Hugging Face. Dużego modelu nie
   pobierano, a jego uruchomienia na lokalnym silniku nie sprawdzano.
+
+### Ustawienia kontekstu i interfejs modeli — praca RC7 (2026-11-04)
+
+- Dodano trwały wybór kontekstu dla każdego modelu, bez zmiany schematu bazy;
+  automatyczny wybór używa 2048 tokenów lub mniejszego znanego limitu modelu.
+- Uporządkowano widok Hugging Face i bezpieczny podgląd HTML/Markdown.
+  Pojedyncze części wieloczęściowego GGUF są wyraźnie oznaczane i odrzucane;
+  pobieranie kompletnych zestawów części nie jest jeszcze obsługiwane.
+- Na odizolowanej bazie sprawdzono generację przez API z rzeczywistym modelem
+  GGUF i llama.cpp na CPU przy 4096 tokenach, a także bezpośrednio przy 2048
+  i 4096 tokenach, z ponownym uruchomieniem silnika. Ollama nie była dostępna;
+  przekazywanie `num_ctx` sprawdzono testem protokołu.
+- Końcowy zestaw: 181 testów Python; odczyt i sanitację rzeczywistej karty
+  modelu oraz listy plików sprawdzono z Hugging Face. Nie budowano pakietów.

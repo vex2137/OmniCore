@@ -207,5 +207,16 @@
   "memory_estimate": "Orientacyjnie: wagi zajmą około {size} RAM; pełne przeniesienie na GPU wymaga co najmniej {size} VRAM oraz dodatkowej pamięci. Kontekst i silnik zwiększają wymagania. Zgodność z llama.cpp należy sprawdzić.",
   "download_speed": "Prędkość: {value}/s",
   "download_eta": "Pozostało około {seconds} s",
-  "model_import_failed": "Nie udało się zaimportować modelu. Użyj przycisku importu, aby ponowić."
+  "model_import_failed": "Nie udało się zaimportować modelu. Użyj przycisku importu, aby ponowić.",
+  "context_auto": "Kontekst: automatycznie",
+  "context_manual": "Kontekst: ręcznie",
+  "context_save": "Zapisz kontekst",
+  "context_choose_model": "Wybierz model, aby ustawić kontekst.",
+  "context_configured": "Ustawiony kontekst: {tokens} tokenów",
+  "context_applied": "Uruchomiony model: {tokens} tokenów",
+  "context_reload": "Zmiana zostanie zastosowana przy ponownym uruchomieniu modelu.",
+  "context_on_start": "Zostanie zastosowany przy uruchomieniu modelu.",
+  "context_saved": "Zapisano ustawienie modelu.",
+  "multipart_short": "model wieloczęściowy",
+  "multipart_gguf_unsupported": "Ten model składa się z kilku plików. Pobieranie pojedynczych części nie jest obsługiwane; wybierz kompletny plik GGUF."
 }
