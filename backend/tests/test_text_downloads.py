@@ -219,3 +219,36 @@ def test_official_hf_cdn_is_allowed_without_forwarding_hf_token():
         await hub.close()
 
     asyncio.run(exercise())
+
+
+def test_hf_popular_search_uses_download_order():
+    def handler(request):
+        assert request.url.params["filter"] == "gguf"
+        assert request.url.params["sort"] == "downloads"
+        assert request.url.params["direction"] == "-1"
+        assert "search" not in request.url.params
+        return httpx.Response(200, json=[{"id": "test/popular"}])
+
+    async def exercise():
+        hub = HuggingFace(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+        assert (await hub.search(""))[0]["repository"] == "test/popular"
+        await hub.close()
+
+    asyncio.run(exercise())
+
+
+def test_duplicate_download_reuses_completed_file(tmp_path):
+    manager, source, payload = setup_downloads(
+        tmp_path,
+        lambda request: httpx.Response(200, content=synthetic_gguf(), headers={"ETag": '"test"'}),
+    )
+
+    async def exercise():
+        first = await manager.start(source, confirmed=True, expected_size=len(payload))
+        await manager.tasks[first.id]
+        second = await manager.start(source, confirmed=True, expected_size=len(payload))
+        assert second.id == first.id
+        assert len(manager.store.jobs("download")) == 1
+        await manager.close()
+
+    asyncio.run(exercise())

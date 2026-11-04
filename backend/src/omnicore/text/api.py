@@ -284,7 +284,7 @@ def routes(service: TextService):
             return {"status": "removed"}
 
     @router.get("/huggingface/search", response_model=list[dict[str, str | None]])
-    async def hf_search(query: str = Query(min_length=1, max_length=256)):
+    async def hf_search(query: str = Query(default="", max_length=256)):
         return await service.downloads.hub.search(query)
 
     @router.get("/huggingface/files", response_model=list[RemoteFile])

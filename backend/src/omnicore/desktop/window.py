@@ -81,6 +81,7 @@ class MainWindow(QMainWindow):
         self._loading_model = False
         self.last_job = None
         self.downloads, self.remote_files = [], []
+        self._hf_search_sequence = 0
         self.engines = []
         self.is_connected = False
         self._connection_key = "connecting"
@@ -318,28 +319,42 @@ class MainWindow(QMainWindow):
         remote = QWidget()
         hf = QVBoxLayout(remote)
         hf.addWidget(self.label("download_hint"))
+        splitter = QSplitter(Qt.Horizontal)
+        left, right = QWidget(), QWidget()
+        left_layout, right_layout = QVBoxLayout(left), QVBoxLayout(right)
         self.hf_query = QLineEdit()
         self.hf_query.returnPressed.connect(self.search_hf)
-        hf.addLayout(self.row(self.hf_query, self.button("search", self.search_hf)))
+        left_layout.addLayout(self.row(self.hf_query, self.button("search", self.search_hf)))
+        left_layout.addWidget(self.button("popular_models", self.popular_hf))
         self.hf_results = QListWidget()
-        self.hf_results.itemDoubleClicked.connect(lambda _: self.list_hf_files())
-        hf.addWidget(self.hf_results, 1)
-        hf.addWidget(self.button("files", self.list_hf_files))
+        self.hf_results.currentItemChanged.connect(self._hf_selection_changed)
+        left_layout.addWidget(self.hf_results, 1)
+        self.hf_detail = QLabel()
+        self.hf_detail.setWordWrap(True)
+        self.hf_detail.setTextFormat(Qt.PlainText)
+        right_layout.addWidget(self.hf_detail)
+        right_layout.addWidget(self.label("files"))
         self.hf_files = QComboBox()
-        hf.addWidget(self.hf_files)
-        hf.addWidget(self.button("download_file", self.download_file, primary=True))
+        right_layout.addWidget(self.hf_files)
+        right_layout.addWidget(self.button("download_file", self.download_file, primary=True))
         self.download_list = QComboBox()
-        hf.addWidget(self.download_list)
+        right_layout.addWidget(self.download_list)
         self.download_progress = QProgressBar()
         self.download_progress.setValue(0)
-        hf.addWidget(self.download_progress)
-        hf.addLayout(
+        right_layout.addWidget(self.download_progress)
+        right_layout.addLayout(
             self.row(
                 self.button("cancel_download", self.cancel_download),
                 self.button("resume_download", self.resume_download),
                 self.button("import_download", self.import_download),
             )
         )
+        right_layout.addStretch(1)
+        splitter.addWidget(left)
+        splitter.addWidget(right)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
+        hf.addWidget(splitter, 1)
         self.model_tabs.addTab(remote, "")
         self.pages.addWidget(page)
 
@@ -710,7 +725,14 @@ class MainWindow(QMainWindow):
     def show_error(self, code):
         safe_code = code if code in self.tr.catalog else "unknown_error"
         self.log_event(safe_code)
-        if code in {"connection_error", "backend_exited", "backend_process_error", "unauthorized"}:
+        if code in {
+            "connection_error",
+            "backend_exited",
+            "backend_process_error",
+            "unauthorized",
+            "database_incompatible",
+            "database_start_error",
+        }:
             self.is_connected = False
             self._connection_key = "unauthorized" if code == "unauthorized" else "disconnected"
             self.connection.setText(self.tr(self._connection_key))
@@ -1178,27 +1200,55 @@ class MainWindow(QMainWindow):
                 success=lambda _: self.refresh_models(),
             )
 
+    def popular_hf(self):
+        self.hf_query.clear()
+        self.search_hf()
+
     def search_hf(self):
         query = self.hf_query.text().strip()
-        if not query:
-            return
+        self._hf_search_sequence += 1
+        sequence = self._hf_search_sequence
 
         def received(records):
+            if sequence != self._hf_search_sequence:
+                return
             self.hf_results.clear()
+            self.hf_files.clear()
+            self.hf_detail.clear()
             for record in records:
-                item = QListWidgetItem(record["repository"])
-                item.setData(Qt.UserRole, record["repository"])
+                repository = record.get("repository")
+                if not repository:
+                    continue
+                item = QListWidgetItem(repository)
+                item.setData(Qt.UserRole, record)
                 self.hf_results.addItem(item)
+            if self.hf_results.count():
+                self.hf_results.setCurrentRow(0)
 
         self.api.request(
             "GET", TEXT + "/huggingface/search?" + urlencode({"query": query}), success=received
         )
 
+    def _hf_selection_changed(self, current, previous):
+        self.hf_files.clear()
+        self.hf_detail.clear()
+        if current:
+            record = current.data(Qt.UserRole)
+            repository = record["repository"]
+            license_name = record.get("license") or self.tr("unknown")
+            self.hf_detail.setText(f"{repository}\n{self.tr('license')}: {license_name}")
+            self.list_hf_files()
+
     def list_hf_files(self):
         item = self.hf_results.currentItem()
-        repository = item.data(Qt.UserRole) if item else self.hf_query.text().strip()
+        if not item:
+            return
+        repository = item.data(Qt.UserRole)["repository"]
 
         def received(records):
+            current = self.hf_results.currentItem()
+            if not current or current.data(Qt.UserRole)["repository"] != repository:
+                return
             self.remote_files = records
             self.hf_files.clear()
             for record in records:

@@ -94,9 +94,12 @@ class HuggingFace:
             raise TextError("download_network_error", 502) from None
 
     async def search(self, query: str):
-        result = await self._json(
-            "/api/models", {"search": query, "filter": "gguf", "limit": 20, "full": "true"}
-        )
+        params = {"filter": "gguf", "limit": 20, "full": "true"}
+        if query:
+            params["search"] = query
+        else:
+            params.update(sort="downloads", direction="-1")
+        result = await self._json("/api/models", params)
         return [
             {"repository": item.get("id"), "license": (item.get("cardData") or {}).get("license")}
             for item in result
@@ -190,6 +193,20 @@ class DownloadManager:
     async def start(self, source: RemoteFile, *, confirmed: bool, expected_size: int):
         if not confirmed or expected_size != source.size_bytes:
             raise TextError("confirmation_required", 409)
+        for item in self.store.jobs("download"):
+            if item.get("source") != source.model_dump(mode="json"):
+                continue
+            if item.get("state") in {"queued", "running"}:
+                return DownloadRecord.model_validate(item)
+            if item.get("state") == "completed":
+                existing = DownloadRecord.model_validate(item)
+                expected = self.directory / f"{existing.id}.gguf"
+                if (
+                    existing.path == str(expected)
+                    and expected.is_file()
+                    and not expected.is_symlink()
+                ):
+                    return existing
         if len(self.tasks) >= 32:
             raise TextError("queue_full", 429)
         record = DownloadRecord(id=uuid.uuid4().hex, source=source, created_at=timestamp())

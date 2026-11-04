@@ -870,3 +870,18 @@ GGUF, przekazuje nowy omnicore-hardware-*.json oraz wynik GUI Wayland i APK ARM6
 Nie zastępować raportu wynikiem samego zewnętrznego llama-server. Nie publikować
 v0.1.0 Stable przed potwierdzeniem sprzętu i docelowego podpisywania. Szczegóły
 w RELEASE_GATE.md. Trwałe dane użytkownika nie były resetowane ani usuwane.
+
+### Diagnostyka RC6 — lokalna praca w toku (2026-11-04)
+
+- Rozpoznano dodatkowe pola historii i sprawdzono odczyt na osobnej kopii bazy v5;
+  numer schematu pozostaje bez zmian. Przed otwarciem istniejącej bazy do zapisu
+  tworzona jest kopia SQLite. Akceptowany jest wyłącznie sprawdzany układ v5;
+  brak oryginalnych migracji v4/v5 ogranicza gwarancję zgodności.
+- Dodano dwupanelowy widok istniejących funkcji Hugging Face, popularne modele
+  oraz ponowne użycie zadania dla tego samego pliku. Pełny menedżer modeli
+  pozostaje niedokończony.
+- W dostępnym kodzie nie znaleziono implementacji parowania/skanowania QR.
+  Działania połączenia z telefonem nie potwierdzono.
+- Wykonano 166 testów Python oraz 44 testy jednostkowe Androida. AppImage
+  zbudowano lokalnie; testy na fizycznym telefonie i rzeczywistym modelu
+  nie zostały wykonane.

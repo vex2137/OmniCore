@@ -85,6 +85,17 @@
             "title": "Title",
             "type": "string"
           },
+          "title_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title Status"
+          },
           "updated_at": {
             "title": "Updated At",
             "type": "string"
@@ -635,6 +646,28 @@
             ],
             "title": "Execution Device"
           },
+          "execution_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Model"
+          },
+          "execution_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Provider"
+          },
           "fallback_reason": {
             "anyOf": [
               {
@@ -904,6 +937,28 @@
               }
             ],
             "title": "Execution Device"
+          },
+          "execution_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Model"
+          },
+          "execution_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Provider"
           },
           "fallback_reason": {
             "anyOf": [
@@ -1671,7 +1726,7 @@
   "info": {
     "description": "Local Text AI backend with optional llama.cpp and Ollama. No GUI or Image AI.",
     "title": "OmniCore",
-    "version": "0.1.0rc1"
+    "version": "0.1.0rc6"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -5767,10 +5822,10 @@
           {
             "in": "query",
             "name": "query",
-            "required": true,
+            "required": false,
             "schema": {
+              "default": "",
               "maxLength": 256,
-              "minLength": 1,
               "title": "Query",
               "type": "string"
             }
