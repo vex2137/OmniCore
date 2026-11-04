@@ -354,3 +354,86 @@ def test_hf_details_readme_and_sort_endpoints(client, app, monkeypatch):
         == "# Model"
     )
     assert client.get("/api/v1/text/huggingface/search", params={"sort": "bad"}).status_code == 422
+
+
+def test_context_settings_are_per_model_and_survive_restart(config):
+    app = create_app(config)
+    with TestClient(app, base_url="http://localhost") as client:
+        store = app.state.text.store
+        first = store.add_model(
+            backend="ollama", location="one", name="One", size_bytes=0, format="Ollama"
+        )
+        second = store.add_model(
+            backend="ollama", location="two", name="Two", size_bytes=0, format="Ollama"
+        )
+        first_url = f"/api/v1/text/models/{first.id}/context"
+        second_url = f"/api/v1/text/models/{second.id}/context"
+        assert client.get(first_url).json()["effective_tokens"] == 2048
+        assert (
+            client.put(first_url, json={"mode": "manual", "manual_tokens": 8192}).status_code == 200
+        )
+        assert (
+            client.put(second_url, json={"mode": "manual", "manual_tokens": 4096}).status_code
+            == 200
+        )
+        assert (
+            client.put(second_url, json={"mode": "manual", "manual_tokens": 10000}).status_code
+            == 422
+        )
+    with TestClient(create_app(config), base_url="http://localhost") as client:
+        assert client.get(first_url).json()["effective_tokens"] == 8192
+        assert client.get(second_url).json()["effective_tokens"] == 4096
+        assert client.put(second_url, json={"mode": "auto"}).status_code == 200
+        assert client.get(second_url).json()["mode"] == "auto"
+        assert client.get(first_url).json()["effective_tokens"] == 8192
+
+
+def test_context_is_capped_to_known_model_limit(client, app):
+    model = app.state.text.store.add_model(
+        backend="llama.cpp",
+        location="fixture",
+        name="small",
+        size_bytes=1,
+        format="GGUF",
+        metadata={"architecture": "llama", "metadata": {"llama.context_length": 1024}},
+    )
+    url = f"/api/v1/text/models/{model.id}/context"
+    assert client.get(url).json()["effective_tokens"] == 1024
+    assert client.put(url, json={"mode": "manual", "manual_tokens": 2048}).status_code == 422
+    assert client.put(url, json={"mode": "manual", "manual_tokens": 512}).status_code == 200
+    assert client.get(url).json()["effective_tokens"] == 512
+
+
+def test_model_context_reaches_engine_when_generation_has_no_override(text_app):
+    from omnicore.text.types import GenerationParameters
+
+    class ContextEngine(ProtocolTestEngine):
+        contexts = []
+
+        async def load(self, path, parameters, file_descriptor=None):
+            await super().load(path, parameters, file_descriptor)
+            self.contexts.append(parameters.context_size)
+
+    app, path = text_app
+    engine = ContextEngine()
+    app.state.text.engines["llama.cpp"] = engine
+    with TestClient(app, base_url="http://localhost") as client:
+        model, conversation = create_chat(client, path)
+        url = f"/api/v1/text/models/{model['id']}/context"
+        for index, size in enumerate((4096, 8192)):
+            assert (
+                client.put(url, json={"mode": "manual", "manual_tokens": size}).status_code == 200
+            )
+            response = client.post(
+                f"/api/v1/text/conversations/{conversation['id']}/generations",
+                json={"content": "hello", "request_key": f"context-{index}"},
+            )
+            assert response.status_code == 202
+            assert wait_job(client, response.json()["id"])["state"] == "completed"
+        assert engine.contexts == [4096, 8192]
+        assert (
+            GenerationParameters.model_validate(
+                client.get(f"/api/v1/text/conversations/{conversation['id']}").json()["parameters"]
+            ).context_size
+            == 8192
+        )

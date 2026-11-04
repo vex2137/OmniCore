@@ -11,6 +11,7 @@ from typing import Literal
 from pydantic import Field
 
 from omnicore.schemas import ServerEvent, WireModel
+from omnicore.text.context import context_settings
 from omnicore.text.conversations import Conversations, MessageRecord
 from omnicore.text.models import ModelManager
 from omnicore.text.store import TextStore, timestamp
@@ -102,6 +103,10 @@ class GenerationManager:
                 raise TextError("model_required", 422)
             model = await asyncio.to_thread(self.store.model, model_id)
             parameters = request.parameters or conversation.parameters
+            if request.parameters is None and "desktop_context" in model.metadata:
+                parameters = parameters.model_copy(
+                    update={"context_size": context_settings(model)["effective_tokens"]}
+                )
             parameter_fingerprint = parameters.model_dump()
             # Preserve idempotency keys created by Alpha.1/2 before thinking was a field.
             if not parameters.thinking:

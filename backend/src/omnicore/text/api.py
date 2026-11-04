@@ -16,6 +16,7 @@ from omnicore.diagnostics import HardwareSnapshot, hardware_snapshot
 from omnicore.events import EventHub
 from omnicore.schemas import BackendInfo, WireModel
 from omnicore.text import nvidia
+from omnicore.text.context import context_settings
 from omnicore.text.conversations import (
     Conversation,
     ConversationExport,
@@ -43,6 +44,11 @@ class ModelImport(WireModel):
 class ModelDelete(WireModel):
     delete_file: bool = False
     confirm_name: str | None = Field(default=None, max_length=256)
+
+
+class ModelContext(WireModel):
+    mode: Literal["auto", "manual"]
+    manual_tokens: int = Field(default=2048, ge=128, le=9999)
 
 
 class ConversationCreate(WireModel):
@@ -239,6 +245,33 @@ def routes(service: TextService):
     @router.get("/models/{model_id}", response_model=ModelRecord)
     def model(model_id: str):
         return service.store.model(model_id)
+
+    @router.get("/models/{model_id}/context")
+    def get_model_context(model_id: str):
+        record = service.store.model(model_id)
+        settings = context_settings(record)
+        engine = service.llama
+        settings["applied_tokens"] = (
+            engine.parameters[1]
+            if record.backend == "llama.cpp"
+            and engine.model == record.location
+            and engine.parameters
+            and engine.process
+            and engine.process.returncode is None
+            else None
+        )
+        return settings
+
+    @router.put("/models/{model_id}/context", response_model=ModelRecord)
+    async def set_model_context(model_id: str, body: ModelContext):
+        async with service.generations.submission_lock:
+            service.require_idle(model_id=model_id)
+            record = await run_in_threadpool(service.store.model, model_id)
+            maximum = context_settings(record)["maximum"]
+            if body.mode == "manual" and body.manual_tokens > maximum:
+                raise TextError("context_limit_exceeded", 422)
+            record.metadata["desktop_context"] = body.model_dump(mode="json")
+            return await run_in_threadpool(service.store.update_model, record)
 
     @router.put("/models/{model_id}/parameters", response_model=ModelRecord)
     async def model_parameters(model_id: str, body: GenerationParameters):

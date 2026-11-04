@@ -56,6 +56,7 @@ def test_ollama_protocol_parameters_capabilities_stream_and_unload():
             return httpx.Response(200, json={"done": True})
         body = json.loads(request.content)
         assert body["options"]["num_predict"] == 4
+        assert body["options"]["num_ctx"] == 8192
         assert "gpu_layers" not in body["options"]
         return httpx.Response(
             200,
@@ -77,7 +78,7 @@ def test_ollama_protocol_parameters_capabilities_stream_and_unload():
             async for chunk in engine.stream(
                 "test-model",
                 [TextMessage(role="user", content="hi")],
-                GenerationParameters(max_tokens=4),
+                GenerationParameters(max_tokens=4, context_size=8192),
             )
         ]
         assert chunks[0].content == "hello"
@@ -223,7 +224,8 @@ def test_owned_llama_process_load_switch_and_stop(tmp_path):
     executable.write_text(
         f"#!{sys.executable}\n"
         + """
-import argparse,sys
+import argparse,sys,json
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler,HTTPServer
 if '--version' in sys.argv:
  print('test-process-only 1'); sys.exit(0)
@@ -231,6 +233,7 @@ if '--list-devices' in sys.argv:
  print('Available devices:'); sys.exit(0)
 p=argparse.ArgumentParser(); p.add_argument('--port',type=int)
 a,_=p.parse_known_args()
+Path(__file__+".args").write_text(json.dumps(sys.argv))
 class Handler(BaseHTTPRequestHandler):
  def do_GET(self):
   self.send_response(200); self.end_headers(); self.wfile.write(b'{}')
@@ -248,9 +251,16 @@ HTTPServer(('127.0.0.1',a.port),Handler).serve_forever()
             await engine.load(
                 tmp_path / "unused.gguf", GenerationParameters(device="cuda", gpu_layers=1)
             )
-        await engine.load(tmp_path / "one.gguf", GenerationParameters())
+        await engine.load(tmp_path / "one.gguf", GenerationParameters(context_size=4096))
         first = engine.process
         assert first.returncode is None
+        arguments = json.loads(Path(str(executable) + ".args").read_text())
+        assert arguments[arguments.index("--ctx-size") + 1] == "4096"
+        await engine.load(tmp_path / "one.gguf", GenerationParameters(context_size=8192))
+        assert first.returncode is not None
+        arguments = json.loads(Path(str(executable) + ".args").read_text())
+        assert arguments[arguments.index("--ctx-size") + 1] == "8192"
+        first = engine.process
         assert await engine.capabilities(str(tmp_path / "one.gguf")) == []
         await engine.load(tmp_path / "two.gguf", GenerationParameters())
         assert first.returncode is not None
