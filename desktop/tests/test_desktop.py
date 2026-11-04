@@ -500,3 +500,16 @@ def test_sidebar_compact_preserves_history_and_setting(desktop, qtbot, tmp_path)
     qtbot.mouseClick(w.sidebar_toggle, Qt.LeftButton)
     assert w.sidebar.width() == 232
     assert not w.history_panel.isHidden()
+
+
+def test_sidebar_width_is_persistent_and_restored_after_compacting(desktop, tmp_path):
+    window = desktop
+    window.sidebar_width.setValue(280)
+    assert window.sidebar.width() == 280
+    window.toggle_sidebar()
+    assert window.sidebar.width() == 52
+    window.toggle_sidebar()
+    assert window.sidebar.width() == 280
+    path = tmp_path / "prefs.json"
+    window.config.save(path)
+    assert DesktopConfig.load(path).sidebar_width == 280

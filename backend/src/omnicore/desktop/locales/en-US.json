@@ -226,5 +226,6 @@
   "ocean": "Ocean",
   "forest": "Forest",
   "sidebar_expand": "Expand sidebar",
-  "sidebar_collapse": "Collapse sidebar"
+  "sidebar_collapse": "Collapse sidebar",
+  "sidebar_width": "Sidebar width"
 }

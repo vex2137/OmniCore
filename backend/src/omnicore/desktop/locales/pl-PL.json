@@ -226,5 +226,6 @@
   "ocean": "Ocean",
   "forest": "Forest",
   "sidebar_expand": "Rozwiń pasek",
-  "sidebar_collapse": "Zwiń pasek"
+  "sidebar_collapse": "Zwiń pasek",
+  "sidebar_width": "Szerokość paska"
 }

@@ -37,6 +37,7 @@ class DesktopConfig:
     parameters: dict = field(default_factory=dict)
     onboarding_complete: bool = False
     sidebar_compact: bool = False
+    sidebar_width: int = 232
 
     @classmethod
     def load(cls, path: Path | None = None):
@@ -62,6 +63,9 @@ class DesktopConfig:
             "forest",
         }:
             raise ValueError("Invalid desktop preferences")
+        if not isinstance(obj.sidebar_width, int) or isinstance(obj.sidebar_width, bool):
+            obj.sidebar_width = 232
+        obj.sidebar_width = max(200, min(360, obj.sidebar_width))
         if not obj.llama_server:
             obj.llama_server = bundled_engine()
         return obj

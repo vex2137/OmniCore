@@ -250,6 +250,12 @@ class MainWindow(QMainWindow):
         self.history_panel = QWidget()
         left = QVBoxLayout(self.history_panel)
         left.setContentsMargins(0, 0, 0, 0)
+        self.sidebar_width = QSpinBox()
+        self.sidebar_width.setRange(200, 360)
+        self.sidebar_width.setValue(self.config.sidebar_width)
+        self.sidebar_width.setSuffix(" px")
+        self.sidebar_width.valueChanged.connect(self.resize_sidebar)
+        left.addWidget(self.sidebar_width)
         self.new_button = self.button("new_chat", self.new_conversation, primary=True)
         left.addWidget(self.new_button)
         left.addWidget(self.button("refresh", self.refresh_shared_history))
@@ -303,8 +309,8 @@ class MainWindow(QMainWindow):
         chat.addWidget(self.generation_status)
         self.composer = QPlainTextEdit()
         self.composer.setObjectName("composer")
-        self.composer.setMaximumHeight(180)
-        self.composer.setMinimumHeight(94)
+        self.composer.setMaximumHeight(120)
+        self.composer.setMinimumHeight(72)
         chat.addWidget(self.composer)
         self.send_button = self.button("send", self.send_message, primary=True)
         self.stop_button = self.button("stop", self.stop_generation)
@@ -569,6 +575,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.logs, 1)
         self.pages.addWidget(page)
 
+    def resize_sidebar(self, width):
+        self.config.sidebar_width = width
+        if not self.config.sidebar_compact:
+            self.sidebar.setFixedWidth(width)
+        self.config.save()
+
     def toggle_sidebar(self):
         self.config.sidebar_compact = not self.config.sidebar_compact
         self._apply_sidebar()
@@ -576,10 +588,11 @@ class MainWindow(QMainWindow):
 
     def _apply_sidebar(self):
         compact = self.config.sidebar_compact
-        self.sidebar.setFixedWidth(52 if compact else 232)
+        self.sidebar.setFixedWidth(52 if compact else self.config.sidebar_width)
         self.brand.setText("◈" if compact else "◈  OmniCore")
         self.sidebar_toggle.setText("›" if compact else "‹")
         self.sidebar_toggle.setToolTip(self.tr("sidebar_expand" if compact else "sidebar_collapse"))
+        self.sidebar_width.setToolTip(self.tr("sidebar_width"))
         self.history_panel.setVisible(not compact)
         for button, key, symbol in zip(
             (self.new_button, *self.nav),
@@ -747,8 +760,7 @@ class MainWindow(QMainWindow):
             QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QPushButton:focus {{
                 border: 1px solid {accent};
                 }}
-            QFrame#assistantBubble {{ background: {panel}; border: 1px solid {border};
-                border-radius: 14px; }}
+            QFrame#assistantBubble {{ background: transparent; border: none; }}
             QFrame#userBubble {{ background: {field}; border: 1px solid {border};
                 border-radius: 14px; }}
             QTextBrowser#messageText {{ background: transparent; border: none; padding: 0; }}

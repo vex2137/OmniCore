@@ -919,3 +919,7 @@ Obsłużono brak procentowego postępu transferu bez wyjątku i wydzielono istni
 ### RC8 — pasek boczny (częściowo)
 
 Przeniesiono istniejącą historię rozmów do paska; dodano dwa rozmiary (232 i 52 px) oraz trwały wybór i podpowiedzi. Testy Qt: 23 zaliczone; Ruff zaliczony. Nie zaimplementowano jeszcze grupowania, przypinania, menu kontekstowego ani regulacji szerokości. Nadal wymagane są pozostałe zmiany czatu, modeli, akcentów i przegląd wizualny; RC8 nie jest ukończone.
+
+### RC8 — regulacja paska i układ czatu (częściowo)
+
+Dodano zapisywaną szerokość rozwiniętego paska 200–360 px, zachowując kompaktowe 52 px. Usunięto ramkę odpowiedzi AI i ograniczono wysokość pola wiadomości. Testy Qt: 24 zaliczone, następnie test szerokości ponownie zaliczony po zmianie pola; Ruff zaliczony. Uruchomiono rzeczywiste GUI offscreen z backendem i oceniono zrzut 1280×820 bez załadowanego modelu. Wciąż brak grupowania i przypinania historii, menu kontekstowego, regeneracji, wskaźnika kontekstu, uproszczonych statystyk i pełnej walidacji wizualnej. RC8 pozostaje nieukończone.
