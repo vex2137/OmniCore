@@ -2,6 +2,7 @@
 
 import os
 import sqlite3
+import tempfile
 from contextlib import contextmanager
 from importlib.resources import files
 from pathlib import Path
@@ -46,10 +47,28 @@ class Database:
         finally:
             connection.close()
 
+    def backup(self) -> Path:
+        """Create a consistent private snapshot, including any outstanding WAL data."""
+        descriptor, name = tempfile.mkstemp(
+            prefix="omnicore-backup-", suffix=".sqlite3", dir=self.path.parent
+        )
+        os.close(descriptor)
+        backup_path = Path(name)
+        try:
+            with sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True) as source:
+                with sqlite3.connect(backup_path) as destination:
+                    source.backup(destination)
+            return backup_path
+        except BaseException:
+            backup_path.unlink(missing_ok=True)
+            raise
+
     def initialize(self) -> None:
         if self.path.parent.is_symlink() or self.path.is_symlink():
             raise ValueError("Database and data directory must not be symlinks")
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if self.path.exists() and self.path.stat().st_size:
+            self.backup()
         self.path.parent.chmod(0o700)
         descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         os.close(descriptor)

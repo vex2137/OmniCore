@@ -16,6 +16,7 @@ class Conversation(WireModel):
     parameters: GenerationParameters = Field(default_factory=GenerationParameters)
     created_at: str
     updated_at: str
+    title_status: str | None = None
 
 
 class MessageRecord(WireModel):

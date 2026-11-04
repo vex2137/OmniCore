@@ -68,6 +68,10 @@ class TextStore:
                 )
                 row = connection.execute("SELECT version FROM text_schema WHERE id=1").fetchone()
                 version = row[0] if row else 0
+                if version == 5 and len(TEXT_MIGRATIONS) == 3:
+                    self._validate_v5(connection)
+                    connection.commit()
+                    return
                 if version > len(TEXT_MIGRATIONS):
                     raise RuntimeError("Text schema is newer than this backend")
                 for index in range(version, len(TEXT_MIGRATIONS)):
@@ -83,6 +87,45 @@ class TextStore:
             except BaseException:
                 connection.rollback()
                 raise
+
+    @staticmethod
+    def _validate_v5(connection):
+        # v4/v5 migrations are unavailable. Accept only the observed v5 layout,
+        # and reject records we cannot round-trip without losing fields.
+        from omnicore.text.conversations import Conversation, MessageRecord
+        from omnicore.text.downloads import DownloadRecord
+        from omnicore.text.generation import GenerationRecord
+
+        required = {
+            "text_models": ("id", "backend", "location", "record", "device", "inode"),
+            "text_jobs": ("kind", "id", "record"),
+            "text_conversations": ("id", "record"),
+            "text_messages": ("seq", "id", "conversation_id", "generation_id", "record"),
+            "text_generation_keys": ("request_key", "job_id", "fingerprint"),
+            "text_history_settings": ("id", "auto_title", "title_max_length"),
+            "ai_providers": ("id", "record"),
+            "ai_retired_keys": ("reference",),
+            "lan_devices": ("id", "hash", "created"),
+            "lan_pairing": ("id", "hash", "expires", "nonce_hash", "device_id"),
+            "lan_token_info": ("id", "name", "expires", "last_used", "scopes"),
+        }
+        for table, columns in required.items():
+            actual = tuple(row[1] for row in connection.execute(f'PRAGMA table_info("{table}")'))
+            if actual != columns:
+                raise RuntimeError(f"Unsupported v5 schema: {table}")
+        try:
+            for query, model in (
+                ("SELECT record FROM text_models", ModelRecord),
+                ("SELECT record FROM text_conversations", Conversation),
+                ("SELECT record FROM text_messages", MessageRecord),
+            ):
+                for row in connection.execute(query):
+                    model.model_validate_json(row[0])
+            for kind, model in (("download", DownloadRecord), ("generation", GenerationRecord)):
+                for row in connection.execute("SELECT record FROM text_jobs WHERE kind=?", (kind,)):
+                    model.model_validate_json(row[0])
+        except ValueError as exc:
+            raise RuntimeError("Unsupported v5 records; refusing to modify the database") from exc
 
     def add_model(
         self,
