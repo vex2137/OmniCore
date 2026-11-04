@@ -191,5 +191,21 @@
   "older_messages": "Pokaż {count} wcześniejszych wiadomości",
   "gpu_offload_unverified": "Silnik nie potwierdził przeniesienia warstw na GPU. Auto może użyć CPU; sprawdź ustawienia i zgodność silnika.",
   "cuda_runtime_unavailable": "Silnik CUDA nie może wczytać bibliotek runtime lub sterownika. Sprawdź diagnostykę lub wybierz Auto/CPU.",
-  "gpu_layers_required": "Wybierz co najmniej jedną warstwę GPU, aby wymagać CUDA."
+  "gpu_layers_required": "Wybierz co najmniej jedną warstwę GPU, aby wymagać CUDA.",
+  "sort_downloads": "Najwięcej pobrań",
+  "sort_likes": "Najwięcej polubień",
+  "sort_updated": "Ostatnio aktualizowane",
+  "author": "Autor",
+  "description": "Opis",
+  "architecture": "Architektura",
+  "parameters": "Parametry",
+  "downloads_count": "Pobrania",
+  "capabilities": "Możliwości i znaczniki",
+  "filter_quantization": "Filtr nazwy lub kwantyzacji",
+  "all_sizes": "Dowolny rozmiar",
+  "readme_unavailable": "Nie udało się pobrać opisu modelu.",
+  "memory_estimate": "Orientacyjnie: wagi zajmą około {size} RAM; pełne przeniesienie na GPU wymaga co najmniej {size} VRAM oraz dodatkowej pamięci. Kontekst i silnik zwiększają wymagania. Zgodność z llama.cpp należy sprawdzić.",
+  "download_speed": "Prędkość: {value}/s",
+  "download_eta": "Pozostało około {seconds} s",
+  "model_import_failed": "Nie udało się zaimportować modelu. Użyj przycisku importu, aby ponowić."
 }

@@ -191,5 +191,21 @@
   "older_messages": "Show {count} earlier messages",
   "gpu_offload_unverified": "The engine did not confirm moving any layers to GPU. Auto can use CPU; check GPU settings and engine compatibility.",
   "cuda_runtime_unavailable": "The CUDA engine cannot load its runtime libraries or driver. Check diagnostics or use Auto/CPU.",
-  "gpu_layers_required": "Select at least one GPU layer to require CUDA."
+  "gpu_layers_required": "Select at least one GPU layer to require CUDA.",
+  "sort_downloads": "Most downloaded",
+  "sort_likes": "Most liked",
+  "sort_updated": "Recently updated",
+  "author": "Author",
+  "description": "Description",
+  "architecture": "Architecture",
+  "parameters": "Parameters",
+  "downloads_count": "Downloads",
+  "capabilities": "Capabilities and tags",
+  "filter_quantization": "Filter name or quantization",
+  "all_sizes": "Any size",
+  "readme_unavailable": "Could not load the model card.",
+  "memory_estimate": "Estimate: weights require about {size} RAM; full GPU offload needs at least {size} VRAM plus overhead. Context and the engine increase requirements. Check llama.cpp compatibility.",
+  "download_speed": "Speed: {value}/s",
+  "download_eta": "About {seconds} s remaining",
+  "model_import_failed": "Model import failed. Use the import button to retry."
 }

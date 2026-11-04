@@ -878,10 +878,18 @@ w RELEASE_GATE.md. Trwałe dane użytkownika nie były resetowane ani usuwane.
   tworzona jest kopia SQLite. Akceptowany jest wyłącznie sprawdzany układ v5;
   brak oryginalnych migracji v4/v5 ogranicza gwarancję zgodności.
 - Dodano dwupanelowy widok istniejących funkcji Hugging Face, popularne modele
-  oraz ponowne użycie zadania dla tego samego pliku. Pełny menedżer modeli
-  pozostaje niedokończony.
+  oraz ponowne użycie zadania dla tego samego pliku.
 - W dostępnym kodzie nie znaleziono implementacji parowania/skanowania QR.
   Działania połączenia z telefonem nie potwierdzono.
 - Wykonano 166 testów Python oraz 44 testy jednostkowe Androida. AppImage
   zbudowano lokalnie; testy na fizycznym telefonie i rzeczywistym modelu
   nie zostały wykonane.
+
+### Menedżer Hugging Face — kontynuacja RC6 (2026-11-04)
+
+- Dodano metadane i bezpieczny podgląd README, sortowanie oraz filtry plików
+  GGUF, szacunkowe informacje o pamięci, prędkość i ETA. Zweryfikowane pliki
+  trafiają automatycznie do biblioteki; błąd importu można ponowić.
+- Testy: 174 Python, w tym offscreen Qt; odczyt metadanych, README i listy
+  plików sprawdzono również z rzeczywistym Hugging Face. Dużego modelu nie
+  pobierano, a jego uruchomienia na lokalnym silniku nie sprawdzano.

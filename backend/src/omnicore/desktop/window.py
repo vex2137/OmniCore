@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer, Signal
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QKeySequence, QShortcut, QTextDocument
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -60,6 +61,21 @@ def human_size(value):
             return f"{number:.1f} {unit}"
         number /= 1024
     return f"{number:.1f} PiB"
+
+
+class ModelCardBrowser(QTextBrowser):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setOpenLinks(False)
+        self.setOpenExternalLinks(False)
+
+    def loadResource(self, resource_type, url):
+        return None
+
+    def set_safe_markdown(self, text):
+        self.document().setMarkdown(
+            text, QTextDocument.MarkdownDialectGitHub | QTextDocument.MarkdownNoHTML
+        )
 
 
 class MainWindow(QMainWindow):
@@ -325,23 +341,52 @@ class MainWindow(QMainWindow):
         self.hf_query = QLineEdit()
         self.hf_query.returnPressed.connect(self.search_hf)
         left_layout.addLayout(self.row(self.hf_query, self.button("search", self.search_hf)))
-        left_layout.addWidget(self.button("popular_models", self.popular_hf))
+        self.hf_sort = QComboBox()
+        for key, value in (
+            ("sort_downloads", "downloads"),
+            ("sort_likes", "likes"),
+            ("sort_updated", "lastModified"),
+        ):
+            self.hf_sort.addItem(self.tr(key), value)
+        left_layout.addLayout(
+            self.row(self.button("popular_models", self.popular_hf), self.hf_sort)
+        )
         self.hf_results = QListWidget()
         self.hf_results.currentItemChanged.connect(self._hf_selection_changed)
+        self.hf_sort.currentIndexChanged.connect(self.search_hf)
         left_layout.addWidget(self.hf_results, 1)
         self.hf_detail = QLabel()
         self.hf_detail.setWordWrap(True)
         self.hf_detail.setTextFormat(Qt.PlainText)
         right_layout.addWidget(self.hf_detail)
+        self.hf_readme = ModelCardBrowser()
+        self.hf_readme.setMinimumHeight(100)
+        right_layout.addWidget(self.hf_readme, 1)
         right_layout.addWidget(self.label("files"))
+        self.hf_quant_filter = QLineEdit()
+        self.hf_quant_filter.setPlaceholderText(self.tr("filter_quantization"))
+        self.hf_quant_filter.textChanged.connect(self._filter_hf_files)
+        self.hf_size_filter = QDoubleSpinBox()
+        self.hf_size_filter.setRange(0, 10000)
+        self.hf_size_filter.setSpecialValueText(self.tr("all_sizes"))
+        self.hf_size_filter.setSuffix(" GiB")
+        self.hf_size_filter.valueChanged.connect(self._filter_hf_files)
+        right_layout.addLayout(self.row(self.hf_quant_filter, self.hf_size_filter))
         self.hf_files = QComboBox()
         right_layout.addWidget(self.hf_files)
+        self.hf_file_info = QLabel()
+        self.hf_file_info.setWordWrap(True)
+        self.hf_files.currentIndexChanged.connect(self._hf_file_info)
+        right_layout.addWidget(self.hf_file_info)
         right_layout.addWidget(self.button("download_file", self.download_file, primary=True))
         self.download_list = QComboBox()
         right_layout.addWidget(self.download_list)
         self.download_progress = QProgressBar()
         self.download_progress.setValue(0)
         right_layout.addWidget(self.download_progress)
+        self.download_status = QLabel()
+        right_layout.addWidget(self.download_status)
+        self.download_list.currentIndexChanged.connect(self._show_download_progress)
         right_layout.addLayout(
             self.row(
                 self.button("cancel_download", self.cancel_download),
@@ -349,7 +394,6 @@ class MainWindow(QMainWindow):
                 self.button("import_download", self.import_download),
             )
         )
-        right_layout.addStretch(1)
         splitter.addWidget(left)
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 1)
@@ -511,6 +555,12 @@ class MainWindow(QMainWindow):
         self.composer.setPlaceholderText(self.tr("composer"))
         self.history_search.setPlaceholderText(self.tr("search_history"))
         self.hf_query.setPlaceholderText(self.tr("hf_query"))
+        self.hf_quant_filter.setPlaceholderText(self.tr("filter_quantization"))
+        self.hf_size_filter.setSpecialValueText(self.tr("all_sizes"))
+        for index, key in enumerate(("sort_downloads", "sort_likes", "sort_updated")):
+            self.hf_sort.setItemText(index, self.tr(key))
+        self._hf_file_info()
+        self._show_download_progress()
         self.model_tabs.setTabText(0, self.tr("installed"))
         self.model_tabs.setTabText(1, self.tr("download"))
         for index, key in enumerate(("system", "light", "dark")):
@@ -1204,7 +1254,7 @@ class MainWindow(QMainWindow):
         self.hf_query.clear()
         self.search_hf()
 
-    def search_hf(self):
+    def search_hf(self, *_):
         query = self.hf_query.text().strip()
         self._hf_search_sequence += 1
         sequence = self._hf_search_sequence
@@ -1226,18 +1276,82 @@ class MainWindow(QMainWindow):
                 self.hf_results.setCurrentRow(0)
 
         self.api.request(
-            "GET", TEXT + "/huggingface/search?" + urlencode({"query": query}), success=received
+            "GET",
+            TEXT
+            + "/huggingface/search?"
+            + urlencode({"query": query, "sort": self.hf_sort.currentData()}),
+            success=received,
         )
 
     def _hf_selection_changed(self, current, previous):
+        self.remote_files = []
         self.hf_files.clear()
         self.hf_detail.clear()
-        if current:
-            record = current.data(Qt.UserRole)
-            repository = record["repository"]
-            license_name = record.get("license") or self.tr("unknown")
-            self.hf_detail.setText(f"{repository}\n{self.tr('license')}: {license_name}")
-            self.list_hf_files()
+        self.hf_readme.clear()
+        if not current:
+            return
+        record = current.data(Qt.UserRole)
+        repository = record["repository"]
+        self.hf_detail.setText(repository)
+        self.list_hf_files()
+
+        def still_selected():
+            item = self.hf_results.currentItem()
+            return item and item.data(Qt.UserRole)["repository"] == repository
+
+        def readme_received(data):
+            if still_selected():
+                self.hf_readme.set_safe_markdown(data.get("markdown", ""))
+
+        def details_received(data):
+            if not still_selected():
+                return
+            fields = [
+                ("author", data.get("author")),
+                ("description", data.get("description")),
+                ("architecture", data.get("architecture")),
+                ("parameters", data.get("parameters")),
+                ("license", data.get("license")),
+                ("downloads_count", data.get("downloads")),
+                (
+                    "capabilities",
+                    ", ".join(filter(None, [data.get("pipeline"), *data.get("tags", [])[:12]])),
+                ),
+            ]
+            self.hf_detail.setText(
+                repository
+                + "\n"
+                + "\n".join(
+                    f"{self.tr(key)}: {str(value)[:500]}"
+                    for key, value in fields
+                    if value is not None and value != ""
+                )
+            )
+            revision = data.get("revision")
+            if revision:
+                self.api.request(
+                    "GET",
+                    TEXT
+                    + "/huggingface/readme?"
+                    + urlencode({"repository": repository, "revision": revision}),
+                    success=readme_received,
+                    failure=lambda _: (
+                        self.hf_readme.setPlainText(self.tr("readme_unavailable"))
+                        if still_selected()
+                        else None
+                    ),
+                )
+
+        self.api.request(
+            "GET",
+            TEXT + "/huggingface/details?" + urlencode({"repository": repository}),
+            success=details_received,
+            failure=lambda _: (
+                self.hf_readme.setPlainText(self.tr("readme_unavailable"))
+                if still_selected()
+                else None
+            ),
+        )
 
     def list_hf_files(self):
         item = self.hf_results.currentItem()
@@ -1250,17 +1364,39 @@ class MainWindow(QMainWindow):
             if not current or current.data(Qt.UserRole)["repository"] != repository:
                 return
             self.remote_files = records
-            self.hf_files.clear()
-            for record in records:
-                self.hf_files.addItem(
-                    f"{record['filename']} · {human_size(record['size_bytes'])}", record
-                )
+            self._filter_hf_files()
 
         self.api.request(
             "GET",
             TEXT + "/huggingface/files?" + urlencode({"repository": repository}),
             success=received,
         )
+
+    def _filter_hf_files(self, *_):
+        selected = self.hf_files.currentData()
+        name = selected.get("filename") if selected else None
+        query = self.hf_quant_filter.text().strip().casefold()
+        maximum = self.hf_size_filter.value() * 1024**3
+        self.hf_files.clear()
+        for record in self.remote_files:
+            if query in record["filename"].casefold() and (
+                not maximum or record["size_bytes"] <= maximum
+            ):
+                self.hf_files.addItem(
+                    f"{record['filename']} · {human_size(record['size_bytes'])}", record
+                )
+        for index in range(self.hf_files.count()):
+            if self.hf_files.itemData(index)["filename"] == name:
+                self.hf_files.setCurrentIndex(index)
+                break
+        self._hf_file_info()
+
+    def _hf_file_info(self, *_):
+        record = self.hf_files.currentData()
+        if not record:
+            self.hf_file_info.clear()
+            return
+        self.hf_file_info.setText(self.tr("memory_estimate", size=human_size(record["size_bytes"])))
 
     def download_file(self):
         record = self.hf_files.currentData()
@@ -1303,10 +1439,29 @@ class MainWindow(QMainWindow):
             index = self.download_list.findData(current)
             self.download_list.setCurrentIndex(max(index, 0))
             self.download_list.blockSignals(False)
-            selected = self.selected_download()
-            self.download_progress.setValue(int(selected["percent"]) if selected else 0)
+            self._show_download_progress()
 
         self.api.request("GET", TEXT + "/downloads", success=received)
+
+    def _show_download_progress(self, *_):
+        record = self.selected_download()
+        self.download_progress.setValue(int(record["percent"]) if record else 0)
+        if not record:
+            self.download_status.clear()
+            return
+        speed, eta = record.get("speed_bytes_per_second"), record.get("eta_seconds")
+        details = []
+        if speed is not None:
+            details.append(self.tr("download_speed", value=human_size(speed)))
+        if eta is not None:
+            details.append(self.tr("download_eta", seconds=int(eta)))
+        if record.get("import_error"):
+            details.append(self.tr("model_import_failed"))
+        elif record.get("model_id"):
+            details.append(self.tr("imported"))
+        self.download_status.setText(" · ".join(details))
+        if record.get("model_id") and record["model_id"] not in {r["id"] for r in self.models}:
+            self.refresh_models()
 
     def selected_download(self):
         return next(
@@ -1333,8 +1488,12 @@ class MainWindow(QMainWindow):
 
     def import_download(self):
         record = self.selected_download()
-        if record and record["state"] == "completed" and record.get("path"):
-            self.import_gguf(record["path"])
+        if record and record["state"] == "completed":
+            self.api.request(
+                "POST",
+                TEXT + f"/downloads/{record['id']}/import",
+                success=lambda _: self.refresh_downloads(),
+            )
         elif record and record.get("error_code"):
             self.show_error(record["error_code"])
 
