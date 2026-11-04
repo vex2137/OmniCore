@@ -425,3 +425,16 @@ def test_failed_verification_never_imports(tmp_path):
         await manager.close()
 
     asyncio.run(exercise())
+
+
+def test_multipart_download_cannot_start(tmp_path):
+    manager, source, payload = setup_downloads(tmp_path, lambda _: httpx.Response(200))
+    source = source.model_copy(update={"filename": "model-00001-of-00002.gguf"})
+
+    async def exercise():
+        with pytest.raises(TextError, match="multipart_gguf_unsupported"):
+            await manager.start(source, confirmed=True, expected_size=len(payload))
+        assert manager.store.jobs("download") == []
+        await manager.close()
+
+    asyncio.run(exercise())

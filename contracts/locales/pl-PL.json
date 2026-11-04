@@ -33,6 +33,7 @@
   "error.model_load_failed": "Nie można wczytać modelu. Sprawdź wersję silnika i zgodność modelu.",
   "error.model_not_loaded": "Model nie jest załadowany.",
   "error.model_required": "Wybierz zarejestrowany model dla tej rozmowy.",
+  "error.multipart_gguf_unsupported": "Ten model składa się z kilku plików. Pobieranie pojedynczych części nie jest obsługiwane; wybierz kompletny plik GGUF.",
   "error.not_found": "Nie znaleziono żądanego zasobu.",
   "error.out_of_memory": "Silnikowi zabrakło pamięci.",
   "error.queue_full": "Kolejka zadań jest pełna. Spróbuj później.",

@@ -33,6 +33,7 @@
   "error.model_load_failed": "The model could not be loaded. Check engine version and model compatibility.",
   "error.model_not_loaded": "The model is not loaded.",
   "error.model_required": "Select a registered model for this conversation.",
+  "error.multipart_gguf_unsupported": "This model has multiple parts. Downloading a single part is not supported; choose a complete GGUF file.",
   "error.not_found": "The requested resource was not found.",
   "error.out_of_memory": "The engine ran out of memory.",
   "error.queue_full": "The job queue is full. Try again later.",

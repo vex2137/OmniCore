@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+from omnicore.text.downloads import is_multipart_gguf
 from omnicore.text.files import FilePolicy
 from omnicore.text.gguf import read_gguf
 from omnicore.text.store import TextStore
@@ -12,6 +13,8 @@ class ModelManager:
         self.store, self.policy = store, policy
 
     def import_gguf(self, path: Path):
+        if is_multipart_gguf(path.name):
+            raise TextError("multipart_gguf_unsupported", 422)
         with self.policy.open(path) as stream:
             metadata = read_gguf(stream)
             info = os.fstat(stream.fileno())

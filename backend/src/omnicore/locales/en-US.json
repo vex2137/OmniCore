@@ -57,5 +57,6 @@
   "error.engine_invalid_response": "The inference engine returned an invalid response.",
   "error.gpu_offload_unverified": "The engine did not confirm moving any layers to GPU. Auto can use CPU; check GPU settings and engine compatibility.",
   "error.cuda_runtime_unavailable": "The CUDA engine cannot load its runtime libraries or driver. Check diagnostics or use Auto/CPU.",
-  "error.gpu_layers_required": "Select at least one GPU layer to require CUDA."
+  "error.gpu_layers_required": "Select at least one GPU layer to require CUDA.",
+  "error.multipart_gguf_unsupported": "This model has multiple parts. Downloading a single part is not supported; choose a complete GGUF file."
 }

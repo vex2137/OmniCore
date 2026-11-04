@@ -133,3 +133,24 @@ def test_newer_text_schema_is_rejected_without_core_changes(catalog):
         manager.store.initialize()
     assert manager.store.model(record.id) == record
     assert manager.store.db.version() == 1
+
+
+def test_multipart_gguf_is_not_imported_as_a_complete_model(catalog):
+    manager, path = catalog
+    shard = path.with_name("model-00001-of-00002.gguf")
+    shard.write_bytes(path.read_bytes())
+    with pytest.raises(TextError, match="multipart_gguf_unsupported"):
+        manager.import_gguf(shard)
+    assert manager.store.models() == []
+
+
+def test_embedded_multipart_metadata_is_rejected_even_when_renamed(catalog):
+    manager, path = catalog
+    data = synthetic_gguf()
+    key = b"split.count"
+    header = bytearray(data[:24])
+    struct.pack_into("<Q", header, 16, 4)
+    entry = struct.pack("<Q", len(key)) + key + struct.pack("<II", 4, 2)
+    path.write_bytes(bytes(header) + entry + data[24:])
+    with pytest.raises(TextError, match="multipart_gguf_unsupported"):
+        manager.import_gguf(path)

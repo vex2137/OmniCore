@@ -49,6 +49,10 @@ class DownloadRecord(WireModel):
     import_pending: bool = False
 
 
+def is_multipart_gguf(filename):
+    return bool(re.search(r"-\d{5}-of-\d{5}\.gguf$", filename, re.IGNORECASE))
+
+
 def validate_source(repository, filename=None):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", repository):
         raise TextError("invalid_model_source", 422)
@@ -108,7 +112,13 @@ class HuggingFace:
             params["search"] = query
         result = await self._json("/api/models", params)
         return [
-            {"repository": item.get("id"), "license": (item.get("cardData") or {}).get("license")}
+            {
+                "repository": item.get("id"),
+                "license": (item.get("cardData") or {}).get("license"),
+                "downloads": str(item["downloads"])
+                if isinstance(item.get("downloads"), int)
+                else None,
+            }
             for item in result
             if isinstance(item, dict)
         ]
@@ -274,6 +284,8 @@ class DownloadManager:
     async def start(self, source: RemoteFile, *, confirmed: bool, expected_size: int):
         if not confirmed or expected_size != source.size_bytes:
             raise TextError("confirmation_required", 409)
+        if is_multipart_gguf(source.filename):
+            raise TextError("multipart_gguf_unsupported", 422)
         for item in self.store.jobs("download"):
             if item.get("source") != source.model_dump(mode="json"):
                 continue

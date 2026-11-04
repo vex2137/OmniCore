@@ -117,6 +117,7 @@ def read_gguf(stream) -> dict:
                 "general.license",
                 "general.alignment",
                 "general.quantization_version",
+                "split.count",
             }
             keep |= key.endswith(".context_length")
             item = value(scalar("I"), keep)
@@ -124,6 +125,8 @@ def read_gguf(stream) -> dict:
                 if isinstance(item, float) and not math.isfinite(item):
                     raise TextError("invalid_gguf", 422)
                 metadata[key] = item
+        if isinstance(metadata.get("split.count"), int) and metadata["split.count"] > 1:
+            raise TextError("multipart_gguf_unsupported", 422)
         architecture = metadata.get("general.architecture")
         if not isinstance(architecture, str) or not architecture or len(architecture) > 128:
             raise TextError("invalid_gguf", 422)
