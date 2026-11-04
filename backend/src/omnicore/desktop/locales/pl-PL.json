@@ -219,5 +219,10 @@
   "context_saved": "Zapisano ustawienie modelu.",
   "multipart_short": "model wieloczęściowy",
   "multipart_gguf_unsupported": "Ten model składa się z kilku plików. Pobieranie pojedynczych części nie jest obsługiwane; wybierz kompletny plik GGUF.",
-  "transfers": "Transfery"
+  "transfers": "Transfery",
+  "midnight": "Midnight",
+  "graphite": "Graphite",
+  "oled": "OLED Black",
+  "ocean": "Ocean",
+  "forest": "Forest"
 }

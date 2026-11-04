@@ -911,3 +911,7 @@ w RELEASE_GATE.md. Trwałe dane użytkownika nie były resetowane ani usuwane.
 ### RC8 — kontekst (etap częściowy)
 
 Pole i kontrakty ustawień kontekstu dopuszczają do 1 000 000 tokenów, z zachowaniem znanego limitu modelu i zachowawczego trybu Auto. To nie gwarantuje dostępności pamięci ani obsługi takiego kontekstu przez silnik. Test API: 12 zaliczonych; testy Qt/Hugging Face: 20 zaliczonych, jeden błąd w obsłudze rekordu transferu bez pola `percent`. Przebudowa UI RC8 pozostaje do wykonania.
+
+### RC8 — kontynuacja: transfery i motywy
+
+Obsłużono brak procentowego postępu transferu bez wyjątku i wydzielono istniejące sterowanie do zakładki Transfery obok Moich modeli i Hugging Face. Desktop oferuje siedem palet z zapisem lokalnym; istniejące ustawienie dark pozostaje zgodne. Testy desktopu i Hugging Face: 21 zaliczonych; osobne testy podziału zakładek i trwałości motywów: po 1 zaliczonym. Nadal potrzebne: przebudowa paska i historii z przypinaniem, czatu i statystyk, lista i filtry modeli, akcenty i podgląd motywów, responsywność oraz wizualna weryfikacja i zrzuty. RC8 pozostaje nieukończone.

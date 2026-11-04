@@ -219,5 +219,10 @@
   "context_saved": "Model setting saved.",
   "multipart_short": "multi-part model",
   "multipart_gguf_unsupported": "This model has multiple parts. Downloading a single part is not supported; choose a complete GGUF file.",
-  "transfers": "Transfers"
+  "transfers": "Transfers",
+  "midnight": "Midnight",
+  "graphite": "Graphite",
+  "oled": "OLED Black",
+  "ocean": "Ocean",
+  "forest": "Forest"
 }

@@ -475,3 +475,14 @@ def test_model_tabs_separate_transfers(desktop):
     assert tabs.count() == 3
     assert desktop.download_list.parentWidget() is tabs.widget(2)
     assert desktop.download_button.parentWidget() is not tabs.widget(2)
+
+
+def test_desktop_theme_variants_survive_reload(desktop, tmp_path):
+    config_file = tmp_path / "desktop.json"
+    for name in ("system", "light", "midnight", "graphite", "oled", "ocean", "forest"):
+        index = desktop.theme.findData(name)
+        assert index >= 0
+        desktop.theme.setCurrentIndex(index)
+        assert desktop.config.theme == name
+        desktop.config.save(config_file)
+        assert DesktopConfig.load(config_file).theme == name

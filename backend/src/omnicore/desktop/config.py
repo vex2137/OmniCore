@@ -50,7 +50,16 @@ class DesktopConfig:
             raise ValueError("Invalid desktop preferences")
         supported = cls.__dataclass_fields__
         obj = cls(**{key: value for key, value in payload.items() if key in supported})
-        if obj.locale not in {"pl-PL", "en-US"} or obj.theme not in {"system", "light", "dark"}:
+        if obj.locale not in {"pl-PL", "en-US"} or obj.theme not in {
+            "system",
+            "light",
+            "dark",
+            "midnight",
+            "graphite",
+            "oled",
+            "ocean",
+            "forest",
+        }:
             raise ValueError("Invalid desktop preferences")
         if not obj.llama_server:
             obj.llama_server = bundled_engine()

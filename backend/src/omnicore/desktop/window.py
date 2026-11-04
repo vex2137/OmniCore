@@ -458,9 +458,11 @@ class MainWindow(QMainWindow):
         self.language.currentIndexChanged.connect(self.preview_language)
         form.addRow(self.label("language"), self.language)
         self.theme = QComboBox()
-        for key in ("system", "light", "dark"):
+        for key in ("system", "light", "midnight", "graphite", "oled", "ocean", "forest"):
             self.theme.addItem(self.tr(key), key)
-        self.theme.setCurrentIndex(self.theme.findData(self.config.theme))
+        self.theme.setCurrentIndex(
+            self.theme.findData("midnight" if self.config.theme == "dark" else self.config.theme)
+        )
         self.theme.currentIndexChanged.connect(self.preview_theme)
         form.addRow(self.label("theme"), self.theme)
         self.device = QComboBox()
@@ -604,7 +606,9 @@ class MainWindow(QMainWindow):
         self.model_tabs.setTabText(0, self.tr("installed"))
         self.model_tabs.setTabText(1, self.tr("download"))
         self.model_tabs.setTabText(2, self.tr("transfers"))
-        for index, key in enumerate(("system", "light", "dark")):
+        for index, key in enumerate(
+            ("system", "light", "midnight", "graphite", "oled", "ocean", "forest")
+        ):
             self.theme.setItemText(index, self.tr(key))
         for index, key in enumerate(("auto", "cpu", "cuda")):
             self.device.setItemText(index, self.tr("mode_" + key))
@@ -627,7 +631,7 @@ class MainWindow(QMainWindow):
         self.apply_theme()
 
     def apply_theme(self):
-        dark = self.config.theme == "dark" or (
+        dark = self.config.theme not in {"system", "light"} or (
             self.config.theme == "system"
             and QApplication.instance().styleHints().colorScheme() == Qt.ColorScheme.Dark
         )
@@ -636,7 +640,20 @@ class MainWindow(QMainWindow):
             if dark
             else ("#f5f6fa", "#ffffff", "#edf0f6", "#202b3c", "#607189", "#dce2ec")
         )
-        accent = "#8b80f9" if dark else "#6957d9"
+        palettes = {
+            "graphite": ("#181818", "#222222", "#303030", "#f1f1f1", "#b0b0b0", "#444444"),
+            "oled": ("#000000", "#090909", "#181818", "#f2f2f2", "#b3b3b3", "#383838"),
+            "ocean": ("#0d1725", "#102337", "#19344e", "#edf5ff", "#a8bdd1", "#30506a"),
+            "forest": ("#101a15", "#17291e", "#233b2a", "#edf6ed", "#a9c2ad", "#385341"),
+        }
+        if self.config.theme in palettes:
+            bg, panel, field, fg, muted, border = palettes[self.config.theme]
+        accent = {
+            "ocean": "#59a8e8",
+            "forest": "#65b780",
+            "graphite": "#a2a2b5",
+            "oled": "#a99bff",
+        }.get(self.config.theme, "#8b80f9" if dark else "#6957d9")
         self.setStyleSheet(f"""
             QMainWindow, QWidget {{ background: {bg};
                 color: {fg};
@@ -794,7 +811,10 @@ class MainWindow(QMainWindow):
 
     def _preferences(self, preferences):
         # Desktop preferences are explicit. Synchronize them without resetting backend mode.
-        preferences.update(locale=self.config.locale, theme=self.config.theme)
+        preferences.update(
+            locale=self.config.locale,
+            theme=(self.config.theme if self.config.theme in {"system", "light"} else "dark"),
+        )
         self.api.request(
             "PUT", "/api/v1/settings", preferences, success=lambda _: self._loaded("settings")
         )
