@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_health_checks_database_and_contract(client):
     response = client.get("/api/v1/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.1.0rc1", "database_version": 1}
+    assert response.json() == {"status": "ok", "version": "0.1.0rc6", "database_version": 1}
 
 
 def test_settings_persist_across_restarts(config):
@@ -61,7 +61,8 @@ def test_malformed_json_is_structured_error(client):
     assert response.json()["error"]["code"] == "validation_error"
 
 
-def test_no_inference_is_advertised(client):
+def test_no_inference_is_advertised(client, monkeypatch):
+    monkeypatch.setattr("omnicore.text.engines.engine_candidates", lambda *args: [])
     assert client.get("/api/v1/backends").json() == []
     assert client.post("/api/v1/generate", json={}).status_code == 404
 

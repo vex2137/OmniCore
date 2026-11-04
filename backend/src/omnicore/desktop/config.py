@@ -46,7 +46,10 @@ class DesktopConfig:
                 llama_cuda_server=os.environ.get("OMNICORE_LLAMA_CUDA_SERVER", ""),
             )
         payload = json.loads(path.read_text(encoding="utf-8"))
-        obj = cls(**payload)
+        if not isinstance(payload, dict):
+            raise ValueError("Invalid desktop preferences")
+        supported = cls.__dataclass_fields__
+        obj = cls(**{key: value for key, value in payload.items() if key in supported})
         if obj.locale not in {"pl-PL", "en-US"} or obj.theme not in {"system", "light", "dark"}:
             raise ValueError("Invalid desktop preferences")
         if not obj.llama_server:
