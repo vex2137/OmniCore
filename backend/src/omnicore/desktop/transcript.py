@@ -3,7 +3,7 @@
 import math
 import re
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QTextDocument
 from PySide6.QtWidgets import (
     QApplication,
@@ -86,7 +86,7 @@ class SafeMarkdown(QTextBrowser):
 
 
 class MessageCard(QFrame):
-    def __init__(self, message, tr, parent=None):
+    def __init__(self, message, tr, parent=None, regenerate=None, can_regenerate=False):
         super().__init__(parent)
         self.setObjectName("userBubble" if message["role"] == "user" else "assistantBubble")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
@@ -106,7 +106,8 @@ class MessageCard(QFrame):
         copy.setAccessibleName(tr("copy"))
         copy.clicked.connect(lambda: QApplication.clipboard().setText(message["content"]))
         copy.setEnabled(bool(message["content"]))
-        header.addWidget(copy)
+        if message["role"] != "assistant":
+            header.addWidget(copy)
         self.layout_.addLayout(header)
         if message.get("reasoning_content"):
             reasoning = QPlainTextEdit(message["reasoning_content"])
@@ -139,6 +140,22 @@ class MessageCard(QFrame):
             label.setWordWrap(True)
             label.setTextInteractionFlags(Qt.TextSelectableByMouse)
             self.layout_.addWidget(label)
+
+        if message["role"] == "assistant":
+            actions = QHBoxLayout()
+            actions.addWidget(copy)
+            retry = QPushButton(tr("regenerate"))
+            retry.setToolTip(tr("regenerate_branch"))
+            retry.setEnabled(
+                can_regenerate
+                and bool(message.get("content"))
+                and message.get("status", "completed") == "completed"
+            )
+            if regenerate:
+                retry.clicked.connect(lambda: regenerate(message))
+            actions.addWidget(retry)
+            actions.addStretch()
+            self.layout_.addLayout(actions)
 
     def _body(self, content, tr):
         # Treat fenced code as plain text, with a separate native clipboard action.
@@ -186,6 +203,8 @@ class MessageCard(QFrame):
 
 
 class ChatTranscript(QScrollArea):
+    regenerate_requested = Signal(object)
+
     def __init__(self):
         super().__init__()
         self.setWidgetResizable(True)
@@ -205,6 +224,8 @@ class ChatTranscript(QScrollArea):
         self.column.addStretch()
         self.setWidget(container)
         self.cards, self.messages, self.locale = [], [], None
+        self.can_regenerate = False
+        self._previous_can_regenerate = None
         self.scroll_timer = QTimer(self)
         self.scroll_timer.setSingleShot(True)
         self.scroll_timer.timeout.connect(self.scroll_bottom)
@@ -234,9 +255,15 @@ class ChatTranscript(QScrollArea):
                 index < len(self.cards)
                 and self.locale == locale
                 and self.cards[index].message == message
+                and self._previous_can_regenerate == self.can_regenerate
             ):
                 continue
-            card = MessageCard(message, tr)
+            card = MessageCard(
+                message,
+                tr,
+                regenerate=self.regenerate_requested.emit,
+                can_regenerate=self.can_regenerate,
+            )
             if index < len(self.cards):
                 old = self.cards[index]
                 self.column.replaceWidget(old, card)
@@ -250,6 +277,7 @@ class ChatTranscript(QScrollArea):
             self.column.removeWidget(card)
             card.deleteLater()
         self.messages, self.locale = messages, locale
+        self._previous_can_regenerate = self.can_regenerate
         if at_bottom:
             self.scroll_timer.start(0)
 

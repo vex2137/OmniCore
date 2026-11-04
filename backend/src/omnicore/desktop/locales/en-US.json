@@ -240,5 +240,18 @@
   "regenerate_branch": "Regeneration creates a new conversation branch.",
   "regenerate_draft": "Send or clear the draft first.",
   "context_last": "Last request: {used}/{limit} tokens ({percent}%)",
-  "context_unavailable": "Last request context: unavailable"
+  "context_unavailable": "Last request context: unavailable",
+  "model_search": "Search name, quantization or architecture…",
+  "sort_name": "Name",
+  "sort_size": "Size: largest",
+  "sort_recent": "Last used",
+  "favorites_only": "Favorites only",
+  "models_empty": "No matching models. Import a GGUF or change the filters.",
+  "favorite_toggle": "★ Toggle favorite",
+  "model_configure": "Select and configure",
+  "accent": "Accent color",
+  "accent_default": "Default accent",
+  "context_details": "Last request details",
+  "model_running_context": "Loaded · context {tokens} tokens",
+  "model_not_loaded": "Model is not loaded"
 }

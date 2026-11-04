@@ -240,5 +240,18 @@
   "regenerate_branch": "Ponowna generacja tworzy nową gałąź rozmowy.",
   "regenerate_draft": "Najpierw wyślij lub usuń szkic wiadomości.",
   "context_last": "Ostatnie żądanie: {used}/{limit} tokenów ({percent}%)",
-  "context_unavailable": "Kontekst ostatniego żądania: niedostępny"
+  "context_unavailable": "Kontekst ostatniego żądania: niedostępny",
+  "model_search": "Szukaj nazwy, kwantyzacji lub architektury…",
+  "sort_name": "Nazwa",
+  "sort_size": "Rozmiar: największe",
+  "sort_recent": "Ostatnie użycie",
+  "favorites_only": "Tylko ulubione",
+  "models_empty": "Brak modeli pasujących do filtrów. Zaimportuj GGUF lub zmień wyszukiwanie.",
+  "favorite_toggle": "★ Ulubiony / usuń",
+  "model_configure": "Wybierz i skonfiguruj",
+  "accent": "Kolor akcentu",
+  "accent_default": "Domyślny akcent",
+  "context_details": "Szczegóły ostatniego żądania",
+  "model_running_context": "Załadowany · kontekst {tokens} tokenów",
+  "model_not_loaded": "Model nie jest załadowany"
 }

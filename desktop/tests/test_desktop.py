@@ -624,3 +624,183 @@ def test_composer_enter_shift_enter_and_growth(qtbot):
     assert "\n" in composer.toPlainText()
     composer.setPlainText("Line\n" * 50)
     assert 72 <= composer.height() <= 160
+
+
+def test_model_search_sort_favorites_and_selection(desktop, tmp_path):
+    w = desktop
+    w.models = [
+        dict(
+            id=str(i),
+            backend="llama.cpp",
+            name=name,
+            size_bytes=size,
+            compatibility="unverified",
+            format="GGUF",
+            quantization="Q4_K_M",
+            location="/fixture",
+            metadata={"architecture": "llama"},
+        )
+        for i, (name, size) in enumerate((("Zulu", 300), ("Alpha", 100), ("Beta", 200)))
+    ]
+    w.refresh_model_table()
+    assert w.selected_model()["name"] == "Alpha"
+    w.model_sort.setCurrentIndex(w.model_sort.findData("sort_size"))
+    assert w.model_table.item(0, 0).data(Qt.UserRole) == "0"
+    w.model_search.setText("beta")
+    assert w.model_table.rowCount() == 1
+    assert w.selected_model()["name"] == "Beta"
+    w.toggle_favorite_model()
+    w.model_search.clear()
+    w.favorites_only.setChecked(True)
+    assert w.model_table.rowCount() == 1
+    path = tmp_path / "preferences.json"
+    w.config.save(path)
+    assert DesktopConfig.load(path).favorite_models == ["2"]
+    w.toggle_favorite_model()
+    assert w.model_table.rowCount() == 0
+    assert not w.models_empty.isHidden()
+    w.favorites_only.setChecked(False)
+    w.models[0]["name"] = "<img src=file:///private>"
+    w.model_search.setText("<img")
+    assert "&lt;img" in w.model_table.item(0, 0).toolTip()
+
+
+def test_history_groups_collapse_without_losing_records(desktop, qtbot, tmp_path):
+    w = desktop
+    for title in ("One", "Two"):
+        request(w, "POST", "/api/v1/text/conversations", {"title": title})
+    w.refresh_conversations()
+    qtbot.waitUntil(lambda: w.conversation_list.count() == 2)
+    w.toggle_history_group("today")
+    assert not w.conversation_list.item(0).isHidden()
+    assert w.conversation_list.item(1).isHidden()
+    path = tmp_path / "prefs.json"
+    w.config.save(path)
+    assert "today" in DesktopConfig.load(path).collapsed_history
+    w.toggle_history_group("today")
+    assert not w.conversation_list.item(1).isHidden()
+    assert len(request(w, "GET", "/api/v1/text/conversations")) == 2
+
+
+def test_theme_previews_and_accent_persist(desktop, monkeypatch, tmp_path):
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QColorDialog
+
+    w = desktop
+    assert w.theme.count() == 7
+    assert all(not w.theme.itemIcon(i).isNull() for i in range(7))
+    monkeypatch.setattr(QColorDialog, "getColor", lambda *args: QColor("#24aabb"))
+    w.choose_accent()
+    path = tmp_path / "prefs.json"
+    w.config.save(path)
+    assert DesktopConfig.load(path).accent == "#24aabb"
+    assert "#24aabb" in w.styleSheet()
+    w.reset_accent()
+    assert w.config.accent == ""
+
+
+def test_context_details_disclose_actual_data(desktop, qtbot):
+    w = desktop
+    w.messages = [
+        {
+            "role": "assistant",
+            "content": "Answer",
+            "statistics": {
+                "input_tokens": 120,
+                "output_tokens": 30,
+                "context_used_tokens": 150,
+                "context_limit_tokens": 2048,
+                "finish_reason": "stop",
+            },
+        }
+    ]
+    w.render_messages()
+    qtbot.mouseClick(w.context_toggle, Qt.LeftButton)
+    assert not w.context_details.isHidden()
+    assert "120" in w.context_details.text() and "150/2048" in w.context_details.text()
+    qtbot.mouseClick(w.context_toggle, Qt.LeftButton)
+    assert w.context_details.isHidden()
+
+
+def test_assistant_footer_regenerates_specific_message(qtbot):
+    from PySide6.QtWidgets import QPushButton
+
+    from omnicore.desktop.i18n import Translator
+    from omnicore.desktop.transcript import ChatTranscript
+
+    transcript = ChatTranscript()
+    qtbot.addWidget(transcript)
+    transcript.can_regenerate = True
+    message = {"id": "first", "role": "assistant", "content": "Original answer"}
+    transcript.set_messages([message], Translator("en-US"))
+    retry = next(
+        b for b in transcript.cards[0].findChildren(QPushButton) if b.text() == "Regenerate"
+    )
+    with qtbot.waitSignal(transcript.regenerate_requested) as signal:
+        qtbot.mouseClick(retry, Qt.LeftButton)
+    assert signal.args == [message]
+
+
+def test_regeneration_from_earlier_answer_uses_earlier_history(desktop, qtbot, monkeypatch):
+    w = desktop
+    record = request(w, "POST", "/api/v1/text/conversations", {"title": "Original"})
+    source = record["id"]
+    url = f"/api/v1/text/conversations/{source}"
+    messages = [
+        request(w, "POST", url + "/messages", {"role": role, "content": content})
+        for role, content in (
+            ("user", "First"),
+            ("assistant", "One"),
+            ("user", "Second"),
+            ("assistant", "Two"),
+        )
+    ]
+    w.current_id = source
+    captured = []
+    monkeypatch.setattr(w, "send_message", lambda: captured.append(w.composer.toPlainText()))
+    w.regenerate_answer(messages[1])
+    qtbot.waitUntil(lambda: bool(captured))
+    assert captured == ["First"]
+    assert request(w, "GET", f"/api/v1/text/conversations/{w.current_id}/messages") == []
+    assert len(request(w, "GET", url + "/messages")) == 4
+
+
+def test_capture_new_rc8_views_if_requested(desktop, qtbot):
+    from pathlib import Path
+
+    output = os.environ.get("OMNICORE_VISUAL_OUTPUT")
+    if not output:
+        return
+    destination = Path(output)
+    destination.mkdir(parents=True, exist_ok=True)
+    w = desktop
+    w.onboarding.hide()
+    for name in ("Local GGUF UI fixture", "Second local UI fixture"):
+        path = data_path() / "models" / (name + ".gguf")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(fixture_gguf())
+        request(w, "POST", "/api/v1/text/models/import", {"path": str(path)})
+    w.refresh_models()
+    qtbot.waitUntil(lambda: len(w.models) == 2)
+    w.navigate(1)
+    qtbot.wait(150)
+    assert w.grab().save(str(destination / "my-models.png"))
+    w.navigate(2)
+    w.theme.setCurrentIndex(w.theme.findData("ocean"))
+    qtbot.wait(150)
+    assert w.grab().save(str(destination / "appearance-settings.png"))
+    w.theme.showPopup()
+    qtbot.wait(100)
+    assert w.theme.view().grab().save(str(destination / "all-theme-previews.png"))
+    w.theme.hidePopup()
+    w.navigate(0)
+    for title in ("First review", "Second review"):
+        request(w, "POST", "/api/v1/text/conversations", {"title": title})
+    w.refresh_conversations()
+    qtbot.waitUntil(lambda: len(w.conversations) == 2)
+    w.toggle_history_group("today")
+    qtbot.wait(100)
+    assert w.grab().save(str(destination / "collapsed-history.png"))
+    w.context_toggle.setChecked(True)
+    qtbot.wait(100)
+    assert w.grab().save(str(destination / "context-details-unavailable.png"))

@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -38,6 +39,9 @@ class DesktopConfig:
     onboarding_complete: bool = False
     sidebar_compact: bool = False
     sidebar_width: int = 232
+    accent: str = ""
+    favorite_models: list[str] = field(default_factory=list)
+    collapsed_history: list[str] = field(default_factory=list)
 
     @classmethod
     def load(cls, path: Path | None = None):
@@ -66,6 +70,19 @@ class DesktopConfig:
         if not isinstance(obj.sidebar_width, int) or isinstance(obj.sidebar_width, bool):
             obj.sidebar_width = 232
         obj.sidebar_width = max(200, min(360, obj.sidebar_width))
+        if not isinstance(obj.accent, str) or (
+            obj.accent and not re.fullmatch(r"#[0-9a-fA-F]{6}", obj.accent)
+        ):
+            obj.accent = ""
+        for key in ("favorite_models", "collapsed_history"):
+            value = getattr(obj, key)
+            setattr(
+                obj,
+                key,
+                [item for item in value if isinstance(item, str)]
+                if isinstance(value, list)
+                else [],
+            )
         if not obj.llama_server:
             obj.llama_server = bundled_engine()
         return obj

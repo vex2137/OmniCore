@@ -3,14 +3,16 @@
 import os
 import uuid
 from datetime import datetime
+from html import escape
 from pathlib import Path
 from urllib.parse import urlencode
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QKeySequence, QShortcut, QTextDocument
+from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut, QTextDocument
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -49,7 +51,8 @@ from omnicore.desktop.history import grouped_history
 from omnicore.desktop.i18n import Translator
 from omnicore.desktop.model_card import safe_card_markdown
 from omnicore.desktop.report import diagnostic_report, save_report
-from omnicore.desktop.transcript import ChatTranscript
+from omnicore.desktop.themes import palette
+from omnicore.desktop.transcript import ChatTranscript, statistics_text
 from omnicore.release import distribution_version
 from omnicore.text.context import context_settings
 from omnicore.text.downloads import is_multipart_gguf
@@ -314,6 +317,7 @@ class MainWindow(QMainWindow):
         self.context_status.setWordWrap(True)
         chat.addWidget(self.context_status)
         self.transcript = ChatTranscript()
+        self.transcript.regenerate_requested.connect(self.regenerate_answer)
         chat.addWidget(self.transcript, 1)
         self.generation_status = self.label("ready")
         chat.addWidget(self.generation_status)
@@ -329,6 +333,15 @@ class MainWindow(QMainWindow):
         self.context_meter.setMaximumHeight(8)
         self.context_meter.setTextVisible(False)
         chat.addWidget(self.context_meter)
+        self.context_toggle = self.button("context_details", lambda: None)
+        self.context_toggle.setCheckable(True)
+        self.context_details = QLabel()
+        self.context_details.setTextFormat(Qt.PlainText)
+        self.context_details.setWordWrap(True)
+        self.context_details.hide()
+        self.context_toggle.toggled.connect(self.context_details.setVisible)
+        chat.addWidget(self.context_toggle)
+        chat.addWidget(self.context_details)
         self.regenerate_button = self.button("regenerate", self.regenerate_answer)
         self.regenerate_button.setToolTip(self.tr("regenerate_branch"))
         self.send_button = self.button("send", self.send_message, primary=True)
@@ -365,6 +378,18 @@ class MainWindow(QMainWindow):
                 self.button("refresh", self.refresh_models),
             )
         )
+        self.model_search = QLineEdit()
+        self.model_search.textChanged.connect(self.refresh_model_table)
+        self.model_sort = QComboBox()
+        for key in ("sort_name", "sort_size", "sort_recent"):
+            self.model_sort.addItem(self.tr(key), key)
+        self.model_sort.currentIndexChanged.connect(self.refresh_model_table)
+        self.favorites_only = QCheckBox(self.tr("favorites_only"))
+        self._texts.append((self.favorites_only, "favorites_only"))
+        self.favorites_only.toggled.connect(self.refresh_model_table)
+        local.addLayout(self.row(self.model_search, self.model_sort, self.favorites_only))
+        self.models_empty = self.label("models_empty")
+        local.addWidget(self.models_empty)
         self.model_table = QTableWidget(0, 4)
         self.model_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.model_table.setSelectionMode(QTableWidget.SingleSelection)
@@ -375,11 +400,15 @@ class MainWindow(QMainWindow):
         local.addWidget(self.model_table, 1)
         self.model_detail = self.label("model_details")
         self.model_detail.setTextFormat(Qt.PlainText)
+        self.model_detail.setWordWrap(True)
         local.addWidget(self.model_detail)
+        self.favorite_button = self.button("favorite_toggle", self.toggle_favorite_model)
         self.load_button = self.button("load", self.load_model, primary=True)
         local.addLayout(
             self.row(
                 self.load_button,
+                self.favorite_button,
+                self.button("model_configure", self.configure_selected_model),
                 self.button("unload", self.unload_model),
                 self.button("remove_entry", self.remove_model),
             )
@@ -494,7 +523,20 @@ class MainWindow(QMainWindow):
             self.theme.findData("midnight" if self.config.theme == "dark" else self.config.theme)
         )
         self.theme.currentIndexChanged.connect(self.preview_theme)
+        self.theme.setIconSize(QSize(84, 26))
+        for index in range(self.theme.count()):
+            token = palette(self.theme.itemData(index), False)
+            preview = QPixmap(84, 26)
+            preview.fill(QColor(token[0]))
+            painter = QPainter(preview)
+            painter.fillRect(0, 0, 22, 26, QColor(token[1]))
+            painter.fillRect(30, 6, 48, 5, QColor(token[3]))
+            painter.fillRect(30, 15, 32, 5, QColor(token[2]))
+            painter.end()
+            self.theme.setItemIcon(index, QIcon(preview))
         form.addRow(self.label("theme"), self.theme)
+        self.accent_button = self.button("accent", self.choose_accent)
+        form.addRow(self.accent_button, self.button("accent_default", self.reset_accent))
         self.device = QComboBox()
         for key in ("auto", "cpu", "cuda"):
             self.device.addItem(self.tr("mode_" + key), key)
@@ -661,6 +703,9 @@ class MainWindow(QMainWindow):
         self.context_mode.setItemText(0, self.tr("context_auto"))
         self.context_mode.setItemText(1, self.tr("context_manual"))
         self._render_model_context()
+        self.model_search.setPlaceholderText(self.tr("model_search"))
+        for index, key in enumerate(("sort_name", "sort_size", "sort_recent")):
+            self.model_sort.setItemText(index, self.tr(key))
         self.hf_query.setPlaceholderText(self.tr("hf_query"))
         self.hf_quant_filter.setPlaceholderText(self.tr("filter_quantization"))
         self.hf_size_filter.setSpecialValueText(self.tr("all_sizes"))
@@ -691,6 +736,21 @@ class MainWindow(QMainWindow):
     def preview_theme(self):
         self.config.theme = self.theme.currentData()
         self.apply_theme()
+        self.config.save()
+
+    def choose_accent(self):
+        color = QColorDialog.getColor(
+            QColor(self.config.accent or "#8b80f9"), self, self.tr("accent")
+        )
+        if color.isValid():
+            self.config.accent = color.name()
+            self.apply_theme()
+            self.config.save()
+
+    def reset_accent(self):
+        self.config.accent = ""
+        self.apply_theme()
+        self.config.save()
 
     def system_theme_changed(self, _scheme):
         self.apply_theme()
@@ -700,25 +760,15 @@ class MainWindow(QMainWindow):
             self.config.theme == "system"
             and QApplication.instance().styleHints().colorScheme() == Qt.ColorScheme.Dark
         )
-        bg, panel, field, fg, muted, border = (
-            ("#10151f", "#161e2b", "#1d2736", "#ecf1f9", "#9daec4", "#2b3749")
-            if dark
-            else ("#f5f6fa", "#ffffff", "#edf0f6", "#202b3c", "#607189", "#dce2ec")
-        )
-        palettes = {
-            "graphite": ("#181818", "#222222", "#303030", "#f1f1f1", "#b0b0b0", "#444444"),
-            "oled": ("#000000", "#090909", "#181818", "#f2f2f2", "#b3b3b3", "#383838"),
-            "ocean": ("#0d1725", "#102337", "#19344e", "#edf5ff", "#a8bdd1", "#30506a"),
-            "forest": ("#101a15", "#17291e", "#233b2a", "#edf6ed", "#a9c2ad", "#385341"),
-        }
-        if self.config.theme in palettes:
-            bg, panel, field, fg, muted, border = palettes[self.config.theme]
+        bg, panel, field, fg, muted, border = palette(self.config.theme, dark)
         accent = {
             "ocean": "#59a8e8",
             "forest": "#65b780",
             "graphite": "#a2a2b5",
             "oled": "#a99bff",
         }.get(self.config.theme, "#8b80f9" if dark else "#6957d9")
+        accent = self.config.accent or accent
+        accent_text = "#10151f" if QColor(accent).lightnessF() > 0.55 else "#ffffff"
         self.setStyleSheet(f"""
             QMainWindow,
     QMenu, QWidget {{ background: {bg};
@@ -761,7 +811,7 @@ class MainWindow(QMainWindow):
             QPushButton:disabled {{ color: {muted};
                 }}
             QPushButton#primary {{ background: {accent};
-                color: white;
+                color: {accent_text};
                 border-color: {accent};
                 }}
             QPushButton#primary:disabled {{ background: {field};
@@ -777,7 +827,8 @@ class MainWindow(QMainWindow):
                 background: {field};
                 }}
             QLineEdit, QPlainTextEdit, QTextBrowser, QListWidget, QTableWidget,
-            QComboBox, QSpinBox, QDoubleSpinBox {{
+            QComboBox,
+    QColorDialog, QSpinBox, QDoubleSpinBox {{
                 background: {panel};
                 border: 1px solid {border};
                 border-radius: 9px;
@@ -939,22 +990,32 @@ class MainWindow(QMainWindow):
                 title = record["title"] or self.tr("untitled")
                 item = QListWidgetItem(title)
                 item.setData(Qt.UserRole, record["id"])
-                item.setToolTip(title)
+                item.setToolTip(escape(title))
                 self.conversation_list.addItem(item)
                 if index == 0:
                     row = QWidget()
                     column = QVBoxLayout(row)
                     column.setContentsMargins(4, 8, 4, 4)
-                    heading = QLabel(self.tr("history_" + group))
-                    heading.setObjectName("messageStats")
+                    collapsed = group in self.config.collapsed_history
+                    heading = QPushButton(
+                        ("▸ " if collapsed else "▾ ") + self.tr("history_" + group)
+                    )
+                    heading.setAccessibleName(self.tr("history_" + group))
+                    heading.clicked.connect(
+                        lambda checked=False, key=group: self.toggle_history_group(key)
+                    )
                     column.addWidget(heading)
                     label = QLabel(title)
                     label.setTextFormat(Qt.PlainText)
                     label.setWordWrap(True)
                     column.addWidget(label)
-                    row.setAttribute(Qt.WA_TransparentForMouseEvents)
-                    item.setSizeHint(QSize(0, max(92, row.sizeHint().height() + 32)))
+                    label.setVisible(not collapsed)
+                    item.setSizeHint(
+                        QSize(0, 68 if collapsed else max(112, row.sizeHint().height() + 32))
+                    )
                     self.conversation_list.setItemWidget(item, row)
+                if index > 0 and group in self.config.collapsed_history:
+                    item.setHidden(True)
                 if record["id"] == current:
                     self.conversation_list.setCurrentItem(item)
         self.conversation_list.blockSignals(False)
@@ -969,6 +1030,14 @@ class MainWindow(QMainWindow):
             self.render_messages()
         elif select:
             self.open_conversation(select)
+
+    def toggle_history_group(self, group):
+        if group in self.config.collapsed_history:
+            self.config.collapsed_history.remove(group)
+        else:
+            self.config.collapsed_history.append(group)
+        self.config.save()
+        self._fill_conversations()
 
     def conversation_menu(self, position):
         item = self.conversation_list.itemAt(position)
@@ -1349,6 +1418,12 @@ class MainWindow(QMainWindow):
                 messages[index] = replacement
             elif job.get("content") or job.get("reasoning_content"):
                 messages.append(replacement)
+        self.transcript.can_regenerate = bool(
+            self.is_connected
+            and self.model_combo.currentData()
+            and not self.active_job
+            and not self._submitting
+        )
         self.transcript.set_messages(messages, self.tr)
         self.regenerate_button.setEnabled(
             self.is_connected
@@ -1359,6 +1434,9 @@ class MainWindow(QMainWindow):
         )
         latest = next(
             (m.get("statistics") or {} for m in reversed(messages) if m["role"] == "assistant"), {}
+        )
+        self.context_details.setText(
+            statistics_text(latest, self.tr) or self.tr("context_unavailable")
         )
         used, limit = latest.get("context_used_tokens"), latest.get("context_limit_tokens")
         if used is not None and limit:
@@ -1377,7 +1455,7 @@ class MainWindow(QMainWindow):
             self.context_usage.setText(self.context_usage.text() + " · " + actual)
             self.context_usage.setToolTip(str(device))
 
-    def regenerate_answer(self):
+    def regenerate_answer(self, target=None):
         if self.active_job or self._submitting or not self.current_id or not self.is_connected:
             return
         if self.composer.toPlainText().strip():
@@ -1394,6 +1472,24 @@ class MainWindow(QMainWindow):
 
         def exported(document):
             messages = document["messages"]
+            if isinstance(target, dict):
+                target_index = next(
+                    (
+                        i
+                        for i, m in enumerate(messages)
+                        if (target.get("id") and m["id"] == target["id"])
+                        or (
+                            target.get("generation_id")
+                            and m.get("generation_id") == target["generation_id"]
+                        )
+                    ),
+                    None,
+                )
+                if target_index is None:
+                    failed("not_found")
+                    return
+                messages = messages[: target_index + 1]
+                document["messages"] = messages
             last_user = next(
                 (i for i in range(len(messages) - 1, -1, -1) if messages[i]["role"] == "user"), None
             )
@@ -1476,22 +1572,89 @@ class MainWindow(QMainWindow):
         self.model_table.setHorizontalHeaderLabels(
             [self.tr(k) for k in ("model_name", "size", "engine", "compatibility")]
         )
-        records = [r for r in self.models if r["backend"] == self.engine_filter.currentText()]
+        query = self.model_search.text().casefold().strip()
+        favorites = self.config.favorite_models
+        records = [
+            r
+            for r in self.models
+            if r["backend"] == self.engine_filter.currentText()
+            and (not self.favorites_only.isChecked() or r["id"] in favorites)
+            and query
+            in (
+                r["name"]
+                + " "
+                + str(r.get("quantization") or "")
+                + " "
+                + str(r.get("metadata", {}).get("architecture") or "")
+            ).casefold()
+        ]
+        sort = self.model_sort.currentData()
+        records.sort(
+            key=lambda r: (
+                r.get("size_bytes") or 0
+                if sort == "sort_size"
+                else r.get("metadata", {}).get("last_inference", {}).get("at", "")
+                if sort == "sort_recent"
+                else r["name"].casefold()
+            ),
+            reverse=sort != "sort_name",
+        )
+        self.model_table.blockSignals(True)
         self.model_table.setRowCount(len(records))
+        self.models_empty.setVisible(not records)
+        selected_row = 0
         for row, record in enumerate(records):
+            metadata = record.get("metadata", {})
+            description = " · ".join(
+                str(value)
+                for value in (
+                    record.get("format"),
+                    record.get("quantization"),
+                    metadata.get("architecture"),
+                )
+                if value
+            )
+            title = (
+                ("★ " if record["id"] in favorites else "") + record["name"] + "\n" + description
+            )
             for column, value in enumerate(
                 (
-                    record["name"],
+                    title,
                     human_size(record["size_bytes"]),
                     record["backend"],
                     self.tr(record["compatibility"]),
                 )
             ):
                 item = QTableWidgetItem(value)
+                item.setToolTip(escape(value))
                 item.setData(Qt.UserRole, record["id"])
                 self.model_table.setItem(row, column, item)
             if selected and selected["id"] == record["id"]:
-                self.model_table.selectRow(row)
+                selected_row = row
+        self.model_table.resizeRowsToContents()
+        if records:
+            self.model_table.selectRow(selected_row)
+        self.model_table.blockSignals(False)
+        self.model_details()
+
+    def toggle_favorite_model(self):
+        record = self.selected_model()
+        if not record:
+            return
+        favorites = self.config.favorite_models
+        if record["id"] in favorites:
+            favorites.remove(record["id"])
+        else:
+            favorites.append(record["id"])
+        self.config.save()
+        self.refresh_model_table()
+
+    def configure_selected_model(self):
+        record = self.selected_model()
+        if record:
+            self.model_combo.setCurrentIndex(self.model_combo.findData(record["id"]))
+            self.navigate(0)
+            self.context_mode.setFocus()
 
     def selected_model(self):
         row = self.model_table.currentRow() if hasattr(self, "model_table") else -1
@@ -1506,12 +1669,37 @@ class MainWindow(QMainWindow):
         self.load_button.setToolTip(
             self.tr("ollama_managed") if record and record["backend"] == "ollama" else ""
         )
+        self.favorite_button.setEnabled(bool(record))
+        if not record:
+            self.model_detail.clear()
         if record:
             self.model_detail.setText(
                 f"{record['name']} · {record['format']} · {record.get('quantization') or '—'}\n"
                 f"{self.tr('license')}: {record.get('license') or self.tr('unknown')}\n"
                 f"{record['location']}"
             )
+            details = self.model_detail.text()
+            capabilities = record.get("capabilities") or []
+            if capabilities:
+                details += "\n" + " · ".join(capabilities)
+            self.model_detail.setText(details)
+            if record["backend"] == "llama.cpp":
+
+                def context_received(settings):
+                    current = self.selected_model()
+                    if self._closing or not current or current["id"] != record["id"]:
+                        return
+                    applied = settings.get("applied_tokens")
+                    status = (
+                        self.tr("model_running_context", tokens=applied)
+                        if applied is not None
+                        else self.tr("model_not_loaded")
+                    )
+                    self.model_detail.setText(details + "\n" + status)
+
+                self.api.request(
+                    "GET", TEXT + f"/models/{record['id']}/context", success=context_received
+                )
 
     def choose_gguf(self):
         path, _ = QFileDialog.getOpenFileName(self, self.tr("choose_file"), "", "GGUF (*.gguf)")

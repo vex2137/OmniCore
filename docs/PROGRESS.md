@@ -953,3 +953,28 @@ akcji bezpośrednio pod poszczególnymi wiadomościami, panel szczegółów kont
 pełna przebudowa/filtrowanie/sortowanie/ulubione modeli, akcenty i podglądy
 motywów, skalowanie UI i wizualna regresja pozostałych widoków. Nie budowano
 paczek ani nie publikowano wydania.
+
+### RC8 — modele, wygląd i szczegóły czatu
+
+- Lista modeli: wyszukiwanie nazwy/kwantyzacji/architektury, sortowanie nazwy,
+  rozmiaru i rzeczywistego ostatniego użycia, trwałe lokalne ulubione i filtr,
+  wielowierszowe metadane, puste wyniki, zachowanie zaznaczenia i przejście do
+  konfiguracji wybranego modelu. Ładowanie nadal korzysta z istniejącego API;
+  zastosowany kontekst/status ładowania odczytywany jest asynchronicznie.
+- Wybrany akcent i siedem miniaturek palet w natywnym wyborze motywu.
+  Wspólne tokeny palet wydzielono do themes.py; preferencje zapisują się bez
+  zmiany backendowych ustawień dark/light/system i bez migracji SQLite.
+- Zwijane grupy historii z trwałym stanem, bez usuwania rozmów. Akcje kopiowania
+  i regeneracji są pod odpowiedziami AI; wybranie starszej odpowiedzi regeneruje
+  właściwe wcześniejsze pytanie w nowej gałęzi. Rozwijany panel pokazuje pełne
+  rzeczywiste statystyki ostatniego żądania, także jawny stan braku danych.
+- Pełna regresja: 219 testów backendu/desktopu zaliczonych. Po zabezpieczeniu
+  podpowiedzi modeli przed interpretacją HTML dodatkowo 6 testów powiązanych
+  zaliczonych. Ruff, formatowanie zmienionych modułów i kontrakty zaliczone.
+- Rzeczywiste GUI Qt offscreen uruchomiono i oceniono; nowe zrzuty są w
+  docs/screenshots/rc8-ui. Zrzuty szczegółów kontekstu zawierają zapisane wyniki
+  wcześniejszej prawdziwej generacji CPU, nie nowe wyniki CUDA. Nie budowano paczek.
+
+RC8 nadal wymaga końcowej oceny pozostałych widoków, skalowania 80–150%,
+pełnej weryfikacji dostępności i ergonomii przy dużych katalogach/historiach oraz
+weryfikacji na natywnym pulpicie. Tej sesji nie oznacza się jako publicznego RC8.
