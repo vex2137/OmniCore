@@ -253,5 +253,7 @@
   "accent_default": "Domyślny akcent",
   "context_details": "Szczegóły ostatniego żądania",
   "model_running_context": "Załadowany · kontekst {tokens} tokenów",
-  "model_not_loaded": "Model nie jest załadowany"
+  "model_not_loaded": "Model nie jest załadowany",
+  "ui_scale": "Skala interfejsu",
+  "ui_scale_hint": "Rozmiar tekstu i kontrolek w jednostkach logicznych. Skalowanie ekranu pozostaje zarządzane przez Qt."
 }

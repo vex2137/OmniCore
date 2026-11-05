@@ -40,6 +40,7 @@ class DesktopConfig:
     sidebar_compact: bool = False
     sidebar_width: int = 232
     accent: str = ""
+    ui_scale: int = 100
     favorite_models: list[str] = field(default_factory=list)
     collapsed_history: list[str] = field(default_factory=list)
 
@@ -70,6 +71,9 @@ class DesktopConfig:
         if not isinstance(obj.sidebar_width, int) or isinstance(obj.sidebar_width, bool):
             obj.sidebar_width = 232
         obj.sidebar_width = max(200, min(360, obj.sidebar_width))
+        if not isinstance(obj.ui_scale, int) or isinstance(obj.ui_scale, bool):
+            obj.ui_scale = 100
+        obj.ui_scale = max(80, min(150, obj.ui_scale))
         if not isinstance(obj.accent, str) or (
             obj.accent and not re.fullmatch(r"#[0-9a-fA-F]{6}", obj.accent)
         ):

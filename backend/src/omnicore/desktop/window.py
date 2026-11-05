@@ -1,6 +1,7 @@
 """Native widgets for the existing API. Network and inference never block Qt."""
 
 import os
+import re
 import uuid
 from datetime import datetime
 from html import escape
@@ -51,7 +52,7 @@ from omnicore.desktop.history import grouped_history
 from omnicore.desktop.i18n import Translator
 from omnicore.desktop.model_card import safe_card_markdown
 from omnicore.desktop.report import diagnostic_report, save_report
-from omnicore.desktop.themes import palette
+from omnicore.desktop.themes import contrast_ratio, palette, readable_accent
 from omnicore.desktop.transcript import ChatTranscript, statistics_text
 from omnicore.release import distribution_version
 from omnicore.text.context import context_settings
@@ -159,6 +160,8 @@ class MainWindow(QMainWindow):
     def button(self, key, handler, *, primary=False):
         button = QPushButton(self.tr(key))
         button.setCursor(Qt.PointingHandCursor)
+        button.setAccessibleName(self.tr(key))
+        button.setToolTip(self.tr(key))
         if primary:
             button.setObjectName("primary")
         button.clicked.connect(handler)
@@ -277,6 +280,8 @@ class MainWindow(QMainWindow):
         left.addWidget(self.history_search)
         self.conversation_list = QListWidget()
         self.conversation_list.setObjectName("conversations")
+        self.conversation_list.setLayoutMode(QListWidget.Batched)
+        self.conversation_list.setBatchSize(128)
         self.conversation_list.setWordWrap(True)
         self.conversation_list.setTextElideMode(Qt.ElideNone)
         self.conversation_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -284,12 +289,8 @@ class MainWindow(QMainWindow):
         self.conversation_list.customContextMenuRequested.connect(self.conversation_menu)
         self.conversation_list.currentItemChanged.connect(self.select_conversation)
         left.addWidget(self.conversation_list, 1)
-        left.addLayout(
-            self.row(
-                self.button("rename", self.rename_conversation),
-                self.button("delete", self.delete_conversation),
-            )
-        )
+        left.addWidget(self.button("rename", self.rename_conversation))
+        left.addWidget(self.button("delete", self.delete_conversation))
         self.side_layout.insertWidget(2, self.new_button)
         left.removeWidget(self.new_button)
         self.side_layout.addWidget(self.history_panel, 1)
@@ -331,6 +332,7 @@ class MainWindow(QMainWindow):
         self.context_meter = QProgressBar()
         self.context_meter.setRange(0, 100)
         self.context_meter.setMaximumHeight(8)
+        self.context_meter.setObjectName("contextMeter")
         self.context_meter.setTextVisible(False)
         chat.addWidget(self.context_meter)
         self.context_toggle = self.button("context_details", lambda: None)
@@ -396,6 +398,10 @@ class MainWindow(QMainWindow):
         self.model_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.model_table.verticalHeader().hide()
         self.model_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        for column in (1, 2, 3):
+            self.model_table.horizontalHeader().setSectionResizeMode(
+                column, QHeaderView.ResizeToContents
+            )
         self.model_table.itemSelectionChanged.connect(self.model_details)
         local.addWidget(self.model_table, 1)
         self.model_detail = self.label("model_details")
@@ -409,6 +415,10 @@ class MainWindow(QMainWindow):
                 self.load_button,
                 self.favorite_button,
                 self.button("model_configure", self.configure_selected_model),
+            )
+        )
+        local.addLayout(
+            self.row(
                 self.button("unload", self.unload_model),
                 self.button("remove_entry", self.remove_model),
             )
@@ -535,6 +545,13 @@ class MainWindow(QMainWindow):
             painter.end()
             self.theme.setItemIcon(index, QIcon(preview))
         form.addRow(self.label("theme"), self.theme)
+        self.ui_scale = QSpinBox()
+        self.ui_scale.setRange(80, 150)
+        self.ui_scale.setSingleStep(10)
+        self.ui_scale.setSuffix(" %")
+        self.ui_scale.setValue(self.config.ui_scale)
+        self.ui_scale.valueChanged.connect(self.change_ui_scale)
+        form.addRow(self.label("ui_scale"), self.ui_scale)
         self.accent_button = self.button("accent", self.choose_accent)
         form.addRow(self.accent_button, self.button("accent_default", self.reset_accent))
         self.device = QComboBox()
@@ -673,6 +690,7 @@ class MainWindow(QMainWindow):
                 else (self.tr(key) if key == "new_chat" else f"{symbol}  {self.tr(key)}")
             )
             button.setToolTip(self.tr(key))
+            button.setAccessibleName(self.tr(key))
             button.setStyleSheet("padding: 8px 0;" if compact else "")
 
     def navigate(self, index):
@@ -738,6 +756,14 @@ class MainWindow(QMainWindow):
         self.apply_theme()
         self.config.save()
 
+    def change_ui_scale(self, value):
+        self.config.ui_scale = value
+        self.apply_theme()
+        self.composer.fit()
+        self.refresh_model_table()
+        self._fill_conversations()
+        self.config.save()
+
     def choose_accent(self):
         color = QColorDialog.getColor(
             QColor(self.config.accent or "#8b80f9"), self, self.tr("accent")
@@ -768,8 +794,10 @@ class MainWindow(QMainWindow):
             "oled": "#a99bff",
         }.get(self.config.theme, "#8b80f9" if dark else "#6957d9")
         accent = self.config.accent or accent
-        accent_text = "#10151f" if QColor(accent).lightnessF() > 0.55 else "#ffffff"
-        self.setStyleSheet(f"""
+        button_accent = accent
+        accent_text = max(("#000000", "#ffffff"), key=lambda color: contrast_ratio(color, accent))
+        accent = readable_accent(accent, fg, (bg, panel, field))
+        stylesheet = f"""
             QMainWindow,
     QMenu, QWidget {{ background: {bg};
                 color: {fg};
@@ -810,7 +838,7 @@ class MainWindow(QMainWindow):
                 }}
             QPushButton:disabled {{ color: {muted};
                 }}
-            QPushButton#primary {{ background: {accent};
+            QPushButton#primary {{ background: {button_accent};
                 color: {accent_text};
                 border-color: {accent};
                 }}
@@ -835,8 +863,10 @@ class MainWindow(QMainWindow):
                 padding: 8px;
                 selection-background-color: {accent};
                 }}
-            QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QPushButton:focus {{
-                border: 1px solid {accent};
+            QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QPushButton:focus,
+            QSpinBox:focus, QDoubleSpinBox:focus, QCheckBox:focus,
+            QListWidget:focus, QTableWidget:focus, QTextBrowser:focus {{
+                border: 2px solid {accent};
                 }}
             QFrame#assistantBubble {{ background: transparent; border: none; }}
             QFrame#userBubble {{ background: {field}; border: 1px solid {border};
@@ -882,6 +912,7 @@ class MainWindow(QMainWindow):
                 text-align: center;
                 min-height: 22px;
                 }}
+            QProgressBar#contextMeter {{ min-height: 6px; max-height: 8px; border-radius: 3px; }}
             QProgressBar::chunk {{ background: {accent};
                 border-radius: 6px;
                 }}
@@ -894,7 +925,27 @@ class MainWindow(QMainWindow):
                 color: {fg};
                 border: 1px solid {border};
                 }}
-        """)
+        """
+        # Only logical font sizes: Qt applies the screen DPR once. Never multiply by
+        # devicePixelRatio or modify QT_SCALE_FACTOR / the platform's DPI policy.
+        stylesheet = re.sub(
+            r"(?P<prefix>font(?:-size)?: )(?P<size>\d+)px",
+            lambda m: f"{m['prefix']}{round(int(m['size']) * self.config.ui_scale / 100)}px",
+            stylesheet,
+        )
+        self.setStyleSheet(stylesheet)
+        self.brand.setStyleSheet("font-size: 24px;")
+        self.ui_scale.setToolTip(self.tr("ui_scale_hint"))
+        for widget, key in (
+            (self.ui_scale, "ui_scale"),
+            (self.model_search, "model_search"),
+            (self.history_search, "search_history"),
+            (self.composer, "composer"),
+            (self.model_combo, "model_name"),
+            (self.theme, "theme"),
+            (self.engine_filter, "engine"),
+        ):
+            widget.setAccessibleName(self.tr(key))
 
     def backend_ready(self):
         if self._closing:
@@ -984,6 +1035,7 @@ class MainWindow(QMainWindow):
     def _fill_conversations(self, select=None):
         current = select or self.current_id
         self.conversation_list.blockSignals(True)
+        self.conversation_list.setUpdatesEnabled(False)
         self.conversation_list.clear()
         for group, records in grouped_history(self.conversations).items():
             for index, record in enumerate(records):
@@ -1011,13 +1063,19 @@ class MainWindow(QMainWindow):
                     column.addWidget(label)
                     label.setVisible(not collapsed)
                     item.setSizeHint(
-                        QSize(0, 68 if collapsed else max(112, row.sizeHint().height() + 32))
+                        QSize(
+                            0,
+                            max(68, heading.sizeHint().height() + 32)
+                            if collapsed
+                            else max(112, row.sizeHint().height() + 32),
+                        )
                     )
                     self.conversation_list.setItemWidget(item, row)
                 if index > 0 and group in self.config.collapsed_history:
                     item.setHidden(True)
                 if record["id"] == current:
                     self.conversation_list.setCurrentItem(item)
+        self.conversation_list.setUpdatesEnabled(True)
         self.conversation_list.blockSignals(False)
         if (
             current
@@ -1631,7 +1689,9 @@ class MainWindow(QMainWindow):
                 self.model_table.setItem(row, column, item)
             if selected and selected["id"] == record["id"]:
                 selected_row = row
-        self.model_table.resizeRowsToContents()
+        self.model_table.verticalHeader().setDefaultSectionSize(
+            max(54, round(54 * self.config.ui_scale / 100))
+        )
         if records:
             self.model_table.selectRow(selected_row)
         self.model_table.blockSignals(False)

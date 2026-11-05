@@ -978,3 +978,14 @@ paczek ani nie publikowano wydania.
 RC8 nadal wymaga końcowej oceny pozostałych widoków, skalowania 80–150%,
 pełnej weryfikacji dostępności i ergonomii przy dużych katalogach/historiach oraz
 weryfikacji na natywnym pulpicie. Tej sesji nie oznacza się jako publicznego RC8.
+
+### RC8 — odzyskana stabilizacja skalowania
+
+Zachowano rozpoczęte zmiany: trwała skala logiczna 80–150% bez mnożenia DPR,
+kontrast akcentu i fokus, nagłówki tabel dopasowane do tekstu, porcjowany układ
+historii. Próba 5000 rozmów przed poprawką została przerwana po 98 s przy
+wstawianiu wierszy; po poprawce samo budowanie listy trwało około 0,35 s.
+Test obejmuje także 1000 modeli i 10 000 wiadomości z limitem 60 kart.
+Macierz 72 wariantów (6 widoków × 4 rozdzielczości × 3 skale) i osobny DPR=2
+przeszły. Pełna regresja odzyskanej wersji: 224 zaliczone testy.
+Pozostało wizualne odciążenie paska, puste stany transferów i końcowy polish.

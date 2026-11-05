@@ -253,5 +253,7 @@
   "accent_default": "Default accent",
   "context_details": "Last request details",
   "model_running_context": "Loaded · context {tokens} tokens",
-  "model_not_loaded": "Model is not loaded"
+  "model_not_loaded": "Model is not loaded",
+  "ui_scale": "Interface scale",
+  "ui_scale_hint": "Text and control size in logical units. Screen scaling remains managed by Qt."
 }
