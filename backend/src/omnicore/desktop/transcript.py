@@ -3,8 +3,8 @@
 import math
 import re
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QTextDocument
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QIcon, QTextDocument
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -14,7 +14,9 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QStyle,
     QTextBrowser,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -102,7 +104,9 @@ class MessageCard(QFrame):
         title.setWordWrap(True)
         title.setObjectName("messageAuthor")
         header.addWidget(title, 1)
-        copy = QPushButton(tr("copy"))
+        copy = QToolButton() if message["role"] == "assistant" else QPushButton(tr("copy"))
+        if message["role"] == "assistant":
+            self.icon_action(copy, "edit-copy", QStyle.SP_FileDialogContentsView, tr("copy"))
         copy.setAccessibleName(tr("copy"))
         copy.clicked.connect(lambda: QApplication.clipboard().setText(message["content"]))
         copy.setEnabled(bool(message["content"]))
@@ -144,7 +148,8 @@ class MessageCard(QFrame):
         if message["role"] == "assistant":
             actions = QHBoxLayout()
             actions.addWidget(copy)
-            retry = QPushButton(tr("regenerate"))
+            retry = QToolButton()
+            self.icon_action(retry, "view-refresh", QStyle.SP_BrowserReload, tr("regenerate"))
             retry.setToolTip(tr("regenerate_branch"))
             retry.setEnabled(
                 can_regenerate
@@ -154,8 +159,29 @@ class MessageCard(QFrame):
             if regenerate:
                 retry.clicked.connect(lambda: regenerate(message))
             actions.addWidget(retry)
+            info = QToolButton()
+            self.icon_action(
+                info, "dialog-information", QStyle.SP_MessageBoxInformation, tr("context_details")
+            )
+            info.setEnabled(bool(details))
+            info.setCheckable(True)
+            full_stats = QLabel(details)
+            full_stats.setTextFormat(Qt.PlainText)
+            full_stats.setWordWrap(True)
+            full_stats.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            full_stats.hide()
+            info.toggled.connect(full_stats.setVisible)
+            actions.addWidget(info)
             actions.addStretch()
             self.layout_.addLayout(actions)
+            self.layout_.addWidget(full_stats)
+
+    def icon_action(self, button, name, fallback, label):
+        button.setIcon(QIcon.fromTheme(name, self.style().standardIcon(fallback)))
+        button.setIconSize(QSize(16, 16))
+        button.setFixedSize(32, 32)
+        button.setToolTip(label)
+        button.setAccessibleName(label)
 
     def _body(self, content, tr):
         # Treat fenced code as plain text, with a separate native clipboard action.

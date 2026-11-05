@@ -88,7 +88,7 @@
   "device": "Device (cpu / auto / engine ID)",
   "save": "Save settings",
   "settings_hint": "Engine and directory changes restart only the backend owned by this app. Generation defaults apply to new messages. GPU support depends on your engine build.",
-  "about": "OmniCore 0.1.0 Alpha · Python + Qt6 · MIT\nLocal data: {path}\nCtrl+N: new chat · Ctrl+Enter: send · Esc: stop · Ctrl+,: settings",
+  "about": "OmniCore {version} · Python + Qt6 · MIT\nLocal data: {path}\nCtrl+N: new chat · Ctrl+Enter: send · Esc: stop · Ctrl+,: settings",
   "diagnostics_hint": "Live API diagnostics. Logs contain only event codes, never tokens, prompts or raw engine output.",
   "events": "Application events",
   "cpu": "CPU",
@@ -255,5 +255,8 @@
   "model_running_context": "Loaded · context {tokens} tokens",
   "model_not_loaded": "Model is not loaded",
   "ui_scale": "Interface scale",
-  "ui_scale_hint": "Text and control size in logical units. Screen scaling remains managed by Qt."
+  "ui_scale_hint": "Text and control size in logical units. Screen scaling remains managed by Qt.",
+  "conversations_nav": "Conversations",
+  "transfers_empty": "No active transfers.\nFind a model in the Hugging Face tab and choose a file to download.",
+  "model_actions": "More model actions: unload or remove entry"
 }

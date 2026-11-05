@@ -88,7 +88,7 @@
   "device": "Urządzenie (cpu / auto / ID silnika)",
   "save": "Zapisz ustawienia",
   "settings_hint": "Zmiana silników i katalogów restartuje tylko backend tej aplikacji. Parametry obowiązują nowe wiadomości. Obsługa GPU zależy od kompilacji silnika.",
-  "about": "OmniCore 0.1.0 Alpha · Python + Qt6 · MIT\nDane lokalne: {path}\nCtrl+N: nowy czat · Ctrl+Enter: wyślij · Esc: stop · Ctrl+,: ustawienia",
+  "about": "OmniCore {version} · Python + Qt6 · MIT\nDane lokalne: {path}\nCtrl+N: nowy czat · Ctrl+Enter: wyślij · Esc: stop · Ctrl+,: ustawienia",
   "diagnostics_hint": "Bieżąca diagnostyka API. Logi zawierają wyłącznie kody zdarzeń, bez tokenów, promptów i surowego wyjścia silników.",
   "events": "Zdarzenia aplikacji",
   "cpu": "CPU",
@@ -255,5 +255,8 @@
   "model_running_context": "Załadowany · kontekst {tokens} tokenów",
   "model_not_loaded": "Model nie jest załadowany",
   "ui_scale": "Skala interfejsu",
-  "ui_scale_hint": "Rozmiar tekstu i kontrolek w jednostkach logicznych. Skalowanie ekranu pozostaje zarządzane przez Qt."
+  "ui_scale_hint": "Rozmiar tekstu i kontrolek w jednostkach logicznych. Skalowanie ekranu pozostaje zarządzane przez Qt.",
+  "conversations_nav": "Rozmowy",
+  "transfers_empty": "Brak aktywnych transferów.\nWyszukaj model w zakładce Hugging Face i wybierz plik do pobrania.",
+  "model_actions": "Więcej działań modelu: zwolnij lub usuń wpis"
 }

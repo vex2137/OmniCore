@@ -723,7 +723,7 @@ def test_context_details_disclose_actual_data(desktop, qtbot):
 
 
 def test_assistant_footer_regenerates_specific_message(qtbot):
-    from PySide6.QtWidgets import QPushButton
+    from PySide6.QtWidgets import QToolButton
 
     from omnicore.desktop.i18n import Translator
     from omnicore.desktop.transcript import ChatTranscript
@@ -734,7 +734,9 @@ def test_assistant_footer_regenerates_specific_message(qtbot):
     message = {"id": "first", "role": "assistant", "content": "Original answer"}
     transcript.set_messages([message], Translator("en-US"))
     retry = next(
-        b for b in transcript.cards[0].findChildren(QPushButton) if b.text() == "Regenerate"
+        b
+        for b in transcript.cards[0].findChildren(QToolButton)
+        if b.accessibleName() == "Regenerate"
     )
     with qtbot.waitSignal(transcript.regenerate_requested) as signal:
         qtbot.mouseClick(retry, Qt.LeftButton)

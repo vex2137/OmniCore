@@ -989,3 +989,32 @@ Test obejmuje także 1000 modeli i 10 000 wiadomości z limitem 60 kart.
 Macierz 72 wariantów (6 widoków × 4 rozdzielczości × 3 skale) i osobny DPR=2
 przeszły. Pełna regresja odzyskanej wersji: 224 zaliczone testy.
 Pozostało wizualne odciążenie paska, puste stany transferów i końcowy polish.
+
+### RC8 — final UI polish i weryfikacja w chmurze
+
+- Odzyskane poprawki stabilizacji zabezpieczono w commicie 264492b.
+- Odciążono pasek: mały przycisk przy logo, przeciągana krawędź 200–360 px,
+  kompaktowe 52 px, szerokość numeryczna w wyglądzie i odświeżanie przy wyszukiwaniu.
+  Usunięto redundantne duże przyciski zmiany nazwy/usuwania; operacje pozostały
+  w menu z potwierdzeniem. Poprawiono nakładające się tytuły grup, elizję i Ctrl+F.
+- Transfery mają czytelny pusty stan bez paska 0%. Uporządkowano menu dodatkowych
+  działań modeli, nagłówki, podpowiedzi ścieżek i małe akcje pod odpowiedziami AI.
+  Wersja w opisie aplikacji pochodzi z metadanych zamiast stałego napisu Alpha.
+- Skalowanie 80/100/125/150%: 96 wariantów układu z danymi przeszło testy Qt.
+  Osobny proces DPR=2 potwierdził brak mnożenia skali czcionki. Sprawdzono
+  kontrast wszystkich palet i akcentów, fokus oraz duże zbiory (1000 modeli,
+  5000 rozmów, 10 000 wiadomości; renderowane 60 kart). Końcowa obserwacja:
+  budowa modeli ~0,064 s, historii ~0,201 s; nie są to gwarancje wydajności.
+- Pełna regresja: 225 zaliczonych testów backendu/desktopu. Po końcowym wyborze
+  ikony ponownie przeszły 2 testy akcji/transferów; test skrótu Ctrl+F/Tab także
+  przeszedł. Ruff, formatowanie i kontrakty poprawne. Ponowiona macierz zapisała
+  końcowe autentyczne screenshoty: docs/screenshots/rc8-polish.
+- Nie publikowano, nie budowano APK/AppImage, nie zmieniano schematu SQLite ani
+  dystrybucyjnego numeru wersji. Podgląd istniejącej historii realnej generacji
+  CPU nie jest nowym testem CUDA. Nie testowano fizycznego telefonu.
+
+Możliwa tutaj stabilizacja UI jest zakończona do lokalnej weryfikacji; RC8 nie
+zostało opublikowane ani uznane za zweryfikowane na natywnym pulpicie właściciela.
+Pozostałe obowiązkowe próby na CachyOS (Wayland/X11, KDE HiDPI i wiele ekranów,
+prywatne dane po aktualizacji, rzeczywisty offload RTX 4060 i modele właściciela,
+dialogi/clipboard/czytnik ekranu) opisano w README przy screenshotach.

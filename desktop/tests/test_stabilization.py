@@ -77,7 +77,7 @@ def test_major_views_resolution_and_scale_matrix(desktop, qtbot):
         (2, None, "settings"),
         (3, None, "diagnostics"),
     )
-    for scale in (80, 100, 150):
+    for scale in (80, 100, 125, 150):
         w.ui_scale.setValue(scale)
         for width, height in ((1280, 720), (1366, 768), (1920, 1080), (2560, 1440)):
             for page, tab, name in views:
@@ -96,6 +96,7 @@ def test_major_views_resolution_and_scale_matrix(desktop, qtbot):
                 if destination:
                     w.grab().save(str(destination / f"{name}-{width}x{height}-{scale}.png"))
                 assert w.width() == width and w.height() == height, sample
+                assert w.conversation_list.height() >= 150, sample
                 # Visible top-level action buttons must fit their text. Scrolled content
                 # is checked through its native viewport rather than forced into the window.
                 for button in w.findChildren(QPushButton):
@@ -107,6 +108,10 @@ def test_major_views_resolution_and_scale_matrix(desktop, qtbot):
                             button.minimumSizeHint().width(),
                         )
     if destination:
+        w.navigate(0)
+        w.toggle_sidebar()
+        qtbot.wait(80)
+        w.grab().save(str(destination / "compact-150.png"))
         (destination / "matrix.json").write_text(json.dumps(report, indent=2))
 
 
@@ -198,3 +203,37 @@ def test_external_dpr_does_not_rescale_logical_fonts(desktop):
                 indent=2,
             )
         )
+
+
+def test_sidebar_and_transfer_empty_state(desktop, qtbot, tmp_path):
+    w = desktop
+    assert w.sidebar_toggle.width() <= 32
+    assert w.sidebar_width.parentWidget() is not w.history_panel
+    w.shell.moveSplitter(280, 1)
+    qtbot.waitUntil(lambda: w.config.sidebar_width == w.sidebar.width())
+    assert 200 <= w.sidebar.width() <= 360
+    path = tmp_path / "prefs.json"
+    w.config.save(path)
+    assert DesktopConfig.load(path).sidebar_width == w.sidebar.width()
+    w.downloads = []
+    w._show_download_progress()
+    assert not w.transfers_empty.isHidden()
+    assert w.download_progress.isHidden() and w.download_list.isHidden()
+    w.downloads = [{"id": "transfer", "state": "running", "percent": 42}]
+    w.download_list.addItem("transfer", "transfer")
+    w._show_download_progress()
+    assert w.transfers_empty.isHidden()
+    assert not w.download_progress.isHidden()
+    assert w.download_progress.value() == 42
+
+
+def test_keyboard_search_from_compact_mode(desktop, qtbot):
+    w = desktop
+    w.toggle_sidebar()
+    assert w.config.sidebar_compact
+    qtbot.keyClick(w, Qt.Key_F, Qt.ControlModifier)
+    qtbot.waitUntil(lambda: w.history_search.hasFocus())
+    assert not w.config.sidebar_compact
+    qtbot.keyClick(w.history_search, Qt.Key_Tab)
+    assert w.history_refresh.hasFocus()
+    assert w.history_refresh.accessibleName()

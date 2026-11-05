@@ -1,0 +1,1154 @@
+[
+  {
+    "scale": 80,
+    "view": "chat",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "models",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "hugging-face",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "transfers",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "settings",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "diagnostics",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "chat",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "models",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "hugging-face",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "transfers",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "settings",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "diagnostics",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "chat",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "models",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "hugging-face",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "transfers",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "settings",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "diagnostics",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "chat",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "models",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "hugging-face",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "transfers",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "settings",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 80,
+    "view": "diagnostics",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "chat",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "models",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "hugging-face",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "transfers",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "settings",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "diagnostics",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "chat",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "models",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "hugging-face",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "transfers",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "settings",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "diagnostics",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "chat",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "models",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "hugging-face",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "transfers",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "settings",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "diagnostics",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "chat",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "models",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "hugging-face",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "transfers",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "settings",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 100,
+    "view": "diagnostics",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "chat",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "models",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "hugging-face",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "transfers",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "settings",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "diagnostics",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "chat",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "models",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "hugging-face",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "transfers",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "settings",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "diagnostics",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "chat",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "models",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "hugging-face",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "transfers",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "settings",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "diagnostics",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "chat",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "models",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "hugging-face",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "transfers",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "settings",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 125,
+    "view": "diagnostics",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "chat",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "models",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "hugging-face",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "transfers",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "settings",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "diagnostics",
+    "requested": [
+      1280,
+      720
+    ],
+    "actual": [
+      1280,
+      720
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "chat",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "models",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "hugging-face",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "transfers",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "settings",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "diagnostics",
+    "requested": [
+      1366,
+      768
+    ],
+    "actual": [
+      1366,
+      768
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "chat",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "models",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "hugging-face",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "transfers",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "settings",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "diagnostics",
+    "requested": [
+      1920,
+      1080
+    ],
+    "actual": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "chat",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "models",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "hugging-face",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "transfers",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "settings",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  },
+  {
+    "scale": 150,
+    "view": "diagnostics",
+    "requested": [
+      2560,
+      1440
+    ],
+    "actual": [
+      2560,
+      1440
+    ]
+  }
+]

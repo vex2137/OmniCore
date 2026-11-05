@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QTabWidget,
     QTextBrowser,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -140,7 +141,7 @@ class MainWindow(QMainWindow):
         )
         for key, handler in (
             ("Ctrl+N", self.new_conversation),
-            ("Ctrl+F", lambda: self.history_search.setFocus()),
+            ("Ctrl+F", self.focus_history_search),
             ("Ctrl+Return", self.send_message),
             ("Escape", self.stop_generation),
             ("Ctrl+,", lambda: self.navigate(2)),
@@ -182,16 +183,29 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         self.setCentralWidget(root)
+        self.shell = QSplitter(Qt.Horizontal)
+        self.shell.setChildrenCollapsible(False)
+        self.shell.setHandleWidth(4)
+        layout.addWidget(self.shell)
+        self.width_save_timer = QTimer(self)
+        self.width_save_timer.setSingleShot(True)
+        self.width_save_timer.setInterval(250)
+        self.width_save_timer.timeout.connect(self.config.save)
+        self.shell.splitterMoved.connect(self.sidebar_dragged)
         self.sidebar = QFrame()
         self.sidebar.setObjectName("sidebar")
         self.side_layout = QVBoxLayout(self.sidebar)
         self.side_layout.setContentsMargins(8, 12, 8, 12)
         self.brand = QLabel("◈  OmniCore")
         self.brand.setObjectName("brand")
-        self.side_layout.addWidget(self.brand)
+        self.sidebar_header = QHBoxLayout()
+        self.sidebar_header.addWidget(self.brand, 1)
+        self.side_layout.addLayout(self.sidebar_header)
         self.sidebar_toggle = QPushButton()
         self.sidebar_toggle.clicked.connect(self.toggle_sidebar)
-        self.side_layout.addWidget(self.sidebar_toggle)
+        self.sidebar_toggle.setFixedSize(28, 32)
+        self.sidebar_toggle.setStyleSheet("padding: 0;")
+        self.sidebar_header.addWidget(self.sidebar_toggle)
         self.nav = []
         for index, key in enumerate(("chat", "models", "settings", "diagnostics")):
             button = self.button(key, lambda checked=False, i=index: self.navigate(i))
@@ -200,7 +214,7 @@ class MainWindow(QMainWindow):
             self.nav.append(button)
         self.side_layout.addWidget(self.nav[0])
         self.side_layout.addWidget(self.nav[1])
-        layout.addWidget(self.sidebar)
+        self.shell.addWidget(self.sidebar)
         main = QWidget()
         body = QVBoxLayout(main)
         body.setContentsMargins(28, 22, 28, 22)
@@ -249,7 +263,9 @@ class MainWindow(QMainWindow):
         self._build_models()
         self._build_settings()
         self._build_diagnostics()
-        layout.addWidget(main, 1)
+        self.shell.addWidget(main)
+        self.shell.setStretchFactor(1, 1)
+        self._apply_sidebar()
         self.nav[0].setChecked(True)
         self.statusBar().showMessage(self.tr("connecting"))
         self.pages.setEnabled(False)
@@ -266,10 +282,8 @@ class MainWindow(QMainWindow):
         self.sidebar_width.setValue(self.config.sidebar_width)
         self.sidebar_width.setSuffix(" px")
         self.sidebar_width.valueChanged.connect(self.resize_sidebar)
-        left.addWidget(self.sidebar_width)
         self.new_button = self.button("new_chat", self.new_conversation, primary=True)
         left.addWidget(self.new_button)
-        left.addWidget(self.button("refresh", self.refresh_shared_history))
         self.history_search = QLineEdit()
         self.history_search.setMaxLength(256)
         self.search_timer = QTimer(self)
@@ -277,21 +291,24 @@ class MainWindow(QMainWindow):
         self.search_timer.setInterval(250)
         self.search_timer.timeout.connect(self.refresh_conversations)
         self.history_search.textChanged.connect(lambda _: self.search_timer.start())
-        left.addWidget(self.history_search)
+        self.history_refresh = QPushButton("↻")
+        self.history_refresh.setFixedWidth(32)
+        self.history_refresh.setStyleSheet("padding: 6px 0; font-size: 18px;")
+        self.history_refresh.clicked.connect(self.refresh_shared_history)
+        left.addLayout(self.row(self.history_search, self.history_refresh))
         self.conversation_list = QListWidget()
         self.conversation_list.setObjectName("conversations")
         self.conversation_list.setLayoutMode(QListWidget.Batched)
         self.conversation_list.setBatchSize(128)
-        self.conversation_list.setWordWrap(True)
-        self.conversation_list.setTextElideMode(Qt.ElideNone)
+        self.conversation_list.setWordWrap(False)
+        self.conversation_list.setTextElideMode(Qt.ElideRight)
         self.conversation_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.conversation_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.conversation_list.customContextMenuRequested.connect(self.conversation_menu)
         self.conversation_list.currentItemChanged.connect(self.select_conversation)
+        self.conversation_list.currentItemChanged.connect(self.update_history_selection)
         left.addWidget(self.conversation_list, 1)
-        left.addWidget(self.button("rename", self.rename_conversation))
-        left.addWidget(self.button("delete", self.delete_conversation))
-        self.side_layout.insertWidget(2, self.new_button)
+        self.side_layout.insertWidget(1, self.new_button)
         left.removeWidget(self.new_button)
         self.side_layout.addWidget(self.history_panel, 1)
         pane = QWidget()
@@ -410,17 +427,24 @@ class MainWindow(QMainWindow):
         local.addWidget(self.model_detail)
         self.favorite_button = self.button("favorite_toggle", self.toggle_favorite_model)
         self.load_button = self.button("load", self.load_model, primary=True)
+        self.model_actions = QToolButton()
+        self.model_actions.setText("⋯")
+        self.model_actions.setFixedSize(32, 32)
+        self.model_actions.setPopupMode(QToolButton.InstantPopup)
+        self.model_actions_menu = QMenu(self.model_actions)
+        self.model_unload_action = self.model_actions_menu.addAction(
+            self.tr("unload"), self.unload_model
+        )
+        self.model_remove_action = self.model_actions_menu.addAction(
+            self.tr("remove_entry"), self.remove_model
+        )
+        self.model_actions.setMenu(self.model_actions_menu)
         local.addLayout(
             self.row(
                 self.load_button,
                 self.favorite_button,
                 self.button("model_configure", self.configure_selected_model),
-            )
-        )
-        local.addLayout(
-            self.row(
-                self.button("unload", self.unload_model),
-                self.button("remove_entry", self.remove_model),
+                self.model_actions,
             )
         )
         self.model_tabs.addTab(installed, "")
@@ -474,6 +498,8 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.download_button)
         transfers = QWidget()
         transfer_layout = QVBoxLayout(transfers)
+        self.transfers_empty = self.label("transfers_empty")
+        transfer_layout.addWidget(self.transfers_empty)
         self.download_list = QComboBox()
         transfer_layout.addWidget(self.download_list)
         self.download_progress = QProgressBar()
@@ -552,6 +578,7 @@ class MainWindow(QMainWindow):
         self.ui_scale.setValue(self.config.ui_scale)
         self.ui_scale.valueChanged.connect(self.change_ui_scale)
         form.addRow(self.label("ui_scale"), self.ui_scale)
+        form.addRow(self.label("sidebar_width"), self.sidebar_width)
         self.accent_button = self.button("accent", self.choose_accent)
         form.addRow(self.accent_button, self.button("accent_default", self.reset_accent))
         self.device = QComboBox()
@@ -658,10 +685,23 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.logs, 1)
         self.pages.addWidget(page)
 
+    def focus_history_search(self):
+        if self.config.sidebar_compact:
+            self.toggle_sidebar()
+        self.history_search.setFocus()
+
+    def sidebar_dragged(self, position, index):
+        if self.config.sidebar_compact:
+            return
+        self.config.sidebar_width = max(200, min(360, self.sidebar.width()))
+        self.sidebar_width.blockSignals(True)
+        self.sidebar_width.setValue(self.config.sidebar_width)
+        self.sidebar_width.blockSignals(False)
+        self.width_save_timer.start()
+
     def resize_sidebar(self, width):
         self.config.sidebar_width = width
-        if not self.config.sidebar_compact:
-            self.sidebar.setFixedWidth(width)
+        self._apply_sidebar()
         self.config.save()
 
     def toggle_sidebar(self):
@@ -671,16 +711,23 @@ class MainWindow(QMainWindow):
 
     def _apply_sidebar(self):
         compact = self.config.sidebar_compact
-        self.sidebar.setFixedWidth(52 if compact else self.config.sidebar_width)
-        self.brand.setText("◈" if compact else "◈  OmniCore")
-        self.sidebar_toggle.setText("›" if compact else "‹")
+        self.sidebar.setMinimumWidth(52 if compact else 200)
+        self.sidebar.setMaximumWidth(52 if compact else 360)
+        if self.shell.count() > 1:
+            width = 52 if compact else self.config.sidebar_width
+            self.shell.setSizes([width, max(1, self.width() - width - 4)])
+            self.shell.handle(1).setEnabled(not compact)
+        self.brand.setVisible(not compact)
+        self.sidebar_toggle.setText("◈" if compact else "‹")
         self.sidebar_toggle.setToolTip(self.tr("sidebar_expand" if compact else "sidebar_collapse"))
         self.sidebar_width.setToolTip(self.tr("sidebar_width"))
+        self.history_refresh.setToolTip(self.tr("refresh"))
+        self.history_refresh.setAccessibleName(self.tr("refresh"))
         self.history_panel.setVisible(not compact)
         self.compact_spacer.setVisible(compact)
         for button, key, symbol in zip(
             (self.new_button, *self.nav),
-            ("new_chat", "chat", "models", "settings", "diagnostics"),
+            ("new_chat", "conversations_nav", "models", "settings", "diagnostics"),
             ("＋", "◉", "▣", "⚙", "◌"),
             strict=True,
         ):
@@ -721,6 +768,10 @@ class MainWindow(QMainWindow):
         self.context_mode.setItemText(0, self.tr("context_auto"))
         self.context_mode.setItemText(1, self.tr("context_manual"))
         self._render_model_context()
+        self.model_actions.setToolTip(self.tr("model_actions"))
+        self.model_actions.setAccessibleName(self.tr("model_actions"))
+        self.model_unload_action.setText(self.tr("unload"))
+        self.model_remove_action.setText(self.tr("remove_entry"))
         self.model_search.setPlaceholderText(self.tr("model_search"))
         for index, key in enumerate(("sort_name", "sort_size", "sort_recent")):
             self.model_sort.setItemText(index, self.tr(key))
@@ -741,7 +792,7 @@ class MainWindow(QMainWindow):
         for index, key in enumerate(("auto", "cpu", "cuda")):
             self.device.setItemText(index, self.tr("mode_" + key))
         self.connection.setText(self.tr(self._connection_key))
-        self.about.setText(self.tr("about", path=data_path()))
+        self.about.setText(self.tr("about", path=data_path(), version=distribution_version()))
         self.refresh_model_table()
         self.render_messages()
         self._fill_conversations()
@@ -832,6 +883,15 @@ class MainWindow(QMainWindow):
                 padding: 10px 14px;
                 font-weight: 550;
                 }}
+            QWidget#historyGroupRow {{ background: {panel}; }}
+            QWidget#historyGroupRow[selected="true"] {{ background: {field}; }}
+            QPushButton#historyHeading {{ background: transparent; border: 1px solid transparent;
+                padding: 2px 0; text-align: left; }}
+            QPushButton#historyHeading:focus {{ border: 2px solid {accent}; }}
+            QToolButton {{ background: {field}; border: 1px solid {border}; border-radius: 6px; }}
+            QToolButton:hover {{ border-color: {accent}; }}
+            QToolButton:focus {{ border: 2px solid {accent}; }}
+            QToolButton:disabled {{ color: {muted}; }}
             QPushButton:hover {{ border-color: {accent};
                 }}
             QPushButton:pressed {{ background: {border};
@@ -934,7 +994,7 @@ class MainWindow(QMainWindow):
             stylesheet,
         )
         self.setStyleSheet(stylesheet)
-        self.brand.setStyleSheet("font-size: 24px;")
+        self.brand.setStyleSheet("font-size: 22px;")
         self.ui_scale.setToolTip(self.tr("ui_scale_hint"))
         for widget, key in (
             (self.ui_scale, "ui_scale"),
@@ -1046,18 +1106,25 @@ class MainWindow(QMainWindow):
                 self.conversation_list.addItem(item)
                 if index == 0:
                     row = QWidget()
+                    row.setObjectName("historyGroupRow")
+                    row.setProperty("selected", record["id"] == current)
                     column = QVBoxLayout(row)
                     column.setContentsMargins(4, 8, 4, 4)
                     collapsed = group in self.config.collapsed_history
                     heading = QPushButton(
                         ("▸ " if collapsed else "▾ ") + self.tr("history_" + group)
                     )
+                    heading.setObjectName("historyHeading")
                     heading.setAccessibleName(self.tr("history_" + group))
                     heading.clicked.connect(
                         lambda checked=False, key=group: self.toggle_history_group(key)
                     )
                     column.addWidget(heading)
-                    label = QLabel(title)
+                    label = QLabel(
+                        self.fontMetrics().elidedText(
+                            title, Qt.ElideRight, max(80, self.config.sidebar_width - 56)
+                        )
+                    )
                     label.setTextFormat(Qt.PlainText)
                     label.setWordWrap(True)
                     column.addWidget(label)
@@ -1065,9 +1132,9 @@ class MainWindow(QMainWindow):
                     item.setSizeHint(
                         QSize(
                             0,
-                            max(68, heading.sizeHint().height() + 32)
+                            max(48, heading.sizeHint().height() + 24)
                             if collapsed
-                            else max(112, row.sizeHint().height() + 32),
+                            else max(80, row.sizeHint().height() + 24),
                         )
                     )
                     self.conversation_list.setItemWidget(item, row)
@@ -1088,6 +1155,15 @@ class MainWindow(QMainWindow):
             self.render_messages()
         elif select:
             self.open_conversation(select)
+
+    def update_history_selection(self, item, previous):
+        for candidate in (previous, item):
+            widget = self.conversation_list.itemWidget(candidate) if candidate else None
+            if widget:
+                widget.setProperty("selected", candidate is item)
+                widget.style().unpolish(widget)
+                widget.style().polish(widget)
+                widget.update()
 
     def toggle_history_group(self, group):
         if group in self.config.collapsed_history:
@@ -1730,13 +1806,14 @@ class MainWindow(QMainWindow):
             self.tr("ollama_managed") if record and record["backend"] == "ollama" else ""
         )
         self.favorite_button.setEnabled(bool(record))
+        self.model_actions.setEnabled(bool(record))
+        self.model_detail.setToolTip(escape(record["location"]) if record else "")
         if not record:
             self.model_detail.clear()
         if record:
             self.model_detail.setText(
                 f"{record['name']} · {record['format']} · {record.get('quantization') or '—'}\n"
-                f"{self.tr('license')}: {record.get('license') or self.tr('unknown')}\n"
-                f"{record['location']}"
+                f"{self.tr('license')}: {record.get('license') or self.tr('unknown')}"
             )
             details = self.model_detail.text()
             capabilities = record.get("capabilities") or []
@@ -2084,6 +2161,10 @@ class MainWindow(QMainWindow):
 
     def _show_download_progress(self, *_):
         record = self.selected_download()
+        self.transfers_empty.setVisible(not self.downloads)
+        self.download_list.setVisible(bool(self.downloads))
+        self.download_progress.setVisible(record is not None)
+        self.download_status.setVisible(record is not None)
         percent = record.get("percent") if record else None
         self.download_progress.setRange(0, 0 if record and percent is None else 100)
         if percent is not None:

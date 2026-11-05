@@ -1,0 +1,8 @@
+{
+  "model_rows": 1000,
+  "history_rows": 5000,
+  "messages": 10000,
+  "rendered_messages": 60,
+  "model_seconds": 0.0636494169884827,
+  "history_seconds": 0.20077647900325246
+}
