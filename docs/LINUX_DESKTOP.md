@@ -102,3 +102,153 @@ odłącza podgląd, a jawny Stop anuluje zadanie. Prywatny backend aplikacji jes
 zatrzymywany razem z jej procesami. Eksport raportu diagnostycznego zawiera tylko
 zamknięty zestaw pól: bez tokenów, adresów, ścieżek, treści i surowych logów.
 [CUDA i fallback CPU](CUDA.md) są konfigurowane bez zmian logiki inferencji w GUI.
+
+
+## Backend lokalny i serwer dla telefonu
+
+Zwykłe uruchomienie GUI nie wymaga terminala. Aplikacja sprawdza istniejący serwer,
+a jeśli go nie ma, uruchamia własny backend z tokenem w pamięci na losowym porcie
+loopback. Pasek pokazuje uruchamianie/połączono/rozłączono/błąd. Po awarii przycisk
+**Uruchom backend** ponawia start. Zakończenie GUI zatrzymuje wyłącznie własny proces;
+zewnętrzny serwer pozostaje uruchomiony.
+
+Backend trzyma blokadę `backend.lock` w katalogu danych przez cały cykl życia
+ASGI, przed inicjalizacją bazy i kolejki. Drugi proces z tą samą bazą odmawia startu.
+GUI odczytuje wyłącznie lokalny port aktywnej blokady, nigdy token. Przy istniejącym
+serwerze wymagającym uwierzytelniania podaj `OMNICORE_DESKTOP_TOKEN` w prywatnym
+środowisku GUI. Dowolny inny serwer można wskazać przez `OMNICORE_DESKTOP_URL`;
+zewnętrzny adres desktopu wymaga HTTPS. Błędny token nie powoduje startu duplikatu.
+Nie usuwaj blokady działającego procesu. Nieaktywny plik jest ignorowany i ponownie
+używany; nie zawiera sekretów. Bezpośredni Uvicorn wymaga zgodnego RuntimeConfig;
+preferuj poniższy launcher CLI, który zna rzeczywisty host/port.
+
+AppImage ma jawny tryb headless dla zaawansowanych użytkowników:
+
+```bash
+./OmniCore-0.1.0-rc.3-x86_64.AppImage --serve --host 127.0.0.1 --port 8000
+```
+
+Dane pozostają w dotychczasowym katalogu XDG. Jeśli GUI już używa tej bazy,
+najpierw je zamknij. Dla telefonu właściciel świadomie konfiguruje środowisko
+serwera (np. prywatny plik poza Git z prawami 0600):
+
+- `OMNICORE_ALLOW_REMOTE=1`, `OMNICORE_HOST=0.0.0.0`, `OMNICORE_PORT=8000`;
+- `OMNICORE_API_TOKEN`: własny losowy token ASCII alfanumeryczny, co najmniej 32 znaki;
+- `OMNICORE_ALLOWED_HOSTS`: jawnie adres LAN komputera i loopback dla lokalnego GUI;
+- `OMNICORE_MODEL_ROOTS`: dotychczasowe dozwolone katalogi GGUF;
+- istniejący katalog danych i konfiguracja silnika; nie kopiuj ani nie resetuj bazy.
+
+Nie umieszczaj tokenu w argv, logu, `.desktop`, repozytorium ani czacie. Nie dodawaj
+wildcard Host/Origin/CORS. Natywny Android nie wymaga otwarcia CORS dla wszystkich
+stron. Backend sam odmówi bindu zdalnego bez jawnej zgody i poprawnego tokenu.
+Poza zaufaną siecią wymagany jest poprawnie skonfigurowany HTTPS/WSS z zaufanym
+certyfikatem (np. lokalny reverse proxy). Nie wyłączaj walidacji TLS.
+
+Aby zaawansowany serwer działał po zamknięciu terminala, właściciel może utworzyć
+własny unit systemd --user z następującymi ustawieniami (ścieżki dostosuj lokalnie):
+
+```ini
+[Unit]
+Description=OmniCore authenticated backend
+
+[Service]
+EnvironmentFile=%h/.config/omnicore/server.env
+Environment=APPIMAGE_EXTRACT_AND_RUN=1
+ExecStart=%h/Applications/OmniCore-0.1.0-rc.3-x86_64.AppImage --serve
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+KillMode=control-group
+
+[Install]
+WantedBy=default.target
+```
+
+`server.env` zawiera wyłącznie świadomie wybraną konfigurację i musi być prywatny
+(0600), poza repozytorium. Właściciel włącza/wyłącza usługę przez systemd --user;
+OmniCore nie instaluje jej automatycznie i nie otwiera portów bez zgody. Nie podawaj
+sekretów w zgłoszeniach błędów. Zewnętrzny backend nie jest zatrzymywany przez GUI.
+
+
+Pod ograniczoną affinity lub widocznym limitem CPU cgroup v2 adapter ogranicza
+pule wątków llama.cpp i wyłącza aktywne oczekiwanie (polling). Zapobiega to
+zużywaniu budżetu CPU przez oczekujące pule podczas równoległych obciążeń.
+Niższe ustawienia LLAMA_ARG_THREADS/BATCH są zachowane. Bez ograniczeń pozostaje
+domyślny dobór silnika; dotyczy to również zwykłej instalacji CachyOS/CUDA.
+Pomiary i ograniczenia obserwacji: benchmarks/rc3-cgroup-cpu.json.
+
+
+## RC.4: Serwer i urządzenia
+
+Otwórz **Serwer i urządzenia**. Własny backend uruchamia się domyślnie wraz z GUI;
+można wyłączyć autostart i użyć przycisku uruchomienia. Zatrzymanie wymaga
+potwierdzenia, anuluje aktywną generację i rozłącza klientów. Zamknięcie GUI nadal
+zatrzymuje jego własny backend. Backend uruchomiony przez inną aplikację pozostaje
+zewnętrzny: GUI może go używać, ale nie zatrzymuje i nie rekonfiguruje tego procesu.
+Blokada katalogu danych nie jest usuwana, a drugi backend tej samej bazy jest odrzucany.
+
+Aby połączyć telefon:
+
+1. Połącz oba urządzenia z tą samą zaufaną siecią prywatną.
+2. Włącz dostęp LAN i zapisz ustawienia. Aplikacja wykrywa prywatne adresy IPv4,
+   ustawia hosty i port, zachowuje katalogi modeli oraz uruchamia ponownie swój backend.
+3. Wybierz adres używany przez telefon i naciśnij **Sparuj telefon z Androidem**.
+4. Zeskanuj QR w ustawieniach Androida i sprawdź adres komputera przed potwierdzeniem.
+
+Kod QR wygasa po 120 sekundach, jest jednorazowy i można go anulować zamykając
+okno. Utworzenie nowego kodu unieważnia poprzedni; restart unieważnia wszystkie
+niewykorzystane kody. Kod nie zawiera głównego tokenu API. Telefon otrzymuje osobny
+token; w sekcji urządzeń można cofnąć jego dostęp. Nowe żądania z odwołanym tokenem
+są odrzucane; wcześniej otwarty strumień kończy się zgodnie z jego cyklem życia.
+Każde sparowane urządzenie uzyskuje dostęp do wspólnego backendu i jego historii,
+nie do osobnej przestrzeni kont użytkowników.
+
+Główny token procesu jest zapisany w `server.token` w katalogu danych z prawami
+0600; pliki symlink i tokeny czytelne dla innych użytkowników są odrzucane.
+Konfiguracja GUI nie zawiera tokenu. W SQLite zapisane są wyłącznie hashe kodów
+parowania i tokenów urządzeń. Brak tokenu, obcy Host/Origin i publiczny adres
+źródłowy są odrzucane. LAN używa HTTP w świadomie zaufanej sieci — bez szyfrowania.
+Nie przekierowuj portu przez router. Dla niezaufanej sieci zachowaj HTTPS/reverse
+proxy i ręczną konfigurację połączenia. GUI nie zmienia zapory ani sterowników;
+przy braku połączenia sprawdź wspólną sieć i regułę zapory dla wybranego portu.
+
+W ustawieniach generowania wybierz zakres: **Bieżąca rozmowa** lub **Domyślne dla
+nowych rozmów**. Zapis bieżącej rozmowy trafia do backendu; inne urządzenie odczytuje
+go po odświeżeniu. Wysyłanie nie zastępuje zapisanych parametrów rozmowy domyślnymi.
+Auto/CUDA korzystają z dotychczasowego wykrywania silników, wyboru pliku CUDA,
+warstw GPU i potwierdzonego offloadu. Nie instaluje się CUDA ani sterowników.
+
+**Automatycznie generuj nazwy rozmów** jest wspólnym ustawieniem backendu,
+domyślnie włączonym. Po pierwszej odpowiedzi istniejący model tworzy krótki tytuł
+w tle (maksymalnie 32 tokeny). Nowa odpowiedź ma pierwszeństwo i anuluje trwające
+tworzenie tytułu. Błąd, anulowanie, brak modelu i restart nie powodują ponawiania
+na każdej wiadomości; tytuł można nadać ręcznie. Istniejące i ręcznie nazwane
+rozmowy nie są automatycznie nadpisywane.
+
+**Usuń wszystkie rozmowy** pobiera aktualną liczbę rozmów i wymaga potwierdzenia
+nieodwracalnej operacji. Backend anuluje aktywne generowanie oraz usuwa rozmowy,
+wiadomości, zadania generacji i klucze ich żądań. Modele, pobrane pliki, ustawienia
+oraz parowania pozostają. Zmiana liczby rozmów przez inny klient wymaga ponownego
+potwierdzenia. Klienci odświeżają wspólną historię również podczas zwykłej pracy.
+
+
+## RC.5: tokeny, parowanie i panel historii
+
+W **Serwer i urządzenia → Tokeny i dostęp API** utwórz nazwany token (domyślnie
+30 dni, 0 oznacza bezterminowy). Pełna wartość jest widoczna tylko teraz; skopiuj
+ją do ustawień Androida wraz z adresem wyświetlanym przez serwer. Schowek jest
+czyszczony po 45 sekundach, jeżeli jego zawartość się nie zmieniła. Lista pokazuje
+zakresy, daty utworzenia/ostatniego użycia/wygaśnięcia. Odwołanie wszystkich wymaga
+potwierdzenia i obejmuje również sparowane telefony; główny token jest zachowany.
+Administracja tokenami wymaga głównego tokenu i połączenia lokalnego.
+
+QR jest ważny 120 sekund według serwera. Okno blokuje równoległe otwieranie,
+pokazuje status, pozwala utworzyć nowy QR i sprawdza zgodność adresu z aktualnym
+nasłuchem/allowlist. Po zmianie adresu sieci wykonaj restart backendu z GUI.
+Nowy kod nie upoważnia do ponownego wydawania wielu tokenów z jednego kodu.
+
+Przeciągnij prawą krawędź historii (200–520 px) albo użyj przycisku zwijania w
+czacie. Szerokość i zwinięcie są trwałe. Długie nazwy mają wielokropek i tooltip.
+Limit automatycznych nazw (20–80 znaków, domyślnie 42, do 5 słów) zmienisz w
+ustawieniach historii; nie przepisuje starych nazw ani ręcznych tytułów.
+[Dostawcy AI](EXTERNAL_AI.md).

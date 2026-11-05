@@ -21,6 +21,11 @@ private class MemorySettings : ClientSettings {
     override var generationId: String? = null
     override var parameters = Parameters()
     private var token = ""
+    var failSecretWrite = false
+    var pairing: String? = null
+    override fun readPendingPairing() = pairing
+    override fun storePendingPairing(value: String?) { if (failSecretWrite) throw ApiFailure("token_unavailable"); pairing = value }
+    override fun hasPendingPairing() = pairing != null
 
     override fun storeToken(token: String) {
         this.token = token
@@ -33,6 +38,7 @@ private class FakeRepository : OmniRepository {
     var chats = listOf(Conversation("c", "Saved chat", modelId = "m"))
     var history = emptyList<Message>()
     var current = Generation("g", "c", "running", sequence = 1)
+    var lastRequest: GenerationRequest? = null
     var sent = 0
     var cancelled = 0
     var watched = 0
@@ -44,8 +50,18 @@ private class FakeRepository : OmniRepository {
     var parameters: Parameters? = null
     val stream = MutableSharedFlow<Generation>()
     var transfers = emptyList<Download>()
+    var healthCalls = 0
+    var pairCalls = 0
+    var firstNonce: String? = null
+    var pairError: String? = null
+    var pairResponseLoss = false
+    var pairHealthFailures = 0
+    var historySettings = HistorySettings()
+    var deletedAll = 0
 
     override suspend fun health(): Health {
+        healthCalls++
+        if (pairCalls > 0 && pairHealthFailures > 0) { pairHealthFailures--; throw ApiFailure("connection_error") }
         if (offline) throw ApiFailure("connection_error")
         if (rejected) throw ApiFailure("unauthorized")
         return Health("ok", "fixture")
@@ -84,8 +100,30 @@ private class FakeRepository : OmniRepository {
         chats = chats.filterNot { it.id == id }
     }
 
+    override suspend fun redeemPairing(code: String, nonce: String): PairingCredential {
+        pairCalls++
+        pairError?.let { throw ApiFailure(it) }
+        if (firstNonce == null) firstNonce = nonce
+        if (firstNonce != nonce) throw ApiFailure("pairing_used")
+        if (pairResponseLoss && pairCalls == 1) throw ApiFailure("connection_error")
+        return PairingCredential("phone", PairingPolicy.credential(code, nonce))
+    }
+
+    override suspend fun historySettings() = historySettings
+
+    override suspend fun saveHistorySettings(value: HistorySettings) { historySettings = value }
+
+    override suspend fun deleteAll(expectedCount: Int) {
+        if (expectedCount != chats.size) throw ApiFailure("history_changed")
+        deletedAll++
+        chats = emptyList()
+        history = emptyList()
+        current = current.copy(state = "cancelled")
+    }
+
     override suspend fun generate(id: String, payload: GenerationRequest): Generation {
         sent++
+        lastRequest = payload
         keys += payload.requestKey
         if (throwAfterSubmit) throw ApiFailure("connection_error")
         return current
@@ -247,6 +285,37 @@ class ViewModelTest {
     }
 
     @Test
+    fun openingChatStartedByAnotherClientResumesItsLiveStream() = runVmTest {
+        runCurrent()
+        repo.history =
+            listOf(Message(role = "user", content = "Desktop prompt", generationId = "g"))
+        vm.openConversation("c")
+        runCurrent()
+        assertEquals(1, repo.watched)
+        repo.stream.emit(repo.current.copy(content = "Live answer", sequence = 2))
+        runCurrent()
+        assertEquals("Live answer", vm.state.value.generation?.content)
+        assertEquals(0, repo.sent)
+        assertEquals(0, repo.cancelled)
+    }
+
+    @Test
+    fun refreshingSharedChatAttachesOnceAndContinuesReceivingSnapshots() = runVmTest {
+        runCurrent()
+        repo.history =
+            listOf(Message(role = "user", content = "Desktop prompt", generationId = "g"))
+        vm.refresh()
+        runCurrent()
+        vm.refresh()
+        runCurrent()
+        assertEquals(1, repo.watched)
+        repo.stream.emit(repo.current.copy(content = "Another client", sequence = 2))
+        runCurrent()
+        assertEquals("Another client", vm.state.value.generation?.content)
+        assertEquals(0, repo.sent)
+    }
+
+    @Test
     fun reconnectAfterOfflineStartupKeepsHistoryAndNeverSendsPrompt() = runVmTest {
         repo.offline = true
         runCurrent()
@@ -265,8 +334,8 @@ class ViewModelTest {
         vm.draft("Hi")
         vm.send()
         runCurrent()
-        assertTrue(vm.state.value.reconnecting)
-        advanceTimeBy(600)
+        assertFalse(vm.state.value.connected)
+        advanceTimeBy(2600)
         runCurrent()
         assertTrue(repo.watched >= 2)
         repo.stream.emit(
@@ -286,6 +355,47 @@ class ViewModelTest {
         runCurrent()
         assertEquals("unauthorized", vm.state.value.error)
         assertFalse(vm.state.value.reconnecting)
+    }
+
+    @Test
+    fun connectionTestDoesNotSaveCandidateOrReplaceActiveChat() = runVmTest {
+        runCurrent()
+        vm.draft("Hi")
+        vm.send()
+        runCurrent()
+        val current = vm.state.value.generation
+        val originalUrl = settings.url
+        vm.testConnection("https://other.example", "a".repeat(48), false, false)
+        runCurrent()
+        assertEquals("passed", vm.state.value.connectionTest)
+        assertEquals(originalUrl, settings.url)
+        assertEquals("", settings.readToken())
+        assertEquals(current, vm.state.value.generation)
+        assertTrue(vm.state.value.connected)
+        assertEquals(0, repo.cancelled)
+    }
+
+    @Test
+    fun rejectedCandidateDoesNotInvalidateTheActiveConnection() = runVmTest {
+        runCurrent()
+        repo.rejected = true
+        vm.testConnection(settings.url, "", false, true)
+        runCurrent()
+        assertEquals("failed", vm.state.value.connectionTest)
+        assertEquals("unauthorized", vm.state.value.error)
+        assertTrue(vm.state.value.connected)
+        assertFalse(vm.state.value.authorizationFailed)
+    }
+
+    @Test
+    fun connectionTestCannotForwardStoredTokenToANewOrigin() = runVmTest {
+        runCurrent()
+        settings.storeToken("a".repeat(48))
+        vm.testConnection("https://other.example", "", false, false)
+        runCurrent()
+        assertEquals("token_for_new_host", vm.state.value.error)
+        assertEquals("failed", vm.state.value.connectionTest)
+        assertTrue(vm.state.value.connected)
     }
 
     @Test
@@ -319,6 +429,179 @@ class ViewModelTest {
         vm.parameters(Parameters(temperature = Double.NaN))
         runCurrent()
         assertEquals("invalid_parameters", vm.state.value.error)
+    }
+
+    @Test
+    fun cudaSaveRefreshSendReopenAndRecreationPreserveConversationParameters() = runVmTest {
+        runCurrent()
+        val defaults = settings.parameters
+        val gpu = Parameters(device = "cuda", gpuLayers = 23)
+        vm.parameters(gpu)
+        runCurrent()
+        vm.refresh()
+        runCurrent()
+        assertEquals(gpu, vm.state.value.parameters)
+        assertEquals(defaults, settings.parameters)
+        vm.selectModel("m2")
+        runCurrent()
+        vm.draft("GPU prompt")
+        vm.send()
+        runCurrent()
+        assertEquals(gpu, repo.lastRequest?.parameters)
+        vm.cancel()
+        runCurrent()
+        vm.openConversation("c")
+        runCurrent()
+        assertEquals(gpu, vm.state.value.parameters)
+        store.clear()
+        val restored = OmniViewModel(settings, { _, _ -> repo }, dispatcher)
+        store.put("restored", restored)
+        runCurrent()
+        assertEquals(gpu, restored.state.value.parameters)
+    }
+
+    @Test
+    fun newConversationsUseDefaultsInsteadOfLastEditedConversation() = runVmTest {
+        runCurrent()
+        settings.parameters = Parameters(device = "auto", gpuLayers = 99)
+        vm.parameters(Parameters(device = "cuda", gpuLayers = 17))
+        runCurrent()
+        vm.createConversation("")
+        runCurrent()
+        assertEquals(settings.parameters, vm.state.value.parameters)
+        assertEquals("cuda", repo.chats.first { it.id == "c" }.parameters.device)
+    }
+
+    @Test
+    fun sendCannotRaceAnUnfinishedParameterSave() = runVmTest {
+        runCurrent()
+        vm.parameters(Parameters(device = "auto", gpuLayers = 99))
+        vm.draft("Wait for save")
+        vm.send()
+        assertEquals(0, repo.sent)
+        runCurrent()
+        vm.send()
+        runCurrent()
+        assertEquals("auto", repo.lastRequest?.parameters?.device)
+        assertEquals(99, repo.lastRequest?.parameters?.gpuLayers)
+    }
+
+    @Test
+    fun editingDefaultsDoesNotChangeAnExistingConversation() = runVmTest {
+        runCurrent()
+        val conversation = vm.state.value.parameters
+        val defaults = Parameters(device = "auto", gpuLayers = 99)
+        vm.parameters(defaults, defaults = true)
+        runCurrent()
+        assertEquals(conversation, vm.state.value.parameters)
+        assertEquals(defaults, settings.parameters)
+        vm.createConversation("")
+        runCurrent()
+        assertEquals(defaults, vm.state.value.parameters)
+    }
+
+    @Test
+    fun bulkDeletionClearsActiveStateAndSynchronizesSharedHistory() = runVmTest {
+        runCurrent()
+        vm.draft("Hi")
+        vm.send()
+        runCurrent()
+        vm.deleteAll(1)
+        runCurrent()
+        assertEquals(1, repo.deletedAll)
+        assertFalse(vm.state.value.generating)
+        assertNull(settings.conversationId)
+        assertNull(settings.generationId)
+        assertTrue(vm.state.value.messages.isEmpty())
+        assertTrue(vm.state.value.conversations.isEmpty())
+    }
+
+    @Test
+    fun historySettingsAreSharedAndRefreshedFromBackend() = runVmTest {
+        runCurrent()
+        vm.autoTitle(false)
+        runCurrent()
+        assertFalse(repo.historySettings.autoTitle)
+        repo.historySettings = HistorySettings(true)
+        vm.refresh()
+        runCurrent()
+        assertTrue(vm.state.value.autoTitle)
+    }
+
+    private fun pairingQr() = WireJson.encodeToString(PairingQr.serializer(),
+        PairingQr(1, "http://192.168.1.12:8000", "c".repeat(64), System.currentTimeMillis() / 1000.0 + 120))
+
+    @Test
+    fun pairingSucceedsFirstTimeAndDeduplicatesRepeatedCallbacks() = runVmTest {
+        runCurrent()
+        val qr = pairingQr()
+        vm.pair(qr)
+        vm.pair(qr)
+        runCurrent()
+        assertEquals(1, repo.pairCalls)
+        assertEquals(PairingPolicy.credential("c".repeat(64), repo.firstNonce!!), settings.readToken())
+        assertEquals("http://192.168.1.12:8000", settings.url)
+        assertNull(settings.pairing)
+        assertTrue(vm.state.value.connected)
+    }
+
+    @Test
+    fun lostRedemptionResponseRetriesTheSameNonceAndDoesNotCreateAnotherIdentity() = runVmTest {
+        runCurrent()
+        repo.pairResponseLoss = true
+        vm.pair(pairingQr())
+        runCurrent()
+        val nonce = repo.firstNonce
+        assertNotNull(settings.pairing)
+        advanceTimeBy(501)
+        runCurrent()
+        assertEquals(2, repo.pairCalls)
+        assertEquals(nonce, repo.firstNonce)
+        assertNull(settings.pairing)
+        assertEquals(PairingPolicy.credential("c".repeat(64), repo.firstNonce!!), settings.readToken())
+    }
+
+    @Test
+    fun failedHealthKeepsOriginalConnectionAndPendingPairingCanResume() = runVmTest {
+        runCurrent()
+        val old = settings.url
+        repo.pairHealthFailures = 1
+        vm.pair(pairingQr())
+        runCurrent()
+        assertEquals(old, settings.url)
+        assertTrue(vm.state.value.pairingPending)
+        val nonce = repo.firstNonce
+        vm.retryPairing()
+        runCurrent()
+        assertEquals(nonce, repo.firstNonce)
+        assertEquals(1, repo.pairCalls) // Recovery authenticates the issued credential, without consuming a new code.
+        assertEquals("http://192.168.1.12:8000", settings.url)
+        assertNull(settings.pairing)
+    }
+
+    @Test
+    fun pairingFailuresKeepTheExistingAuthenticatedConnection() = runVmTest {
+        runCurrent()
+        assertTrue(vm.state.value.connected)
+        for (code in listOf("pairing_expired", "pairing_used", "connection_error")) {
+            repo.pairError = code
+            vm.pair(pairingQr())
+            if (code == "connection_error") advanceTimeBy(1600)
+            runCurrent()
+            assertTrue(vm.state.value.connected)
+            assertFalse(vm.state.value.authorizationFailed)
+            assertEquals(code, vm.state.value.error)
+        }
+    }
+
+    @Test
+    fun failedKeystoreWriteDoesNotConsumeTheCode() = runVmTest {
+        runCurrent()
+        settings.failSecretWrite = true
+        vm.pair(pairingQr())
+        runCurrent()
+        assertEquals(0, repo.pairCalls)
+        assertEquals("token_unavailable", vm.state.value.error)
     }
 
     @Test
@@ -376,9 +659,11 @@ class ViewModelTest {
         runCurrent()
         vm.networkLost()
         runCurrent()
-        assertEquals(ConnectionStatus.Connecting, vm.state.value.connectionStatus)
+        assertEquals(ConnectionStatus.Disconnected, vm.state.value.connectionStatus)
         assertEquals(0, repo.cancelled)
         advanceTimeBy(3100)
+        assertFalse(vm.state.value.connected)
+        vm.networkAvailable()
         runCurrent()
         assertEquals(ConnectionStatus.Connected, vm.state.value.connectionStatus)
         assertEquals(1, repo.sent)
@@ -395,6 +680,42 @@ class ViewModelTest {
         runCurrent()
         assertEquals(ConnectionStatus.Unauthorized, vm.state.value.connectionStatus)
         assertFalse(vm.state.value.reconnecting)
+    }
+
+    @Test
+    fun offlineBackoffIsBoundedAndNetworkLossSuspendsAllRetries() = runVmTest {
+        repo.offline = true
+        runCurrent()
+        advanceTimeBy(300_000)
+        runCurrent()
+        assertTrue(repo.healthCalls in 7..12)
+        val before = repo.healthCalls
+        vm.networkLost()
+        advanceTimeBy(300_000)
+        runCurrent()
+        assertEquals(before, repo.healthCalls)
+        repo.offline = false
+        vm.networkAvailable()
+        runCurrent()
+        assertTrue(vm.state.value.connected)
+        assertEquals(before + 1, repo.healthCalls)
+    }
+
+    @Test
+    fun revokedTokenRemainsStoppedAcrossBackgroundAndNetworkChangesUntilManualRetry() = runVmTest {
+        repo.rejected = true
+        runCurrent()
+        val before = repo.healthCalls
+        vm.pause(); vm.networkLost(); vm.networkAvailable(); vm.resume()
+        advanceTimeBy(180_000)
+        runCurrent()
+        assertEquals(before, repo.healthCalls)
+        assertEquals(ConnectionStatus.Unauthorized, vm.state.value.connectionStatus)
+        repo.rejected = false
+        vm.connect()
+        runCurrent()
+        assertTrue(vm.state.value.connected)
+        assertEquals(before + 1, repo.healthCalls)
     }
 
     @Test

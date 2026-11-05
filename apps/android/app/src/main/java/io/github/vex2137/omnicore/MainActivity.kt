@@ -22,14 +22,15 @@ class MainActivity : AppCompatActivity() {
                 OmniViewModel(SecureSettings(applicationContext)) as T
         }
     }
+    private var currentNetwork: Network? = null
     private val networkCallback =
         object : ConnectivityManager.NetworkCallback() {
             override fun onLost(network: Network) {
-                Handler(Looper.getMainLooper()).post { viewModel.networkLost() }
+                Handler(Looper.getMainLooper()).post { if (currentNetwork == network) { currentNetwork = null; viewModel.networkLost() } }
             }
 
             override fun onAvailable(network: Network) {
-                Handler(Looper.getMainLooper()).post { viewModel.networkAvailable() }
+                Handler(Looper.getMainLooper()).post { currentNetwork = network; viewModel.networkAvailable() }
             }
         }
 
@@ -38,8 +39,10 @@ class MainActivity : AppCompatActivity() {
         if (AppCompatDelegate.getApplicationLocales().toLanguageTags() != locale)
             AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(locale))
         super.onCreate(savedInstanceState)
-        getSystemService(ConnectivityManager::class.java)
-            .registerDefaultNetworkCallback(networkCallback)
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        connectivity.registerDefaultNetworkCallback(networkCallback)
+        currentNetwork = connectivity.activeNetwork
+        if (currentNetwork == null) viewModel.networkLost()
         enableEdgeToEdge()
         setContent {
             OmniCoreApp(viewModel) { language ->

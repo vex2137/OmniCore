@@ -94,26 +94,42 @@ class ApiClient(QObject):
         def ready():
             if self._stream is not reply or not reply.isOpen():
                 return
-            self._buffer += bytes(reply.readAll()).replace(b"\r\n", b"\n")
+            # Normalize after joining: CR and LF can arrive in separate packets.
+            self._buffer = (self._buffer + bytes(reply.readAll())).replace(b"\r\n", b"\n")
+            status = reply.attribute(QNetworkRequest.HttpStatusCodeAttribute)
+            if status and not 200 <= status < 300:
+                self._buffer = b""
+                return
             if len(self._buffer) > 2_000_000:
                 self.error.emit("stream_too_large")
                 self.close_stream()
                 return
             while b"\n\n" in self._buffer:
                 event, self._buffer = self._buffer.split(b"\n\n", 1)
-                for line in event.splitlines():
-                    if line.startswith(b"data: "):
-                        try:
-                            payload = json.loads(line[6:])
-                            self.snapshot.emit(payload)
-                        except (ValueError, UnicodeError):
-                            self.error.emit("invalid_stream")
+                data = b"\n".join(
+                    line[5:].removeprefix(b" ")
+                    for line in event.splitlines()
+                    if line.startswith(b"data:")
+                )
+                if data:
+                    try:
+                        payload = json.loads(data)
+                        if not isinstance(payload, dict):
+                            raise ValueError("snapshot must be an object")
+                        self.snapshot.emit(payload)
+                    except (ValueError, UnicodeError):
+                        self.error.emit("invalid_stream")
+                        self.close_stream()
+                        return
 
         def finished():
             ready()
             if self._stream is reply:
                 self._stream = None
-                if reply.error() not in {
+                status = reply.attribute(QNetworkRequest.HttpStatusCodeAttribute)
+                if status in {401, 403}:
+                    self.error.emit("unauthorized")
+                elif reply.error() not in {
                     QNetworkReply.NoError,
                     QNetworkReply.OperationCanceledError,
                 }:

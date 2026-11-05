@@ -8,6 +8,7 @@ import androidx.compose.ui.res.stringResource
 @Composable
 fun GenerationDetails(s: GenerationStatistics) {
     val parts = mutableListOf<String>()
+    s.executionProvider?.let { parts.add("$it · ${s.executionModel.orEmpty()}") }
     fun add(label: String, value: Number?, unit: String = "") {
         if (value != null) {
             val number = if (value is Double) "%.2f".format(value) else value.toString()
@@ -37,8 +38,15 @@ fun GenerationDetails(s: GenerationStatistics) {
         parts.add("${stringResource(R.string.finish_reason)}: $display")
     }
     add(stringResource(R.string.offloaded_layers), s.gpuOffloadedLayers)
-    s.executionDevice?.let { parts.add("${stringResource(R.string.device)}: $it") }
-    if (s.fallbackReason != null) parts.add(stringResource(R.string.cpu_fallback))
+    s.executionDevice?.let { parts.add("${stringResource(R.string.execution_device)}: $it") }
+    s.fallbackReason?.let { reason ->
+        parts.add(stringResource(when (reason) {
+            "gpu_unavailable" -> R.string.fallback_gpu_unavailable
+            "gpu_offload_unverified" -> R.string.fallback_offload_unverified
+            "cuda_runtime_unavailable" -> R.string.fallback_cuda_runtime
+            else -> R.string.fallback_other
+        }, reason))
+    }
     if (parts.isNotEmpty())
         Text(
             parts.joinToString(" · "),

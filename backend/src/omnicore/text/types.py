@@ -32,6 +32,8 @@ class TextMessage(WireModel):
 
 
 class GenerationStatistics(WireModel):
+    execution_provider: str | None = Field(default=None, max_length=32)
+    execution_model: str | None = Field(default=None, max_length=256)
     gpu_offloaded_layers: int | None = Field(default=None, ge=0)
     execution_device: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9_.:-]+$")
     fallback_reason: str | None = Field(default=None, max_length=80, pattern=r"^[a-zA-Z0-9_.-]+$")

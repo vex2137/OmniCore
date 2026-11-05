@@ -16,14 +16,25 @@ import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 
 /** No inference, model-file access or database logic. Only the public versioned API. */
-class OmniApi(private val base: String, private val token: String) : OmniRepository {
-    private val client =
+class OmniApi(
+    private val base: String,
+    private val token: String,
+    private val client: OkHttpClient =
         OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(45, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .followRedirects(false)
             .followSslRedirects(false)
+            .build(),
+) : OmniRepository {
+    // A cold model load can legitimately outlast the ordinary 45s read timeout.
+    // Share the pool/dispatcher so close() cancels both kinds of request.
+    private val loadingClient =
+        client
+            .newBuilder()
+            .readTimeout(180, TimeUnit.SECONDS)
+            .callTimeout(180, TimeUnit.SECONDS)
             .build()
 
     private fun request(path: String): Request.Builder =
@@ -31,13 +42,22 @@ class OmniApi(private val base: String, private val token: String) : OmniReposit
             if (token.isNotEmpty()) header("Authorization", "Bearer $token")
         }
 
-    internal suspend fun exchange(method: String, path: String, json: String? = null): String =
+    internal suspend fun exchange(
+        method: String,
+        path: String,
+        json: String? = null,
+        loading: Boolean = false,
+    ): String =
         kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
             val body =
                 if (method in setOf("POST", "PUT", "PATCH", "DELETE"))
                     (json ?: "{}").toRequestBody("application/json".toMediaType())
                 else null
-            val call = client.newCall(request(path).method(method, body).build())
+            val call =
+                (if (loading) loadingClient else client).newCall(
+                    request(path).method(method, body).build()
+                )
+            call.timeout().timeout(if (loading) 180 else 60, TimeUnit.SECONDS)
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(
                 object : okhttp3.Callback {
@@ -80,8 +100,8 @@ class OmniApi(private val base: String, private val token: String) : OmniReposit
         }
 
     private fun errorCode(response: Response): String {
-        if (response.code == 401 || response.code == 403) return "unauthorized"
-        return try {
+        if (response.code == 401) return "unauthorized"
+        val parsed = try {
             val body = response.peekBody(65536).string()
             val code =
                 WireJson.parseToJsonElement(body)
@@ -94,6 +114,8 @@ class OmniApi(private val base: String, private val token: String) : OmniReposit
         } catch (_: Exception) {
             "api_error"
         }
+        if (response.code == 403 && parsed !in setOf("pairing_invalid", "pairing_expired", "pairing_used", "pairing_lan_required")) return "unauthorized"
+        return parsed
     }
 
     override suspend fun health(): Health {
@@ -163,7 +185,12 @@ class OmniApi(private val base: String, private val token: String) : OmniReposit
         WireJson.decodeFromString(exchange("POST", "/api/v1/text/generations/$id/cancel"))
 
     override suspend fun load(id: String, parameters: Parameters) {
-        exchange("POST", "/api/v1/text/models/$id/load", WireJson.encodeToString(parameters))
+        exchange(
+            "POST",
+            "/api/v1/text/models/$id/load",
+            WireJson.encodeToString(parameters),
+            loading = true,
+        )
     }
 
     override suspend fun unload(id: String) {
@@ -184,6 +211,39 @@ class OmniApi(private val base: String, private val token: String) : OmniReposit
             "/api/v1/text/conversations/$id",
             WireJson.encodeToString(ParameterSelection(parameters)),
         )
+    }
+
+    override suspend fun historySettings(): HistorySettings =
+        WireJson.decodeFromString(exchange("GET", "/api/v1/text/history/settings"))
+
+    override suspend fun saveHistorySettings(value: HistorySettings) {
+        exchange("PUT", "/api/v1/text/history/settings", WireJson.encodeToString(value))
+    }
+
+    override suspend fun deleteAll(expectedCount: Int) {
+        exchange("DELETE", "/api/v1/text/conversations", WireJson.encodeToString(HistoryDelete(true, expectedCount)))
+    }
+
+    override suspend fun redeemPairing(code: String): PairingCredential =
+        WireJson.decodeFromString(exchange("POST", "/api/v1/pairing/redeem", WireJson.encodeToString(PairingCode(code))))
+
+    override suspend fun redeemPairing(code: String, nonce: String): PairingCredential =
+        WireJson.decodeFromString(exchange("POST", "/api/v1/pairing/redeem", WireJson.encodeToString(PairingCode(code, nonce))))
+
+
+    override suspend fun providers(): List<ProviderInfo> =
+        WireJson.decodeFromString(exchange("GET", "/api/v1/providers/configs"))
+
+    override suspend fun saveProvider(id: String?, value: ProviderInput): ProviderInfo =
+        WireJson.decodeFromString(exchange(if (id == null) "POST" else "PUT",
+            "/api/v1/providers/configs" + if (id == null) "" else "/$id", WireJson.encodeToString(value)))
+
+    override suspend fun deleteProvider(id: String) { exchange("DELETE", "/api/v1/providers/configs/$id") }
+    override suspend fun providerModels(id: String): List<String> =
+        WireJson.decodeFromString(exchange("GET", "/api/v1/providers/configs/$id/models"))
+    override suspend fun testProvider(id: String) { exchange("POST", "/api/v1/providers/configs/$id/test", "{}") }
+    override suspend fun addProviderModel(id: String, model: String) {
+        exchange("POST", "/api/v1/providers/configs/$id/models", WireJson.encodeToString(CloudModelSelection(model)))
     }
 
     private fun query(value: String) = java.net.URLEncoder.encode(value, "UTF-8")

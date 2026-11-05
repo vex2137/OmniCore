@@ -43,7 +43,9 @@ from PySide6.QtWidgets import (
 
 from omnicore.desktop.config import data_path
 from omnicore.desktop.i18n import Translator
+from omnicore.desktop.providers import ProvidersWidget
 from omnicore.desktop.report import diagnostic_report, save_report
+from omnicore.desktop.server import ServerPage
 from omnicore.desktop.transcript import ChatTranscript
 from omnicore.release import distribution_version
 
@@ -98,6 +100,7 @@ class MainWindow(QMainWindow):
         session.ready.connect(self.backend_ready)
         session.failed.connect(self.show_error)
         session.log.connect(self.log_event)
+        session.state_changed.connect(self.backend_state)
         session.stopped.connect(self._stopped)
         self._poll = QTimer(self)
         self._poll.setInterval(1500)
@@ -156,10 +159,13 @@ class MainWindow(QMainWindow):
         brand = QLabel("◈  OmniCore")
         brand.setObjectName("brand")
         side.addWidget(brand)
-        side.addWidget(self.label("alpha"))
+        self.version_label = QLabel(distribution_version())
+        side.addWidget(self.version_label)
         side.addSpacing(38)
         self.nav = []
-        for index, key in enumerate(("chat", "models", "settings", "diagnostics")):
+        for index, key in enumerate(
+            ("chat", "models", "settings", "diagnostics", "server_devices")
+        ):
             button = self.button(key, lambda checked=False, i=index: self.navigate(i))
             button.setCheckable(True)
             button.setObjectName("nav")
@@ -211,18 +217,31 @@ class MainWindow(QMainWindow):
         self._build_models()
         self._build_settings()
         self._build_diagnostics()
+        self.server_page = ServerPage(self)
+        self.pages.addWidget(self.server_page)
         layout.addWidget(main, 1)
         self.nav[0].setChecked(True)
         self.statusBar().showMessage(self.tr("connecting"))
-        self.pages.setEnabled(False)
+        self._set_pages_enabled(False)
+
+    def _set_pages_enabled(self, enabled):
+        for index in range(self.pages.count()):
+            self.pages.widget(index).setEnabled(enabled or index == 4)
 
     def _build_chat(self):
         page = QWidget()
         outer = QHBoxLayout(page)
         outer.setContentsMargins(0, 12, 0, 0)
-        splitter = QSplitter()
+        splitter = QSplitter(Qt.Horizontal)
+        self.history_splitter = splitter
+        splitter.setHandleWidth(7)
+        splitter.setChildrenCollapsible(False)
+        splitter.setOpaqueResize(True)
         outer.addWidget(splitter)
         collection = QWidget()
+        self.history_panel = collection
+        collection.setMinimumWidth(200)
+        collection.setMaximumWidth(520)
         left = QVBoxLayout(collection)
         left.setContentsMargins(0, 0, 16, 0)
         self.new_button = self.button("new_chat", self.new_conversation, primary=True)
@@ -238,6 +257,8 @@ class MainWindow(QMainWindow):
         left.addWidget(self.history_search)
         self.conversation_list = QListWidget()
         self.conversation_list.setObjectName("conversations")
+        self.conversation_list.setTextElideMode(Qt.ElideRight)
+        self.conversation_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.conversation_list.currentItemChanged.connect(self.select_conversation)
         left.addWidget(self.conversation_list, 1)
         left.addLayout(
@@ -254,7 +275,12 @@ class MainWindow(QMainWindow):
         self.model_combo.setMinimumWidth(180)
         self.model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.model_combo.currentIndexChanged.connect(self.model_selected)
-        chat.addLayout(self.row(self.model_combo, self.button("refresh", self.refresh_models)))
+        self.history_toggle = self.button("toggle_history", self.toggle_history)
+        chat.addLayout(
+            self.row(
+                self.history_toggle, self.model_combo, self.button("refresh", self.refresh_models)
+            )
+        )
         self.transcript = ChatTranscript()
         chat.addWidget(self.transcript, 1)
         self.generation_status = self.label("ready")
@@ -271,9 +297,42 @@ class MainWindow(QMainWindow):
             self.row(self.button("copy", self.copy_answer), self.stop_button, self.send_button)
         )
         splitter.addWidget(pane)
-        splitter.setSizes([242, 730])
+        splitter.setSizes([self.config.history_width, 730])
+        self.history_panel.setVisible(not self.config.history_collapsed)
+        self.history_save_timer = QTimer(self)
+        self.history_save_timer.setSingleShot(True)
+        self.history_save_timer.setInterval(250)
+        self.history_save_timer.timeout.connect(self.save_history_width)
+        splitter.splitterMoved.connect(lambda *_: self.history_save_timer.start())
         splitter.setStretchFactor(1, 1)
         self.pages.addWidget(page)
+
+    def save_history_width(self):
+        if self._closing or self.config.history_collapsed:
+            return
+        width = self.history_splitter.sizes()[0]
+        self.config.history_width = max(200, min(520, width))
+        try:
+            self.config.save()
+        except OSError:
+            self.show_error("invalid_settings")
+
+    def toggle_history(self):
+        if not self.config.history_collapsed:
+            self.save_history_width()
+        self.config.history_collapsed = not self.config.history_collapsed
+        self.history_panel.setVisible(not self.config.history_collapsed)
+        if not self.config.history_collapsed:
+            self.history_splitter.setSizes(
+                [
+                    self.config.history_width,
+                    max(320, self.history_splitter.width() - self.config.history_width),
+                ]
+            )
+        try:
+            self.config.save()
+        except OSError:
+            self.show_error("invalid_settings")
 
     def _build_models(self):
         page = QWidget()
@@ -285,7 +344,7 @@ class MainWindow(QMainWindow):
         installed = QWidget()
         local = QVBoxLayout(installed)
         self.engine_filter = QComboBox()
-        self.engine_filter.addItems(["llama.cpp", "ollama"])
+        self.engine_filter.addItems(["llama.cpp", "ollama", "cloud"])
         self.engine_filter.currentTextChanged.connect(self.refresh_model_table)
         local.addLayout(
             self.row(
@@ -363,6 +422,10 @@ class MainWindow(QMainWindow):
         self.theme.setCurrentIndex(self.theme.findData(self.config.theme))
         self.theme.currentIndexChanged.connect(self.preview_theme)
         form.addRow(self.label("theme"), self.theme)
+        self.parameter_scope = QComboBox()
+        self.parameter_scope.addItem(self.tr("parameters_conversation"), "conversation")
+        self.parameter_scope.addItem(self.tr("parameters_defaults"), "defaults")
+        form.addRow(self.label("parameter_scope"), self.parameter_scope)
         self.device = QComboBox()
         for key in ("auto", "cpu", "cuda"):
             self.device.addItem(self.tr("mode_" + key), key)
@@ -445,13 +508,30 @@ class MainWindow(QMainWindow):
         basic.addRow(self.thinking)
         self.system_prompt = QPlainTextEdit(self.config.parameters.get("system_prompt", ""))
         self.system_prompt.setMaximumHeight(100)
+        self.parameter_scope.currentIndexChanged.connect(self.apply_parameter_scope)
         basic.addRow(self.label("system_prompt"), self.system_prompt)
+        self.auto_title = QCheckBox(self.tr("auto_title"))
+        self.auto_title.setChecked(True)
+        self._texts.append((self.auto_title, "auto_title"))
+        self.auto_title.toggled.connect(self.save_history_settings)
+        basic.addRow(self.auto_title)
+        self.title_limit = QSpinBox()
+        self.title_limit.setRange(20, 80)
+        self.title_limit.setValue(42)
+        self.title_limit.valueChanged.connect(
+            lambda _: self.save_history_settings(self.auto_title.isChecked())
+        )
+        basic.addRow(self.label("title_length"), self.title_limit)
+        self.delete_all_button = self.button("delete_all_chats", self.confirm_delete_all)
+        basic.addRow(self.delete_all_button)
         basic.addRow(self.label("settings_hint"))
         basic.addRow(self.button("save", self.save_settings, primary=True))
         self.about = QLabel()
         self.about.setWordWrap(True)
         self.about.setTextInteractionFlags(Qt.TextSelectableByMouse)
         basic.addRow(self.about)
+        self.providers_widget = ProvidersWidget(self)
+        basic.addRow(self.providers_widget)
         scroll.setWidget(page)
         self.pages.addWidget(scroll)
 
@@ -473,7 +553,9 @@ class MainWindow(QMainWindow):
 
     def navigate(self, index):
         self.pages.setCurrentIndex(index)
-        self.page_title.setText(self.tr(("chat", "models", "settings", "diagnostics")[index]))
+        self.page_title.setText(
+            self.tr(("chat", "models", "settings", "diagnostics", "server_devices")[index])
+        )
         for i, button in enumerate(self.nav):
             button.setChecked(i == index)
         effect = QGraphicsOpacityEffect(self.pages)
@@ -491,7 +573,11 @@ class MainWindow(QMainWindow):
         for widget, key in self._texts:
             widget.setText(self.tr(key))
         self.page_title.setText(
-            self.tr(("chat", "models", "settings", "diagnostics")[self.pages.currentIndex()])
+            self.tr(
+                ("chat", "models", "settings", "diagnostics", "server_devices")[
+                    self.pages.currentIndex()
+                ]
+            )
         )
         self.composer.setPlaceholderText(self.tr("composer"))
         self.history_search.setPlaceholderText(self.tr("search_history"))
@@ -502,11 +588,33 @@ class MainWindow(QMainWindow):
             self.theme.setItemText(index, self.tr(key))
         for index, key in enumerate(("auto", "cpu", "cuda")):
             self.device.setItemText(index, self.tr("mode_" + key))
+        for index, key in enumerate(("parameters_conversation", "parameters_defaults")):
+            self.parameter_scope.setItemText(index, self.tr(key))
         self.connection.setText(self.tr(self._connection_key))
-        self.about.setText(self.tr("about", path=data_path()))
+        self.about.setText(self.tr("about", path=data_path(), version=distribution_version()))
         self.refresh_model_table()
         self.render_messages()
         self._fill_conversations()
+        self.server_page.tokens.retranslate()
+        self.server_page.update_state(self._connection_key)
+        self.backend_state(self._connection_key)
+
+    def backend_state(self, state):
+        if self._closing:
+            return
+        self._connection_key = state
+        self.connection.setText(self.tr(state))
+        self.statusBar().showMessage(self.tr(state))
+        if state != "connected":
+            self.is_connected = False
+            self._set_pages_enabled(False)
+        self.reconnect_button.setEnabled(state not in {"connecting", "backend_starting"})
+        key = (
+            "start_backend"
+            if state in {"error", "disconnected"} and not os.environ.get("OMNICORE_DESKTOP_URL")
+            else "reconnect"
+        )
+        self.reconnect_button.setText(self.tr(key))
 
     def preview_language(self):
         self.config.locale = self.language.currentData()
@@ -663,16 +771,18 @@ class MainWindow(QMainWindow):
         self.is_connected = True
         self._connection_key = "connected"
         self.welcome_import.setEnabled(True)
-        self.pages.setEnabled(True)
+        self._set_pages_enabled(True)
         self.connection.setText(self.tr("connected"))
         self.statusBar().showMessage(self.tr("ready"))
         self.log_event("connected")
         self._health_pending = {"models", "conversations", "settings"}
         self.refresh_models()
+        self.providers_widget.refresh()
         self.refresh_conversations()
         self.api.request("GET", "/api/v1/settings", success=self._preferences)
         self.refresh_diagnostics()
         self.refresh_downloads()
+        self.api.request("GET", TEXT + "/history/settings", success=self.history_settings_received)
         if self.active_job:
             job = self.active_job
 
@@ -739,6 +849,7 @@ class MainWindow(QMainWindow):
         for record in self.conversations:
             item = QListWidgetItem(record["title"] or self.tr("untitled"))
             item.setData(Qt.UserRole, record["id"])
+            item.setToolTip(record["title"] or self.tr("untitled"))
             self.conversation_list.addItem(item)
             if record["id"] == current:
                 self.conversation_list.setCurrentItem(item)
@@ -748,6 +859,10 @@ class MainWindow(QMainWindow):
             and not self.history_search.text().strip()
             and not any(record["id"] == current for record in self.conversations)
         ):
+            self.api.close_stream()
+            self.active_job = None
+            self._submitting = False
+            self._generation_idle()
             self.current_id = None
             self.messages = []
             self.last_job = None
@@ -770,9 +885,9 @@ class MainWindow(QMainWindow):
             "POST",
             TEXT + "/conversations",
             {
-                "title": self.tr("untitled"),
+                "title": "",
                 "model_id": self.model_combo.currentData(),
-                "parameters": self.request_parameters(),
+                "parameters": self.request_parameters(for_new=True),
             },
             success=lambda record: self.refresh_conversations(record["id"]),
         )
@@ -791,6 +906,7 @@ class MainWindow(QMainWindow):
                 self.model_combo.blockSignals(True)
                 self.model_combo.setCurrentIndex(index)
                 self.model_combo.blockSignals(False)
+        self.apply_parameter_scope()
         self.refresh_messages()
 
     def refresh_messages(self):
@@ -832,6 +948,63 @@ class MainWindow(QMainWindow):
             "GET", TEXT + f"/conversations/{conversation_id}/messages", success=received
         )
 
+    def history_settings_received(self, settings):
+        self.auto_title.blockSignals(True)
+        self.auto_title.setChecked(settings["auto_title"])
+        self.auto_title.blockSignals(False)
+        self.title_limit.blockSignals(True)
+        self.title_limit.setValue(settings.get("title_max_length", 42))
+        self.title_limit.blockSignals(False)
+
+    def save_history_settings(self, enabled):
+        if self.is_connected:
+            self.api.request(
+                "PUT",
+                TEXT + "/history/settings",
+                {"auto_title": enabled, "title_max_length": self.title_limit.value()},
+                success=self.history_settings_received,
+            )
+
+    def confirm_delete_all(self):
+        if not self.is_connected:
+            return
+
+        def confirm(records):
+            count = len(records)
+            if not count:
+                return
+            if (
+                QMessageBox.warning(
+                    self,
+                    self.tr("delete_all_chats"),
+                    self.tr("delete_all_confirm", count=count),
+                    QMessageBox.Yes | QMessageBox.Cancel,
+                    QMessageBox.Cancel,
+                )
+                != QMessageBox.Yes
+            ):
+                return
+
+            def deleted(_):
+                self.api.close_stream()
+                self.active_job = None
+                self.current_id = None
+                self.last_job = None
+                self.messages = []
+                self.history_search.clear()
+                self.refresh_conversations()
+                self.render_messages()
+                self._generation_idle()
+
+            self.api.request(
+                "DELETE",
+                TEXT + "/conversations",
+                {"confirmed": True, "expected_count": count},
+                success=deleted,
+            )
+
+        self.api.request("GET", TEXT + "/conversations", success=confirm)
+
     def rename_conversation(self):
         if not self.current_id or self.active_job:
             return
@@ -870,8 +1043,30 @@ class MainWindow(QMainWindow):
                 {"model_id": self.model_combo.currentData()},
             )
 
-    def request_parameters(self):
-        parameters = dict(self.config.parameters)
+    def apply_parameter_scope(self):
+        from omnicore.text.types import GenerationParameters
+
+        record = next((r for r in self.conversations if r["id"] == self.current_id), None)
+        values = (
+            record["parameters"]
+            if record and self.parameter_scope.currentData() == "conversation"
+            else self.config.parameters
+        )
+        parameters = GenerationParameters.model_validate(values).model_dump()
+        mode = parameters["device"]
+        if self.device.findData(mode) < 0:
+            self.device.addItem(mode, mode)
+        self.device.setCurrentIndex(self.device.findData(mode))
+        for key, box in self.parameter_inputs.items():
+            box.setValue(parameters[key])
+        self.system_prompt.setPlainText(parameters["system_prompt"])
+        self.thinking.setChecked(parameters["thinking"])
+
+    def request_parameters(self, *, for_new=False):
+        record = next((r for r in self.conversations if r["id"] == self.current_id), None)
+        parameters = dict(
+            record["parameters"] if record and not for_new else self.config.parameters
+        )
         model = next((m for m in self.models if m["id"] == self.model_combo.currentData()), None)
         if model and model["backend"] == "ollama":
             parameters.update(device="cpu", gpu_layers=0)
@@ -896,7 +1091,11 @@ class MainWindow(QMainWindow):
             "content": content,
             "request_key": uuid.uuid4().hex,
             "model_id": model,
-            "parameters": self.request_parameters(),
+            "parameters": (
+                self.request_parameters()
+                if next((m for m in self.models if m["id"] == model), {}).get("backend") == "ollama"
+                else None
+            ),
         }
 
         def submitted(record):
@@ -1029,7 +1228,11 @@ class MainWindow(QMainWindow):
                 self.tr("choose_model") if records else self.tr("no_model"), None
             )
             for record in records:
-                self.model_combo.addItem(f"{record['name']} · {record['backend']}", record["id"])
+                self.model_combo.addItem(
+                    (self.tr("paid_model") + " · " if record["backend"] == "cloud" else "")
+                    + f"{record['name']} · {record['backend']}",
+                    record["id"],
+                )
             index = self.model_combo.findData(selected)
             self.model_combo.setCurrentIndex(max(index, 0))
             self.model_combo.blockSignals(False)
@@ -1105,7 +1308,7 @@ class MainWindow(QMainWindow):
             self._pending_import = str(candidate)
             self.is_connected = False
             self.connection.setText(self.tr("connecting"))
-            self.pages.setEnabled(False)
+            self._set_pages_enabled(False)
             self.session.restart(self.config)
             return
 
@@ -1257,6 +1460,8 @@ class MainWindow(QMainWindow):
             self.download_progress.setValue(int(selected["percent"]) if selected else 0)
 
         self.api.request("GET", TEXT + "/downloads", success=received)
+        self.refresh_conversations()
+        self.api.request("GET", TEXT + "/history/settings", success=self.history_settings_received)
 
     def selected_download(self):
         return next(
@@ -1354,30 +1559,46 @@ class MainWindow(QMainWindow):
         self.config.model_roots, self.config.llama_server = roots, path
         self.config.llama_cuda_server = cuda_path
         self.config.ollama_url, self.config.ollama_enabled = url, self.ollama_enabled.isChecked()
-        self.config.parameters = {k: box.value() for k, box in self.parameter_inputs.items()}
-        self.config.parameters.update(
+        parameters = {k: box.value() for k, box in self.parameter_inputs.items()}
+        parameters.update(
             system_prompt=self.system_prompt.toPlainText(),
             device=self.device.currentData(),
             thinking=self.thinking.isChecked(),
         )
-        if self.config.parameters["device"] == "cpu":
-            self.config.parameters["gpu_layers"] = 0
+        if parameters["device"] == "cpu":
+            parameters["gpu_layers"] = 0
         from omnicore.text.types import GenerationParameters
 
         try:
-            GenerationParameters.model_validate(self.config.parameters)
+            GenerationParameters.model_validate(parameters)
+            if not self.current_id or self.parameter_scope.currentData() == "defaults":
+                self.config.parameters = parameters
             self.config.save()
         except (ValueError, OSError):
             self.show_error("invalid_settings")
             return
-        self.notify(self.tr("saved"))
-        if changed:
-            self.is_connected = False
-            self.connection.setText(self.tr("connecting"))
-            self.pages.setEnabled(False)
-            self.session.restart(self.config)
+
+        def completed(_=None):
+            self.notify(self.tr("saved"))
+            if self.current_id:
+                self.refresh_conversations()
+            if changed:
+                self.is_connected = False
+                self.connection.setText(self.tr("connecting"))
+                self._set_pages_enabled(False)
+                self.session.restart(self.config)
+            else:
+                self.api.request("GET", "/api/v1/settings", success=self._preferences)
+
+        if self.current_id and self.parameter_scope.currentData() == "conversation":
+            self.api.request(
+                "PATCH",
+                TEXT + f"/conversations/{self.current_id}",
+                {"parameters": parameters},
+                success=completed,
+            )
         else:
-            self.api.request("GET", "/api/v1/settings", success=self._preferences)
+            completed()
 
     def refresh_diagnostics(self):
         if not self.is_connected:
@@ -1497,9 +1718,10 @@ class MainWindow(QMainWindow):
         event.ignore()
         if self._closing:
             return
+        self.save_history_width()
         self._closing = True
         self._poll.stop()
-        self.pages.setEnabled(False)
+        self._set_pages_enabled(False)
         self._connection_key = "closing"
         self.connection.setText(self.tr("closing"))
         self.session.stop()

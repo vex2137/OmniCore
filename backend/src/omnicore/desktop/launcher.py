@@ -17,6 +17,12 @@ def protect_parent(expected):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--serve":
+        sys.argv.pop(1)
+        from omnicore.cli import main as backend
+
+        backend()
+        return
     if len(sys.argv) > 1 and sys.argv[1] == "--hardware-test":
         sys.argv.pop(1)
         from omnicore.hardware_acceptance import main as acceptance

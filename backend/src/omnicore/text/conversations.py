@@ -16,6 +16,10 @@ class Conversation(WireModel):
     parameters: GenerationParameters = Field(default_factory=GenerationParameters)
     created_at: str
     updated_at: str
+    # Missing fields in old history are manual: never replace a pre-existing title.
+    title_status: Literal[
+        "manual", "pending", "generating", "completed", "failed", "cancelled", "interrupted"
+    ] = "manual"
 
 
 class MessageRecord(WireModel):
@@ -61,6 +65,7 @@ class Conversations:
             parameters=parameters or GenerationParameters(),
             created_at=timestamp(),
             updated_at=timestamp(),
+            title_status="pending" if not title else "manual",
         )
         with self.store.db.connect() as connection, connection:
             connection.execute(
@@ -93,15 +98,83 @@ class Conversations:
         return result
 
     def update(self, conversation_id, **changes):
-        record = self.get(conversation_id).model_dump()
-        record.update(changes, updated_at=timestamp())
-        updated = Conversation.model_validate(record)
         with self.store.db.connect() as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT record FROM text_conversations WHERE id=?", (conversation_id,)
+            ).fetchone()
+            if row is None:
+                raise TextError("not_found", 404)
+            record = Conversation.model_validate_json(row[0]).model_dump()
+            if "title" in changes:
+                changes["title_status"] = "manual"
+            record.update(changes, updated_at=timestamp())
+            updated = Conversation.model_validate(record)
             connection.execute(
                 "UPDATE text_conversations SET record=? WHERE id=?",
                 (updated.model_dump_json(), conversation_id),
             )
         return updated
+
+    def history_settings(self):
+        with self.store.db.connect() as c:
+            row = c.execute(
+                "SELECT auto_title,title_max_length FROM text_history_settings WHERE id=1"
+            ).fetchone()
+        return {"auto_title": bool(row[0]), "title_max_length": row[1]}
+
+    def save_history_settings(self, enabled, title_max_length=None):
+        with self.store.db.connect() as c, c:
+            c.execute("UPDATE text_history_settings SET auto_title=? WHERE id=1", (enabled,))
+            if title_max_length is not None:
+                c.execute(
+                    "UPDATE text_history_settings SET title_max_length=? WHERE id=1",
+                    (title_max_length,),
+                )
+        return self.history_settings()
+
+    def title_state(self, conversation_id, status, title=None):
+        """Compare-and-set protects manual renames while a title is being generated."""
+        with self.store.db.connect() as c, c:
+            c.execute("BEGIN IMMEDIATE")
+            row = c.execute(
+                "SELECT record FROM text_conversations WHERE id=?", (conversation_id,)
+            ).fetchone()
+            if not row:
+                return False
+            record = Conversation.model_validate_json(row[0])
+            expected = "pending" if status == "generating" else "generating"
+            if record.title_status != expected:
+                return False
+            enabled, limit = c.execute(
+                "SELECT auto_title,title_max_length FROM text_history_settings WHERE id=1"
+            ).fetchone()
+            record.title_status = status if enabled else "cancelled"
+            if title and enabled:
+                from omnicore.text.title_format import short_title
+
+                bounded = short_title(title, limit)
+                if bounded:
+                    record.title = bounded
+                else:
+                    record.title_status = "failed"
+            record.updated_at = timestamp()
+            c.execute(
+                "UPDATE text_conversations SET record=? WHERE id=?",
+                (record.model_dump_json(), conversation_id),
+            )
+            return bool(enabled)
+
+    def delete_all(self, expected_count):
+        with self.store.db.connect() as c, c:
+            c.execute("BEGIN IMMEDIATE")
+            count = c.execute("SELECT count(*) FROM text_conversations").fetchone()[0]
+            if count != expected_count:
+                raise TextError("history_changed", 409)
+            c.execute("DELETE FROM text_generation_keys")
+            c.execute("DELETE FROM text_jobs WHERE kind='generation'")
+            c.execute("DELETE FROM text_conversations")
+        return count
 
     def delete(self, conversation_id):
         self.get(conversation_id)

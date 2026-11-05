@@ -32,7 +32,11 @@ AppImage używa PyInstaller onedir (Python/Qt/backend), zweryfikowanego runtime
 AppImage i SquashFS; opcjonalny silnik CPU ma względny RPATH. Zapis danych jest
 poza AppDir, a procesy potomne używają tego samego bundlowanego dispatchera.
 [APPIMAGE.md](APPIMAGE.md) opisuje rzeczywiście sprawdzony tryb extract-and-run,
-ABI hosta budowania, licencje, testy i workflow. Nie deklarujemy CUDA/Wayland.
+ABI hosta budowania, licencje, testy i workflow. CI/Cloud sprawdzają CPU oraz
+Wayland/X11 w kontenerze Arch; PR #6 dokumentuje test właściciela z zewnętrznym
+silnikiem CUDA na RTX4060. Nie oznacza to zgodności dowolnego GPU/sterownika.
+Verbose stderr llama.cpp jest odprowadzany do ograniczonego bufora 128 KiB w RAM;
+potwierdzenie offloadu jest zachowane niezależnie od zawartości bufora.
 
 Przygotowano znaczącą granicę `native/README.md` zamiast pustego Cargo workspace.
 Pomiary realnego GGUF i syntetycznego pliku 4 GiB są w `benchmarks/`; nie wykazano

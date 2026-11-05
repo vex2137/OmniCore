@@ -870,3 +870,427 @@ GGUF, przekazuje nowy omnicore-hardware-*.json oraz wynik GUI Wayland i APK ARM6
 Nie zastępować raportu wynikiem samego zewnętrznego llama-server. Nie publikować
 v0.1.0 Stable przed potwierdzeniem sprzętu i docelowego podpisywania. Szczegóły
 w RELEASE_GATE.md. Trwałe dane użytkownika nie były resetowane ani usuwane.
+
+### Stable hardening — P0, bounded native stderr
+
+Branch starts at main f429a40. PR #6 (0f0dd16, source 745166d) and #7
+(f429a40) are merged; `-lv 4` is retained and regression-checked. PR #6 records
+owner tests of LFM3/Qwen3.5 CPU/Auto/CUDA on RTX4060 with hardware_ready=True.
+This is owner-reported hardware evidence for that build, not a Cloud GPU test.
+
+Verbose stderr previously accumulated without a size limit in a temporary file.
+The engine now continuously drains its pipe into a private 128 KiB memory tail,
+retains offload evidence independently and joins the reader during shutdown.
+No raw prompt/log output is exported. A controlled engine emits ~2 MB before
+health becomes ready: bounded output, preserved offload and process/reader cleanup PASS.
+Targeted native/adapter/parent-death suite: 23 PASS. Real SmolLM2 GGUF CPU and Auto:
+2 PASS (the first invocation lacked the test-specific executable variable; corrected
+configuration passed). No GPU hardware is present in Cloud; no CUDA claim from mocks.
+
+### Stable hardening — P0, Android shared streams and cold loading
+
+Opening or refreshing a shared conversation now attaches to its recovered active
+SSE task exactly once, without resubmitting the prompt or cancelling the backend.
+Previously these paths only retrieved a snapshot and could leave a static answer.
+Model loading has a separate bounded 180s HTTP timeout instead of the ordinary
+45s read timeout. Ordinary REST exchanges also have a 60s total deadline; SSE
+retains heartbeat/read semantics. Loading shares the dispatcher/pool and cancellation.
+Targeted Android JVM: ClientTest 18 + ViewModelTest 19 = 37 PASS, 0 skipped/errors.
+Tests include another client's task, repeated refresh without duplicate stream,
+and a delayed HTTP load that exceeds the ordinary read timeout. No phone test.
+
+### Stable hardening — P4, launcher icon
+
+Android now uses an adaptive launcher icon (API26+) with the original purple
+OmniCore diamond kept inside the 66dp safe zone. Its central cutout is circular,
+matching Linux/AppImage's existing SVG; no new logo or branding was invented.
+Legacy vector geometry remains available. Full local JVM suite: 47 PASS, lintDebug,
+assembleDebug and assembleDebugAndroidTest PASS. Resource compilation validates
+both launcher layers; launcher appearance on POCO/HyperOS still needs a phone.
+
+### Stable hardening — P0, Linux SSE transport
+
+Qt joins bytes before normalizing CRLF and assembles multiline data fields per
+SSE event. It rejects non-object snapshots instead of passing them into a dict
+signal, and maps HTTP401/403 on streaming connections to unauthorized without
+exposing server bodies. Four actual Qt HTTP transport tests PASS (LF/CRLF,
+multiline snapshots, malformed object and authentication). The earlier complete
+backend/Qt run passed 178 tests before these three new parametrized cases.
+
+### Stable hardening — P1/P2 and RC.2 build checkpoint
+
+No actionable specification for the requested bar/algorithm was found in relevant
+docs, matching commit history or repository issues (none). These items are explicitly
+deferred in ROADMAP, without inventing behavior. Existing measured Python/Rust
+admission plan remains applicable; no new workload/profile proves an FFI/worker
+benefit. No Rust crate, JNI requirement or inference rewrite was added.
+
+RC.2 metadata: Python 0.1.0rc2, distribution 0.1.0-rc.2, Android versionCode5,
+existing .rc applicationId. Contract snapshot regenerated; 3 contract tests PASS.
+Full local tests before final transport cases: 158 backend + 20 Qt PASS, followed
+by 4 targeted Qt transport PASS (three new parametrized cases). Android full JVM
+47 PASS, lint/build PASS; ruff check/format and git diff --check PASS.
+CI, final packaged tests and artifact delivery are the next checkpoint.
+Production signing remains unresolved: the current integration cannot list Actions
+secrets (403); no secret values were read, no random production key was created.
+No device or GPU test was performed in Cloud. PR #6 owner results are recorded
+separately in RELEASE_GATE; Stable still requires explicit approval and phone/signing gates.
+
+### RC.2 — CI correction and preservation of installed RC.1
+
+First RC.2 CI found one stale health-test assertion expecting literal 0.1.0rc1
+(157 backend and 180 backend/Qt cases otherwise passed). It now compares runtime
+version to installed distribution metadata; targeted health/contracts: 4 PASS.
+A second packaging issue was prevented: a new ephemeral CI debug signature cannot
+update installed RC.1 under the same ID. RC.2 now uses `.rc2`, label OmniCore RC2,
+so neither Alpha nor RC.1 must be uninstalled. Both retain private settings; the
+new client needs its own connection configuration and shares backend history.
+The earlier same-ID RC.2 checkpoint is superseded; no such APK was published.
+
+Final-source real integrations: Qt stream/cancel/close/restart plus isolated hardware
+acceptance CPU/Auto: 2 PASS; actual Kotlin HTTP/SSE + FastAPI + GGUF CPU: PASS.
+These use SmolLM2, not mocks or user LFM/Qwen weights. No physical phone/GPU claim.
+
+### RC.2 — finalny checkpoint P5 do kontynuacji bez audytu
+
+**Kod i kanoniczne paczki: 064005b980dbc1629d74291d475e4023f63e3de0**.
+Późniejszy commit tego raportu zmienia wyłącznie dokumentację; nie należy
+przypisywać istniejącym paczkom nowego SHA ani nadpisywać ich innymi bajtami.
+PR #8 https://github.com/vex2137/OmniCore/pull/8 pozostaje do przeglądu, bez merge.
+Main w ostatniej weryfikacji: f429a40bf45c84879f13204e5a4d7bb397db9509, zawiera #6/#7.
+
+CI źródeł: backend 40960267667 PASS (158), Linux 40960267646 PASS (181=158+23 Qt,
+kompilacja CPU/AppImage, dwa uruchomienia i trwałość), Android 40960267733 PASS
+(47 JVM/lint/build, po 2 natywne UI na API30/36; XML 0 skip/fail/error).
+Real GGUF CPU: backend CPU/Auto, Qt cancel/close/restart, izolowany acceptance,
+klient Kotlin z FastAPI PASS. Kanoniczny pobrany AppImage: real GGUF, restart,
+digest historii i guard bibliotek PASS. Zamrożony --hardware-test CPU/Auto PASS,
+hardware_ready=False (Cloud nie ma GPU). Arch/Weston Wayland i X11/Xvfb: faktyczna
+paczka, GGUF, restart i ustawienia PASS. Kopia bazy RC.1 zachowała wszystkie dwie
+stare wiadomości i dodała dwie nowe, bez modyfikowania oryginalnej testowej bazy.
+Fontconfig w Arch ostrzega o nowych regułach hosta; testy GUI zakończone sukcesem.
+To nie test natywnego CachyOS lub fizycznego urządzenia.
+
+Upload 40961298009 PASS. Szkic ID428427155 (draft=true, prerelease=true):
+https://github.com/vex2137/OmniCore/releases
+11 załączników istnieje na GitHubie, state=uploaded, niezerowe rozmiary i zgodne
+server digests. Obie paczki ponownie pobrano ze szkicu i zweryfikowano SHA-256:
+
+- AppImage 98707960 B: caac9059da913eb5aaba96aa4e6765af7169971c75f569f52a1634185e078a3b
+- APK 18209073 B: 3506d5f5627f12a16f7825b2f4638095bc765d734cc9530a252055157a3a8bbc
+
+Artefakty Actions: Linux12936111082, Android12936046127. Szkic zachowuje też sumy,
+manifesty, oba skrypty i istniejący opcjonalny silnik CUDA12/SM89. Nie dodano wag.
+Faktycznie wyekstrahowane SVG i desktop entry AppImage są zgodne z repozytorium.
+
+Commity implementacji: 0a32f3d (log/lifecycle), 3b9230f (Android stream/timeout),
+0b5f4e1 (adaptive icon), e1cae00 (Qt SSE), 917230e (RC.2), 7ca2368/064005b
+(ochrona instalacji RC.1 i test wersji). Brak Rust — pozostaje zmierzony plan.
+Pasek/algorytm: brak specyfikacji, odroczone jawnie w ROADMAP.
+
+Następnie: właściciel testuje te paczki i skrypt na swoim CachyOS/RTX4060 oraz APK
+na fizycznym ARM64. Wynik PR #6 jest zachowany, ale nie zastępuje potwierdzenia
+nowych bajtów. Wymagane docelowe podpisywanie/ścieżka aktualizacji i osobna zgoda
+na finalne wydanie; patrz RELEASE_GATE. Nie ma finalnego tagu ani Stable v0.1.0.
+Nie restartować projektu, nie usuwać checkoutu ani danych Alpha/RC.
+
+### Backend start/signing follow-up — module 1
+
+Existing automatic desktop launch is retained. Backend ASGI lifespan now holds an
+exclusive advisory lock for its data directory, before SQLite/scheduler startup.
+CLI exits early on a live lease; GUI discovers its loopback port without storing
+or discovering an API token. Invalid/remote records cannot redirect credentials.
+No lock inode is unlinked; stale metadata is ignored when the lock is free.
+Symlink/FIFO locks are refused without blocking. Bind/start failures release the
+lease. Added AppImage --serve for explicit headless operation with existing CLI
+security configuration; remote mode remains an intentional authenticated opt-in.
+
+GUI has starting/connected/disconnected/error state signals, an enabled retry/start
+button after failures, duplicate-start protection and safe QTimer ownership.
+Missing executable, crashed child, repeated start and reuse/authentication were
+exercised. Actual tests: 164 backend PASS (including 6 lock/startup cases), 5 Qt
+lifecycle PASS; lint/format PASS. First new ASGI test used a forbidden test hostname
+and was corrected to localhost; a queued Qt stop signal lifetime bug was found
+and fixed with its QObject context. No existing user data was reset.
+
+### Backend start/signing follow-up — module 2
+
+Android now has a separate authenticated connection test and one-click reconnect
+using saved settings. The test checks health and the model API with a temporary
+client, never saves candidate URL/token, and does not detach/cancel active chat.
+New-origin token forwarding is rejected; candidate authentication failures leave
+the active connection intact. Test result clears when fields change. Existing
+localhost/LAN/HTTPS hints and Keystore storage remain. No unauthenticated LAN
+scan/mDNS pairing was added: discovering an address does not authenticate a server.
+Manual explicit address remains the simple supported flow.
+Targeted ViewModel22 + resource parity1 = 23 JVM PASS; UI field state changes are
+included in the final native regression/build. No physical phone claim.
+
+### Backend start/signing follow-up — module 3, owner signing preparation
+
+No production key was generated in Cloud: current runtime has no protected signing
+binding/recovery mechanism. ANDROID_SIGNING.md supplies local key generation,
+encrypted backup/recovery verification, environment protection, certificate pinning
+and migration guidance. Gradle release requires owner key/passwords/alias outside
+Git plus explicit stable ID and certificate pin; no debug fallback. Manual main-only
+workflow job references the protected android-release environment, restores a 0600
+key outside checkout, verifies identity/alignment and removes its own temporary key.
+It uploads an artifact only and never publishes a release. Owner must configure
+and approve the environment; this job has not run with an owner's key.
+
+Actual checks: release without secrets fails closed (expected); actual apksigner
+verified existing debug APK and it was rejected as release; update identity checker
+rejected incompatible RC.1/RC.2 and non-increasing code without touching a device.
+Positive owner signing/compatible in-place update remain unverified, not PASS.
+APK helper now records public signer fingerprint. Added an emulator flow assertion
+that connection testing does not save configuration before Save and connect.
+Current local regression: 164 backend, 28 Qt, 50 JVM PASS; lintDebug/assembleDebug/
+assembleDebugAndroidTest PASS. Workflow YAML parsed, ruff/diff checks PASS. The
+old Qt process object is released when a replacement starts; 3 targeted retry/crash
+checks PASS. No user token, key, password or keystore was committed.
+
+### RC.3 — final build handoff for backend/signing follow-up
+
+New distribution 0.1.0-rc.3 / Python 0.1.0rc3 / Android versionCode6 and ID .rc3
+preserves installed Alpha/RC.1/RC.2. Contract export and health/contract tests: 4 PASS.
+Docs describe terminal-free automatic GUI startup, safe manual AppImage --serve,
+explicit authenticated LAN/HTTPS settings and an optional owner-installed user
+service. No remote listener/service was enabled on the user's machine.
+
+Implementation checkpoints: fb3b1c1 backend lifecycle/lock; module2 connection
+changes and 67d2b30 owner-signing preparation are pushed. Local regression 164
+backend + 28 Qt + 50 JVM and Android lint/build PASS; targeted retry after process
+object cleanup 3 PASS. Production signature and matching owner-key update were
+not executed. No production key was generated in Cloud. RC.2 files remain immutable.
+
+Next actions in this same task: CI and canonical RC.3 packages, actual AppImage/
+headless/real-GGUF tests and upload. Final run IDs, source SHA, file hashes and
+observed results will be saved in PR #8 and `validation-report.json` in the RC.3
+draft, avoiding repeated package rebuilds solely to record their own hashes in Git.
+Read those checkpoints when continuing; do not attribute RC.2 hashes to RC.3.
+Stable still requires the owner key/backup/signature/update, hardware checks and
+explicit publication approval in RELEASE_GATE. No final v0.1.0 tag/publication.
+
+### RC.3 — packaging regressions found and fixed
+
+CI 83ba1c9 caught a Gradle Kotlin DSL `java` extension shadowing the package in
+`java.io.File`; explicit File import fixes script compilation. Full local Android
+JVM/lint/debug/test-APK build then PASS. Release without secrets still fails closed
+with the intended missing-signing-config message (expected negative check).
+CI also caught ownership being cleared during normal GUI shutdown: the frozen
+report then incorrectly called its own stopped backend external. Preserve creation
+ownership independently of process liveness; new targeted lifecycle suite 6 PASS.
+
+Added a real packaged headless regression: no display, authenticated --serve,
+401 without token, duplicate backend exit73, GUI automatic port discovery/reuse,
+unchanged history and external server still alive after GUI closes, then safe
+server shutdown. Local precommit AppImage with existing real SmolLM2 GGUF passed
+this full flow and original start/restart/library guard checks. This local test
+build is not the canonical downloadable package; final CI rebuild uses committed
+source. Qt/isolated acceptance real GGUF: 2 PASS; actual Kotlin/FastAPI/GGUF: PASS.
+No production key or physical GPU/phone test was added or claimed.
+
+### RC.3 — measured restricted-CPU regression
+
+Canonical 4f160e2 passed CI and a serial real-GGUF run. In an extra overlapping
+frozen GUI48 + hardware CPU/Auto32 run, GUI exceeded its smoke deadline while
+one CPU32 job took177.27s (0.19 tok/s); its later Auto CPU job took3.26s after
+contention ended. Native default was5 threads, visible affinity/logical5 and
+cgroup cpu.max400000/100000 (4 CPUs). Do not report that failed run as PASS.
+
+Adapter now bounds generation/batch pools under restrictive affinity/visible
+cgroup v2 quota, disables busy polling there and preserves lower explicit thread
+settings. Unrestricted native behavior remains. Current CI CPU binary under the
+source API completed two concurrent CPU32 jobs in12.56/12.84s. Local frozen
+prototype passed the same GUI/hardware overlap (hardware13.08/4.45s). Workloads
+and local/CI build contexts differ; raw stripped metrics and caveats are in
+benchmarks/rc3-cgroup-cpu.json, not a generalized speedup or GPU benchmark.
+Targeted adapter/native tests:28 PASS, including quota/affinity/unrestricted/
+fractional limits. Smoke failures now retain safe stage/error diagnostics and
+avoid masking the cause by killing an already-exited process. No secrets logged.
+Final CI and canonical overlapping test still must pass before replacing RC.3
+**draft** assets. RC.2 stays immutable. No Stable publication or production key.
+
+
+## RC.4 — implementacja źródeł i lokalna walidacja
+
+Punkt wejścia gałęzi `feature/stable-hardening`: `1dc61f28d7d29cc090b800d9855082af0dd44186`,
+zgodny z GitHubem przy rozpoczęciu. Nie resetowano historii i nie tworzono worktree.
+
+Potwierdzony przepływ resetu Androida: wybór urządzenia był wyłącznie stanem
+formularza do ręcznego zapisu; wysyłanie nie przekazywało parametrów formularza,
+więc backend używał dotychczasowych parametrów rozmowy (często CPU/0). Odświeżenie
+odtwarzało je w formularzu. Oddzielny błąd: zapis parametrów rozmowy zastępował
+lokalne domyślne nowych rozmów. Kod backendu nie zmienia żądanego CUDA na CPU;
+ma już odmowę niepotwierdzonego offloadu i jawny fallback wyłącznie Auto.
+Nie stwierdzono błędu serializacji GPU w istniejącym PATCH po poprawnym zapisie.
+Nie jest to zdalna diagnoza pomiarów właściciela; test nowego APK z RTX4060 pozostaje otwarty.
+
+Naprawy: natychmiastowy zapis trybu, autorytatywny stan urządzenia, snapshot parametrów
+w generowaniu i ochrona przed wyprzedzeniem zapisu; brak mieszania domyślnych i
+rozmowy, ręczne warstwy, odrębne wybrane/rzeczywiste urządzenie i przyczyny fallbacku.
+Linux ma zakres parametrów i zachowuje zapisane parametry wspólnej rozmowy.
+Ollama nie otrzymuje ustawień GPU llama.cpp.
+
+Qt: sekcja serwera, start/stop/restart/autostart i LAN bez terminala, prywatny token
+0600, dozwolone hosty i prywatne źródła, blokada SQLite, dołączanie bez przejmowania
+obcego procesu. QR: 120 s, jednorazowość, anulowanie/restart, osobne hashowane tokeny
+urządzeń i cofanie dostępu; skaner Androida z potwierdzeniem adresu i Keystore.
+Wspólne tytuły (32 tokeny, istniejący model, priorytet odpowiedzi, ręczny tytuł
+chroniony transakcją) i transakcyjne usuwanie całej historii z anulowaniem zadań.
+Modele/downloady/ustawienia nie są usuwane. Migracja tekstu jest addytywna.
+
+Lokalne wyniki źródeł: **223 PASS, 0 FAIL/ERROR/SKIP** (190 backend + 33 Qt),
+**60 JVM PASS, 0 FAIL/ERROR/SKIP**; ruff/format/kontrakty, smoke prawdziwego CLI
+HTTP/WS z restartem i trwałością, sdist/wheel oraz Android lint/debug APK/instrumentation
+APK build PASS. Dodatkowe ukierunkowane testy cyklu tytułu i serwera PASS.
+Faktyczne testy instrumentacyjne na emulatorze nie były uruchamiane: brak /dev/kvm.
+Testy kamery, fizycznego Androida, RTX4060 i natywnego CachyOS pozostają niewykonane.
+Silnik CPU llama.cpp z przypiętego commita zbudowano; wyniki paczek zostaną zapisane
+w kolejnym punkcie kontrolnym. Nie publikowano wydania ani Stable.
+
+
+### RC.4 — końcowy checkpoint paczek i CI
+
+Kanoniczny kod paczek: **`f9c3386f0ad13c2c903a9b944f607f8af47bad49`**.
+Wypchnięte commity funkcji: `8256d3e`, `d0c54ac`; dodatkowo `65c8b31` usuwa stare
+napisy wersji w GUI, a `f9c3386` domyka sprzątanie workerów przed usunięciem historii.
+Późniejszy commit tego raportu nie zmienia kodu paczek.
+
+- [Backend CI](https://github.com/vex2137/OmniCore/actions/runs/41077175040): SUCCESS.
+- [Linux CI](https://github.com/vex2137/OmniCore/actions/runs/41077175089): SUCCESS,
+  **223 PASS, 0 FAIL/ERROR/SKIP** na rzeczywistym Qt xcb/Xvfb, budowa silnika CPU i
+  rzeczywistego AppImage oraz start/restart, HTTP, --serve, autoryzacja, odmowa
+  duplikatu i dołączenie GUI bez zatrzymania obcego backendu PASS.
+- [Android CI](https://github.com/vex2137/OmniCore/actions/runs/41077175081): SUCCESS,
+  **60 JVM PASS**, lint i oba buildy PASS; **2 UI PASS na API 30 oraz 2 UI PASS na API 36**,
+  0 FAIL/ERROR/SKIP według pobranych XML wybranego runu. Rozszerzony test UI obejmuje
+  zapis CUDA/23 warstw i snapshot żądania oraz anulowanie/potwierdzenie usuwania całości.
+  Emulator korzysta z kontrolowanego backendu; nie potwierdza CUDA ani kamery.
+- [Wysłanie artefaktów](https://github.com/vex2137/OmniCore/actions/runs/41078896686):
+  SUCCESS. Szkic RC.4, ID **429156174**, **draft=true**, 11 załączników. Nie opublikowano
+  nowego release ani Stable i nie scalono PR #8. Poprzednie wydania pozostają bez zmian.
+  Bezpośredni upload z Cloud miał 401 dla uploads.github.com, dlatego użyto
+  istniejącego workflow z tokenem Actions. Pierwsza walidacja uploadu wykryła
+  zmieniony przez edycję roboczy tag szkicu; poprawiono jawnie tag RC.4 i ponowiono
+  dopiero po potwierdzeniu metadanych. Żaden z tych błędów nie dotyczył testów aplikacji.
+
+Kanoniczne pliki pobrano z CI, sprawdzono manifesty źródła i SHA-256, a następnie
+porównano ich rozmiary i hashe z digestami załączników szkicu GitHuba:
+
+| Plik | B | SHA-256 |
+| --- | ---: | --- |
+| OmniCore-0.1.0-rc.4-x86_64.AppImage | 98802168 | `f233e1ddb1c5b6472893658419ce91d31ce3fe20a75b0d6077950aa2948a84b5` |
+| OmniCore-0.1.0-rc.4-android-arm64.apk | 18592633 | `9f42e2f7588ba7595e05432f09aaf68304d2125c27fe53ab840867cde46c1a14` |
+
+Lokalne buildy Cloud mają własne sumy i testowy klucz APK; nie są bajtowo tożsame
+z plikami CI wskazanymi powyżej. AppImage z CI ma silnik CPU, bez wag. Załączony
+opcjonalny silnik CUDA SM89 pochodzi z wcześniejszego, udanego runu 40914492143;
+nie jest nowym testem inferencji GPU. APK RC.4 jest testowo podpisany, ID `.rc4`,
+versionCode 7; nie zastępuje bezpiecznie owner-signed aplikacji innym kluczem.
+
+Fizyczny Android, skanowanie QR kamerą, RTX4060/VRAM/offload, natywne CachyOS i
+jakość tytułów z rzeczywistym modelem pozostają do akceptacji właściciela. LAN HTTP
+jest nieszyfrowany i wymaga zaufanej sieci. Odwołanie tokenu blokuje nowe żądania;
+wcześniej otwarty strumień kończy się według swojego cyklu życia. Sparowane urządzenia
+współdzielą historię, nie otrzymują osobnych kont. Tekstowa migracja 3→4 jest addytywna
+transakcyjna; przed powrotem do starego backendu zachowaj kopię danych — starszy
+backend bezpiecznie odmawia pracy z nowszym schematem, nie wykonuje downgrade.
+
+## RC.5 — implementacja i weryfikacja lokalna (2026-10-30)
+
+Start: czyste `feature/stable-hardening`, lokalny i zdalny HEAD
+`923bc35f8a4904bdce7739c9e9a79b97a3e51a33`, PR #8 OPEN. RC.4 draft
+429156174 / v0.1.0-rc.4 nadal ma 11 assetów; żadnego nie zastąpiono.
+
+Właściciel zgłosił test **RC.4**: fizyczny Android po QR, LFM3 1.7B,
+RTX4060/CUDA0, 25 warstw, około 109 tok./s. Dwie nieudane próby parowania nie
+mają logów pozwalających przypisać jedną przyczynę. Potwierdzone słabości kodu
+RC.4: lokalne sprawdzanie terminu według zegara telefonu, brak odzyskania wydanego
+poświadczenia po utracie odpowiedzi, asynchroniczny zapis sekretu bez kontroli
+wyniku oraz brak trwałego stanu wymiany i deduplikacji uruchomień skanera.
+
+RC.5: kod jednorazowy jest związany z losowym nonce zapisanym przed POST w
+Keystore. Ponowienie tej samej operacji zwraca to samo poświadczenie, inne nonce
+jest odrzucane. Backend trzyma wyłącznie hashe; odzyskiwanie po restarcie używa
+już wydanego tokenu, nie omija wygaśnięcia nowego kodu ani odwołania tokenu.
+Adres/sekret są zapisywane atomowo po health. GUI blokuje równoległe QR, sprawdza
+allowlist/adres, pokazuje termin/status/nowy kod. Stary klient code-only pozostaje
+zgodny i nie może ponownie wymienić kodu.
+
+Dodano named API tokens (chat/providers, expiry, last use, jednorazowa wartość,
+revoke/revoke all z potwierdzeniem), Linux GUI, ręczny token Androida zachowany.
+Administracja wyłącznie głównym tokenem z loopback. Główny token nie jest listowany
+ani odwoływany operacją zbiorczą. Sekrety i kody nie trafiają do URL/logów.
+
+Nowe moduły `providers/{service,protocols,vault,api}` rozszerzają istniejący
+TextEngine/generation/history, bez drugiej kolejki. OpenAI, Anthropic, Gemini,
+OpenRouter i własny OpenAI HTTPS mają osobne formaty, autoryzację, modele i SSE.
+Linux/Android: konfiguracja, katalog/ręczne ID, test katalogu bez inferencji,
+świadomy wybór płatnego modelu, streaming/Stop, usage/provider/model, automatyczne
+tytuły. Klucze tylko w Secret Service backendu, Android nie kopiuje ich między
+urządzeniami; zdalne wpisanie wymaga HTTPS. Niedostępny magazyn kończy się błędem,
+bez plaintext fallback. Brak automatycznego lokalny→płatny fallbacku. Limity modeli
+API i prawdziwe konta wymagają testu właściciela; DNS nie stanowi izolacji sieciowej.
+Szczegóły: [EXTERNAL_AI](EXTERNAL_AI.md).
+
+Tytuły: 2–5 słów w prompt, deterministycznie maks. 5 całych słów i 42 znaki,
+konfiguracja 20–80; usuwanie wstępów/markdown, manual CAS, bez zmiany starych nazw.
+Historia Qt: splitter 200–520 px, trwała szerokość/zwijanie, elide i tooltip.
+Android: elide i pełna edycja. Zgodna migracja ustawień historii v5.
+
+Weryfikacja lokalna:
+- Pełny backend+Qt: **258 PASS**, 0 FAIL/SKIP; późniejszy dodatkowy test fragmentacji
+  UTF-8/SSE i limitu odpowiedzi PASS. Zmienione po przeglądzie API scope i QR
+  sprawdzone ukierunkowanie: **21 PASS**, provider final **18 PASS** (nakładające się).
+- Android JVM: **66 PASS**, 0 FAIL/ERROR/SKIP; lint/debug APK/test APK **PASS**.
+- Ruff check/format, eksport kontraktów i smoke **PASS**.
+- Rzeczywisty Secret Service w izolowanej sesji D-Bus: syntetyczny sekret
+  put/get/delete **PASS**. Nie użyto klucza właściciela ani płatnego wywołania.
+- Kontrolowane HTTP testuje pięć protokołów, 401/429/503, streaming/Stop/usage,
+  shared history/titles, scoping i ochronę sekretów; nie jest testem kont API.
+- Fizyczne RC.5 kamera/Android/CachyOS/RTX4060 oraz prawdziwe API: **NIEWYKONANE**.
+  Emulatory i zamrożone paczki są weryfikowane osobno poniżej po ich przygotowaniu.
+
+Numeracja RC.5: 0.1.0rc5 / 0.1.0-rc.5, APK `.rc5`, versionCode 8, podpis testowy.
+Nie mergujemy main, nie publikujemy Stable/publicznego RC i zachowujemy RC.4.
+
+## RC.5 Android — ponawianie połączenia
+
+Przyczyna: niezależne pętle ponawiania połączenia co 3 s i streamu od 0,5 s,
+ponawianie mimo braku sieci oraz ponowne łączenie po wznowieniu nawet przy
+odrzuconym tokenie. Polling historii i pobrań wykonywał się co 2 s także w spoczynku.
+
+Jedna pętla reconnect stosuje backoff z jitterem do 60 s; brak sieci wstrzymuje
+próby, a błąd autoryzacji wymaga ręcznej interwencji. Stream wznawia się przez
+ten sam mechanizm bez ponownego wysłania wiadomości i bez anulowania generacji.
+Powrót z tła odświeża istniejącą sesję bez niepotrzebnego zamykania transportu.
+Utrata starej sieci po zmianie domyślnej nie oznacza utraty nowej. Stan dostępności
+serwera i jeden komunikat błędu pozostają widoczne między próbami. Bezczynny polling
+historii/pobrań wynosi 30 s, aktywne pobieranie pozostaje odświeżane co 2 s.
+
+Testy symulują wiele minut awarii, zanik i powrót sieci, błąd tokenu i ręczny retry;
+test fizycznego Androida, rzeczywistego przełączania Wi-Fi/sieci komórkowej i
+restartu serwera wymaga właściciela. Nowa kompilacja testowa ma osobną nazwę;
+wcześniejszy szkic RC.5 pozostaje zachowany.
+
+## Parowanie QR — porównanie z Kalendarzem
+
+Przejrzano Kalendarz `eba0e65`: React używa strumienia tylnej kamery z jawnym
+sprzątaniem, BarcodeDetector z fallbackiem jsQR, blokady równoległych odczytów,
+walidacji i osobnego potwierdzenia. QR generuje z marginesem 4 i korekcją M.
+Natywne OmniCore zachowuje ZXing oraz własny jednorazowy protokół i Keystore;
+nie przeniesiono protokołu synchronizacji KAL3 ani kamery przeglądarkowej.
+
+Potwierdzony błąd: klient mapował wszystkie HTTP 403 na `unauthorized`, również
+`pairing_expired`, `pairing_used` i `pairing_invalid`. Błąd parowania serwera
+kandydata dodatkowo mógł rozłączyć istniejącą sesję. Nie dowodzi to przyczyny
+konkretnej nieudanej próby na telefonie bez jej diagnostyki. Klient teraz
+zachowuje kody parowania, nie zmienia stanu istniejącej sesji po błędzie kandydata,
+odrzuca powtórny wynik skanera, rozróżnia błąd aparatu i pokazuje sukces dopiero
+po trwałym zapisie i połączeniu. Bez zmian w replay/wygaśnięciu/tokenach.
+
+Backend 222 PASS; dodatkowe testy Androida sprawdzają prawdziwe kodowanie i dekodowanie
+ZXing, uszkodzony obraz, błędy 403 i zachowanie istniejącego połączenia. Fizyczna
+kamera, zmiana Wi-Fi na telefonie i rzeczywisty test parowania przez właściciela
+pozostają niewykonane; emulator i syntetyczny obraz ich nie zastępują.

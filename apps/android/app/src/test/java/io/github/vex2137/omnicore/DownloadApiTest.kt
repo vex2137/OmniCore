@@ -10,6 +10,29 @@ import org.junit.Test
 
 class DownloadApiTest {
     @Test
+    fun cudaSaveReadAndGenerationWireCyclePreservesGpuSnapshot() = runBlocking {
+        val server = MockWebServer()
+        val parameters = Parameters(device = "cuda", gpuLayers = 21)
+        val chat = Conversation("chat", "GPU", parameters, "model")
+        server.enqueue(MockResponse().setBody(kotlinx.serialization.json.Json.encodeToString(Conversation.serializer(), chat)))
+        server.enqueue(MockResponse().setBody("[${WireJson.encodeToString(Conversation.serializer(), chat)}]"))
+        server.enqueue(MockResponse().setBody("""{"id":"g","conversation_id":"chat","state":"queued"}"""))
+        server.start()
+        val api = OmniApi(server.url("/").toString().trimEnd('/'), "test-only")
+        try {
+            api.saveParameters("chat", parameters)
+            val saved = WireJson.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject["parameters"]!!.jsonObject
+            assertEquals("cuda", saved["device"]!!.jsonPrimitive.content)
+            assertEquals("21", saved["gpu_layers"]!!.jsonPrimitive.content)
+            val refreshed = api.conversations().single()
+            server.takeRequest()
+            api.generate("chat", GenerationRequest("GPU prompt", "once", "model", refreshed.parameters))
+            val generation = WireJson.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject["parameters"]!!.jsonObject
+            assertEquals(saved, generation)
+        } finally { api.close(); server.shutdown() }
+    }
+
+    @Test
     fun searchFilesConfirmationAndResumeUseBackendContracts() = runBlocking {
         val server = MockWebServer()
         val file =

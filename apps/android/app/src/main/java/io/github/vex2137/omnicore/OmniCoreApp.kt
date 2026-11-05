@@ -3,6 +3,9 @@
 package io.github.vex2137.omnicore
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -69,6 +72,7 @@ fun OmniCoreApp(vm: OmniViewModel, onLanguage: (String) -> Unit) {
                 ConnectionStatus.Connected -> R.string.connected
                 ConnectionStatus.Connecting -> R.string.connecting
                 ConnectionStatus.Disconnected -> R.string.disconnected
+                ConnectionStatus.Unavailable -> R.string.server_unavailable
                 ConnectionStatus.Unauthorized -> R.string.auth_failed
             }
         val icons =
@@ -181,6 +185,29 @@ private fun ErrorBanner(code: String, dismiss: () -> Unit) {
             "invalid_token" -> R.string.error_token
             "token_unavailable" -> R.string.error_keystore
             "invalid_parameters" -> R.string.error_parameters
+            "pairing_invalid" -> R.string.pairing_invalid
+            "pairing_expired" -> R.string.pairing_expired
+            "pairing_used" -> R.string.pairing_used
+            "provider_requires_server_auth" -> R.string.provider_requires_server_auth
+            "provider_permission_required" -> R.string.provider_permission_required
+            "provider_key_requires_https" -> R.string.provider_key_requires_https
+            "provider_secret_store_unavailable" -> R.string.provider_secret_store_unavailable
+            "provider_key_missing" -> R.string.provider_key_missing
+            "provider_endpoint_invalid" -> R.string.provider_endpoint_invalid
+            "provider_key_reentry_required" -> R.string.provider_key_reentry_required
+            "provider_key_invalid" -> R.string.provider_key_invalid
+            "provider_auth_failed" -> R.string.provider_auth_failed
+            "provider_rate_limited" -> R.string.provider_rate_limited
+            "provider_model_not_found" -> R.string.provider_model_not_found
+            "provider_unavailable" -> R.string.provider_unavailable
+            "provider_request_rejected" -> R.string.provider_request_rejected
+            "provider_parameter_unsupported" -> R.string.provider_parameter_unsupported
+            "provider_response_invalid" -> R.string.provider_response_invalid
+            "provider_content_blocked" -> R.string.provider_content_blocked
+            "provider_connection_failed" -> R.string.provider_connection_failed
+            "provider_confirmation_required" -> R.string.provider_confirmation_required
+            "pairing_rate_limited" -> R.string.pairing_rate_limited
+            "history_changed" -> R.string.history_changed
             "model_required" -> R.string.error_model
             "conversation_required" -> R.string.error_conversation
             "empty_response" -> R.string.error_empty_response
@@ -255,6 +282,7 @@ private fun HomeScreen(s: UiState, vm: OmniViewModel, navigate: (Int) -> Unit) {
                                 ConnectionStatus.Connecting -> R.string.connecting
                                 ConnectionStatus.Unauthorized -> R.string.auth_failed
                                 ConnectionStatus.Disconnected -> R.string.disconnected
+                ConnectionStatus.Unavailable -> R.string.server_unavailable
                             }
                         ),
                         style = MaterialTheme.typography.titleLarge,
@@ -270,7 +298,7 @@ private fun HomeScreen(s: UiState, vm: OmniViewModel, navigate: (Int) -> Unit) {
         item {
             Button(
                 onClick = {
-                    vm.createConversation(title)
+                    vm.createConversation("")
                     navigate(1)
                 },
                 enabled = s.connected && !s.busy && !s.generating,
@@ -289,7 +317,7 @@ private fun HomeScreen(s: UiState, vm: OmniViewModel, navigate: (Int) -> Unit) {
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(c.title.ifBlank { title }, Modifier.padding(20.dp))
+                Text(c.title.ifBlank { title }, Modifier.padding(20.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -312,7 +340,7 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
                 !s.generating && !s.busy,
             )
             IconButton(
-                onClick = { vm.createConversation(title) },
+                onClick = { vm.createConversation("") },
                 enabled = s.connected && !s.busy && !s.generating,
                 modifier = Modifier.testTag("new_chat"),
             ) {
@@ -335,7 +363,7 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
             }
         }
         Choice(
-            s.models.map { it.id to "${it.name} · ${it.backend}" },
+            s.models.map { it.id to ((if (it.backend == "cloud") stringResource(R.string.paid_model) + " · " else "") + "${it.name} · ${it.backend}") },
             s.selectedModel,
             stringResource(R.string.choose_model),
             vm::selectModel,
@@ -557,7 +585,7 @@ private fun Choice(
         DropdownMenu(expanded, { expanded = false }, Modifier.heightIn(max = 320.dp)) {
             items.forEach { item ->
                 DropdownMenuItem(
-                    text = { Text(item.second) },
+                    text = { Text(item.second, maxLines = 2, overflow = TextOverflow.Ellipsis) },
                     onClick = {
                         expanded = false
                         select(item.first)
@@ -726,6 +754,40 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
 
 @Composable
 private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -> Unit) {
+    var scanned by remember { mutableStateOf<String?>(null) }
+    var scanError by remember { mutableStateOf(false) }
+    var cameraError by remember { mutableStateOf(false) }
+    var scanning by rememberSaveable { mutableStateOf(false) }
+    var deleteCount by remember { mutableStateOf<Int?>(null) }
+    val scanPrompt = stringResource(R.string.scan_pairing)
+    val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
+        if (!scanning) return@rememberLauncherForActivityResult
+        scanning = false
+        if (result.originalIntent?.getBooleanExtra(com.google.zxing.client.android.Intents.Scan.MISSING_CAMERA_PERMISSION, false) == true) cameraError = true
+        result.contents?.let { raw ->
+            try { PairingPolicy.parse(raw); scanned = raw; scanError = false }
+            catch (_: Exception) { scanError = true }
+        }
+    }
+    scanned?.let { raw ->
+        val host = try { PairingPolicy.parse(raw).url } catch (_: Exception) { "" }
+        AlertDialog(
+            onDismissRequest = { scanned = null },
+            title = { Text(stringResource(R.string.pair_phone)) },
+            text = { Text(stringResource(R.string.pairing_confirm, host)) },
+            confirmButton = { TextButton(onClick = { scanned = null; vm.pair(raw) }) { Text(stringResource(R.string.connect)) } },
+            dismissButton = { TextButton(onClick = { scanned = null }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
+    deleteCount?.let { count ->
+        AlertDialog(
+            onDismissRequest = { deleteCount = null },
+            title = { Text(stringResource(R.string.delete_all_chats)) },
+            text = { Text(stringResource(R.string.delete_all_confirm, count)) },
+            confirmButton = { TextButton(onClick = { deleteCount = null; vm.deleteAll(count) }, modifier = Modifier.testTag("confirm_delete_all")) { Text(stringResource(R.string.delete)) } },
+            dismissButton = { TextButton(onClick = { deleteCount = null }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
     var url by remember(s.url) { mutableStateOf(s.url) }
     var token by remember { mutableStateOf("") }
     var clear by remember { mutableStateOf(false) }
@@ -736,34 +798,101 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
     ) {
         Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineSmall)
         Text(stringResource(R.string.connection_hint))
+        OutlinedButton(
+            onClick = {
+                scanning = true; scanError = false; cameraError = false
+                try { scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt(scanPrompt).setBeepEnabled(false).setBarcodeImageEnabled(false)) }
+                catch (_: Exception) { scanning = false; cameraError = true }
+            },
+            enabled = !s.busy && !s.generating && !scanning && scanned == null,
+            modifier = Modifier.fillMaxWidth().testTag("scan_pairing"),
+        ) { Text(stringResource(R.string.pair_phone)) }
+        if (scanError) Text(stringResource(R.string.pairing_invalid), color = MaterialTheme.colorScheme.error)
+        if (cameraError) Text(stringResource(R.string.pairing_camera_error), color = MaterialTheme.colorScheme.error)
+        if (s.pairingSucceeded && s.connected) Text(stringResource(R.string.pairing_success))
+        if (s.pairingPending) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = vm::retryPairing, enabled = !s.busy, modifier = Modifier.testTag("pairing_retry")) { Text(stringResource(R.string.pairing_retry)) }
+            TextButton(onClick = vm::cancelPairing, enabled = !s.busy) { Text(stringResource(R.string.cancel)) }
+        }
         OutlinedTextField(
             url,
-            { url = it },
+            {
+                url = it
+                vm.clearConnectionTest()
+            },
             label = { Text(stringResource(R.string.backend_url)) },
             placeholder = { Text(stringResource(R.string.url_example)) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            enabled = !s.busy,
             modifier = Modifier.fillMaxWidth().testTag("url"),
         )
         OutlinedTextField(
             token,
-            { token = it },
+            {
+                token = it
+                vm.clearConnectionTest()
+            },
             label = { Text(stringResource(R.string.api_token)) },
             supportingText = { Text(stringResource(R.string.token_hint)) },
             visualTransformation = PasswordVisualTransformation(),
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            enabled = !s.busy,
             modifier = Modifier.fillMaxWidth().testTag("token"),
         )
         if (s.hasToken)
             Text(stringResource(R.string.token_saved), style = MaterialTheme.typography.bodySmall)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(clear, { clear = it })
+            Checkbox(
+                clear,
+                {
+                    clear = it
+                    vm.clearConnectionTest()
+                },
+                enabled = !s.busy,
+            )
             Text(stringResource(R.string.clear_token))
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(trusted, { trusted = it }, modifier = Modifier.testTag("trusted_lan"))
+            Checkbox(
+                trusted,
+                {
+                    trusted = it
+                    vm.clearConnectionTest()
+                },
+                enabled = !s.busy,
+                modifier = Modifier.testTag("trusted_lan"),
+            )
             Text(stringResource(R.string.trusted_lan))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { vm.testConnection(url, token, clear, trusted) },
+                enabled = !s.busy,
+                modifier = Modifier.weight(1f).testTag("test_connection"),
+            ) {
+                Text(stringResource(R.string.test_connection))
+            }
+            OutlinedButton(
+                onClick = vm::connect,
+                enabled = !s.busy && s.url.isNotBlank(),
+                modifier = Modifier.weight(1f).testTag("reconnect_saved"),
+            ) {
+                Text(stringResource(R.string.reconnect))
+            }
+        }
+        s.connectionTest?.let { result ->
+            Text(
+                stringResource(
+                    when (result) {
+                        "passed" -> R.string.connection_test_passed
+                        "testing" -> R.string.connection_test_running
+                        else -> R.string.connection_test_failed
+                    }
+                ),
+                modifier = Modifier.testTag("connection_test_result"),
+            )
         }
         Button(
             onClick = {
@@ -797,6 +926,21 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
             Modifier.fillMaxWidth(),
         )
         GenerationSettings(s, vm)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(s.autoTitle, vm::autoTitle, enabled = s.connected && !s.busy,
+                modifier = Modifier.testTag("auto_title"))
+            Text(stringResource(R.string.auto_title), modifier = Modifier.weight(1f))
+        }
+        OutlinedButton(
+            onClick = { deleteCount = s.conversations.size },
+            enabled = s.connected && !s.busy && s.conversations.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth().testTag("delete_all_chats"),
+        ) { Text(stringResource(R.string.delete_all_chats)) }
+        var titleLength by remember(s.titleMaxLength) { mutableStateOf(s.titleMaxLength.toString()) }
+        OutlinedTextField(titleLength, { titleLength = it.take(2) }, label = { Text(stringResource(R.string.title_length)) }, singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+        OutlinedButton(onClick = { titleLength.toIntOrNull()?.let(vm::titleLength) }, enabled = !s.busy && s.connected && titleLength.toIntOrNull() in 20..80) { Text(stringResource(R.string.save)) }
+        ProviderSettings(s, vm)
         Text(
             stringResource(R.string.about, BuildConfig.VERSION_NAME),
             style = MaterialTheme.typography.bodySmall,
@@ -827,6 +971,7 @@ private fun DiagnosticsScreen(s: UiState, vm: OmniViewModel) {
                         ConnectionStatus.Connecting -> R.string.connecting
                         ConnectionStatus.Unauthorized -> R.string.auth_failed
                         ConnectionStatus.Disconnected -> R.string.disconnected
+                ConnectionStatus.Unavailable -> R.string.server_unavailable
                     }
                 )
             )

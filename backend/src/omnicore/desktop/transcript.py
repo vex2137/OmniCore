@@ -24,6 +24,11 @@ def statistics_text(stats, tr):
     if not stats:
         return ""
     parts = []
+    if stats.get("execution_provider"):
+        parts.append(
+            f"{tr('provider_kind')}: {stats['execution_provider']} · "
+            f"{stats.get('execution_model') or ''}"
+        )
     for key, label, unit in (
         ("tokens_per_second", "speed", "tok/s"),
         ("input_tokens", "input_tokens", ""),

@@ -289,4 +289,23 @@ class ClientTest {
             server.shutdown()
         }
     }
+
+    @Test
+    fun coldModelLoadCanOutlastTheOrdinaryReadTimeout() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setHeadersDelay(200, TimeUnit.MILLISECONDS).setBody("{}"))
+        server.start()
+        val shortClient =
+            okhttp3.OkHttpClient.Builder().readTimeout(50, TimeUnit.MILLISECONDS).build()
+        val api = OmniApi(server.url("/").toString().trimEnd('/'), "test-token", shortClient)
+        try {
+            api.load("m", Parameters())
+            val call = server.takeRequest(2, TimeUnit.SECONDS)!!
+            assertEquals("/api/v1/text/models/m/load", call.path)
+            assertEquals("Bearer test-token", call.getHeader("Authorization"))
+        } finally {
+            api.close()
+            server.shutdown()
+        }
+    }
 }

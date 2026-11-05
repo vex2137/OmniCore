@@ -14,6 +14,7 @@ from starlette.concurrency import run_in_threadpool
 from omnicore.config import RuntimeConfig
 from omnicore.diagnostics import HardwareSnapshot, hardware_snapshot
 from omnicore.events import EventHub
+from omnicore.providers.service import CloudEngine, Providers
 from omnicore.schemas import BackendInfo, WireModel
 from omnicore.text import nvidia
 from omnicore.text.conversations import (
@@ -38,6 +39,16 @@ from omnicore.text.types import GenerationParameters, TextError
 
 class ModelImport(WireModel):
     path: str = Field(min_length=1, max_length=4096)
+
+
+class HistorySettings(WireModel):
+    auto_title: bool = True
+    title_max_length: int = Field(default=42, ge=20, le=80)
+
+
+class HistoryDelete(WireModel):
+    confirmed: bool = False
+    expected_count: int = Field(ge=0)
 
 
 class ModelDelete(WireModel):
@@ -135,6 +146,8 @@ class TextService:
             request_timeout=config.generation_timeout,
         )
         self.engines = {"llama.cpp": self.llama}
+        self.providers = Providers(self.store, authenticated=bool(config.api_token))
+        self.engines["cloud"] = CloudEngine(self.providers)
         if config.ollama_enabled:
             self.engines["ollama"] = OllamaEngine(
                 config.ollama_url, timeout=config.generation_timeout
@@ -147,6 +160,7 @@ class TextService:
 
     def initialize(self):
         self.store.initialize()
+        self.providers.initialize()
         self.downloads.initialize()
         self.generations.initialize()
 
@@ -161,6 +175,41 @@ class TextService:
 
 def routes(service: TextService):
     router = APIRouter(prefix="/api/v1/text", tags=["Text AI"])
+
+    @router.get("/history/settings", response_model=HistorySettings)
+    def history_settings():
+        return service.history.history_settings()
+
+    @router.put("/history/settings", response_model=HistorySettings)
+    async def save_history_settings(body: HistorySettings):
+        saved = await run_in_threadpool(
+            service.history.save_history_settings,
+            body.auto_title,
+            body.title_max_length if "title_max_length" in body.model_fields_set else None,
+        )
+        if not body.auto_title:
+            await service.generations.titles.interrupt()
+        return saved
+
+    @router.delete("/conversations")
+    async def delete_all_conversations(body: HistoryDelete):
+        if not body.confirmed:
+            raise TextError("confirmation_required", 422)
+        manager = service.generations
+        async with manager.submission_lock:
+            # Validate before cancelling useful work if another client changed the history.
+            if len(await run_in_threadpool(service.history.list)) != body.expected_count:
+                raise TextError("history_changed", 409)
+            await manager.titles.interrupt()
+            workers = list(manager.tasks.items())
+            for job_id, _ in workers:
+                await manager.cancel(job_id)
+            # A terminal snapshot can reach SQLite before its worker's final cleanup.
+            # Join those workers too, then cancel any title they scheduled on completion.
+            await asyncio.gather(*(task for _, task in workers), return_exceptions=True)
+            await manager.titles.interrupt()
+            count = await run_in_threadpool(service.history.delete_all, body.expected_count)
+        return {"deleted": count}
 
     @router.get("/diagnostics", response_model=TextDiagnostic)
     async def diagnostics():
@@ -325,17 +374,21 @@ def routes(service: TextService):
         return await service.downloads.resume(job_id)
 
     @router.post("/conversations/import", response_model=Conversation, status_code=201)
-    def import_conversation(body: ConversationExport):
-        return service.history.import_json(body)
+    async def import_conversation(body: ConversationExport):
+        async with service.generations.submission_lock:
+            return await run_in_threadpool(service.history.import_json, body)
 
     @router.post("/conversations", response_model=Conversation, status_code=201)
-    def create_conversation(body: ConversationCreate):
-        parameters = body.parameters
-        if body.model_id:
-            model = service.store.model(body.model_id)
-            if parameters is None and model.parameters:
-                parameters = GenerationParameters.model_validate(model.parameters)
-        return service.history.create(body.title, body.model_id, parameters)
+    async def create_conversation(body: ConversationCreate):
+        async with service.generations.submission_lock:
+            parameters = body.parameters
+            if body.model_id:
+                model = await run_in_threadpool(service.store.model, body.model_id)
+                if parameters is None and model.parameters:
+                    parameters = GenerationParameters.model_validate(model.parameters)
+            return await run_in_threadpool(
+                service.history.create, body.title, body.model_id, parameters
+            )
 
     @router.get("/conversations", response_model=list[Conversation])
     def conversations(query: str = Query(default="", max_length=256)):

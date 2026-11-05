@@ -101,36 +101,50 @@ class SecureSettings(context: Context) : ClientSettings {
             .generateKey()
     }
 
-    override fun storeToken(token: String) {
-        if (token.isEmpty()) {
-            preferences.edit().remove("token_cipher").remove("token_iv").apply()
-            return
-        }
-        val cipher =
-            Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
-        val bytes = cipher.doFinal(token.toByteArray(Charsets.UTF_8))
-        preferences
-            .edit()
-            .putString("token_cipher", Base64.encodeToString(bytes, Base64.NO_WRAP))
-            .putString("token_iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
-            .apply()
+    private fun encrypted(value: String): Pair<String, String> {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
+        return Base64.encodeToString(cipher.doFinal(value.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP) to
+            Base64.encodeToString(cipher.iv, Base64.NO_WRAP)
     }
 
-    override fun readToken(): String {
-        val encrypted = preferences.getString("token_cipher", null) ?: return ""
-        val iv = preferences.getString("token_iv", null) ?: throw ApiFailure("token_unavailable")
+    private fun readSecret(prefix: String): String? {
+        val value = preferences.getString(prefix + "_cipher", null) ?: return null
+        val iv = preferences.getString(prefix + "_iv", null) ?: throw ApiFailure("token_unavailable")
         return try {
-            val cipher =
-                Cipher.getInstance("AES/GCM/NoPadding").apply {
-                    init(
-                        Cipher.DECRYPT_MODE,
-                        key(),
-                        GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP)),
-                    )
-                }
-            String(cipher.doFinal(Base64.decode(encrypted, Base64.NO_WRAP)), Charsets.UTF_8)
-        } catch (_: Exception) {
-            throw ApiFailure("token_unavailable")
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
+                init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP)))
+            }
+            String(cipher.doFinal(Base64.decode(value, Base64.NO_WRAP)), Charsets.UTF_8)
+        } catch (_: Exception) { throw ApiFailure("token_unavailable") }
+    }
+
+    private fun writeSecret(editor: android.content.SharedPreferences.Editor, prefix: String, value: String?) {
+        if (value.isNullOrEmpty()) {
+            editor.remove(prefix + "_cipher").remove(prefix + "_iv")
+        } else {
+            val encrypted = encrypted(value)
+            editor.putString(prefix + "_cipher", encrypted.first).putString(prefix + "_iv", encrypted.second)
         }
+    }
+
+    override fun storeToken(token: String) {
+        val editor = preferences.edit()
+        writeSecret(editor, "token", token)
+        if (!editor.commit()) throw ApiFailure("token_unavailable")
+    }
+
+    override fun readToken(): String = readSecret("token") ?: ""
+    override fun readPendingPairing(): String? = readSecret("pairing")
+    override fun hasPendingPairing() = preferences.contains("pairing_cipher")
+    override fun storePendingPairing(value: String?) {
+        val editor = preferences.edit()
+        writeSecret(editor, "pairing", value)
+        if (!editor.commit()) throw ApiFailure("token_unavailable")
+    }
+
+    override fun commitConnection(newUrl: String, newToken: String?, trusted: Boolean) {
+        val editor = preferences.edit().putString("url", newUrl).putBoolean("trusted_lan", trusted)
+        if (newToken != null) writeSecret(editor, "token", newToken)
+        if (!editor.commit()) throw ApiFailure("token_unavailable")
     }
 }

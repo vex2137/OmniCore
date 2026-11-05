@@ -19,6 +19,7 @@ data class UiState(
     val connected: Boolean = false,
     val connecting: Boolean = false,
     val authorizationFailed: Boolean = false,
+    val serverUnavailable: Boolean = false,
     val busy: Boolean = false,
     val error: String? = null,
     val url: String = "",
@@ -35,12 +36,22 @@ data class UiState(
     val generation: Generation? = null,
     val draft: String = "",
     val parameters: Parameters = Parameters(),
+    val defaultParameters: Parameters = Parameters(),
     val repositories: List<HubRepository> = emptyList(),
     val remoteFiles: List<RemoteFile> = emptyList(),
     val downloads: List<Download> = emptyList(),
     val health: Health? = null,
     val diagnostics: Diagnostics = Diagnostics(),
     val reconnecting: Boolean = false,
+    val connectionTest: String? = null,
+    val autoTitle: Boolean = true,
+    val titleMaxLength: Int = 42,
+    val pairingPending: Boolean = false,
+    val pairingSucceeded: Boolean = false,
+    val providers: List<ProviderInfo> = emptyList(),
+    val providerModels: List<String> = emptyList(),
+    val providerTest: String? = null,
+    val providerEditingId: String? = null,
 ) {
     val connectionStatus: ConnectionStatus
         get() =
@@ -48,6 +59,7 @@ data class UiState(
                 authorizationFailed -> ConnectionStatus.Unauthorized
                 connecting || reconnecting -> ConnectionStatus.Connecting
                 connected -> ConnectionStatus.Connected
+                serverUnavailable -> ConnectionStatus.Unavailable
                 else -> ConnectionStatus.Disconnected
             }
 
@@ -67,8 +79,10 @@ class OmniViewModel(
                 trustedLan = settings.trustedLan,
                 theme = settings.theme,
                 language = settings.language,
+                pairingPending = settings.hasPendingPairing(),
                 selectedConversation = settings.conversationId,
                 parameters = settings.parameters,
+                defaultParameters = settings.parameters,
             )
         )
     val state = mutable.asStateFlow()
@@ -78,8 +92,12 @@ class OmniViewModel(
     private var paused = false
     private var downloadUpdates: Job? = null
     private var recovery: Job? = null
+    private var connectionJob: Job? = null
+    private var networkOnline = true
+    private var retryAttempt = 0
     private var pending: GenerationRequest? = null
     private var pendingConversation: String? = null
+    private var parameterRevision = 0L
 
     init {
         if (settings.url.isNotBlank()) connect()
@@ -91,6 +109,7 @@ class OmniViewModel(
         mutable.update {
             it.copy(
                 error = code,
+                serverUnavailable = code == "connection_error",
                 authorizationFailed = it.authorizationFailed || code == "unauthorized",
                 connected = it.connected && code !in setOf("connection_error", "unauthorized"),
             )
@@ -132,20 +151,24 @@ class OmniViewModel(
         api = null
     }
 
-    fun connect() {
+    fun connect() = connectNow(manual = true)
+
+    private fun connectNow(manual: Boolean) {
         if (mutable.value.busy) return
+        if (!networkOnline) { mutable.update { it.copy(connected = false, reconnecting = false) }; return }
+        if (!manual && mutable.value.authorizationFailed) return
         closeTransport()
         mutable.update {
             it.copy(
                 busy = true,
-                connecting = true,
+                connecting = manual,
                 authorizationFailed = false,
                 connected = false,
-                error = null,
+                error = if (manual) null else it.error,
                 reconnecting = false,
             )
         }
-        viewModelScope.launch {
+        connectionJob = viewModelScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
             var candidate: OmniRepository? = null
             try {
                 val token = withContext(io) { settings.readToken() }
@@ -153,21 +176,25 @@ class OmniViewModel(
                 val service = repository(base, token)
                 candidate = service
                 val health = service.health()
+                if (!networkOnline) throw ApiFailure("connection_error")
                 api = service
                 candidate = null
+                refresh(service)
+                recoverGeneration(service)
                 mutable.update {
                     it.copy(
                         url = base,
                         hasToken = token.isNotEmpty(),
                         connected = true,
+                        serverUnavailable = false,
+                        error = null,
                         health = health,
                         reconnecting = false,
                     )
                 }
-                refresh(service)
-                recoverGeneration(service)
+                retryAttempt = 0
                 if (!paused) {
-                    mutable.value.generation?.takeIf { !it.terminal }?.let { watch(service, it) }
+                    resumeStream(service)
                     pollDownloads(service)
                 }
             } catch (e: Exception) {
@@ -184,40 +211,241 @@ class OmniViewModel(
     }
 
     private fun scheduleReconnect() {
-        if (
-            paused ||
-                settings.url.isBlank() ||
-                mutable.value.authorizationFailed ||
-                recovery?.isActive == true
-        )
-            return
-        recovery =
-            viewModelScope.launch {
-                mutable.update { it.copy(reconnecting = true) }
-                delay(3000)
-                recovery = null
-                if (!mutable.value.busy) connect() else scheduleReconnect()
+        if (paused || !networkOnline || settings.url.isBlank() || mutable.value.authorizationFailed || recovery?.isActive == true) return
+        recovery = viewModelScope.launch {
+            val base = (2000L * (1L shl retryAttempt.coerceAtMost(5))).coerceAtMost(60000L)
+            retryAttempt = (retryAttempt + 1).coerceAtMost(6)
+            val jitter = kotlin.random.Random.nextLong(-base / 5, base / 5 + 1)
+            delay((base + jitter).coerceAtMost(60000L))
+            recovery = null
+            if (!paused && networkOnline && !mutable.value.authorizationFailed) {
+                if (!mutable.value.busy) connectNow(manual = false) else scheduleReconnect()
             }
+        }
     }
 
     fun networkLost() {
-        if (paused || settings.url.isBlank()) return
+        networkOnline = false
+        connectionJob?.cancel()
+        recovery?.cancel()
+        recovery = null
         epoch++
         events?.cancel()
         events = null
-        mutable.update { it.copy(connected = false, reconnecting = !it.authorizationFailed) }
-        if (!mutable.value.busy) scheduleReconnect()
+        downloadUpdates?.cancel()
+        mutable.update { it.copy(connected = false, reconnecting = false, serverUnavailable = false) }
     }
 
     fun networkAvailable() {
+        val wasOffline = !networkOnline
+        networkOnline = true
+        if (wasOffline && !paused && !mutable.value.authorizationFailed && !mutable.value.connected && !mutable.value.busy && settings.url.isNotBlank()) {
+            recovery?.cancel()
+            recovery = null
+            connectNow(manual = false)
+        }
+    }
+
+    private fun validateConnection(
+        raw: String,
+        newToken: String,
+        clearToken: Boolean,
+        trustedLan: Boolean,
+    ): String {
+        val url = ConnectionPolicy.validatedUrl(raw, trustedLan)
         if (
-            !paused &&
-                !mutable.value.authorizationFailed &&
-                !mutable.value.connected &&
-                !mutable.value.busy &&
-                settings.url.isNotBlank()
+            settings.url.isNotBlank() &&
+                !ConnectionPolicy.sameOrigin(settings.url, url) &&
+                newToken.isEmpty() &&
+                !clearToken
         )
-            connect()
+            throw ApiFailure("token_for_new_host")
+        if (
+            newToken.isNotEmpty() &&
+                (!newToken.matches(Regex("[A-Za-z0-9]{32,}")) || newToken.length > 4096)
+        )
+            throw ApiFailure("invalid_token")
+        return url
+    }
+
+    fun testConnection(raw: String, newToken: String, clearToken: Boolean, trustedLan: Boolean) {
+        if (mutable.value.busy) return
+        mutable.update { it.copy(busy = true, error = null, connectionTest = "testing") }
+        viewModelScope.launch {
+            var candidate: OmniRepository? = null
+            try {
+                val url = validateConnection(raw, newToken, clearToken, trustedLan)
+                val token =
+                    when {
+                        newToken.isNotEmpty() -> newToken
+                        clearToken -> ""
+                        else -> withContext(io) { settings.readToken() }
+                    }
+                candidate = repository(url, token)
+                candidate.health()
+                candidate.models() // Verify authenticated versioned API, not just TCP/HTTP.
+                mutable.update { it.copy(connectionTest = "passed") }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                // A rejected candidate must not disconnect the currently active server/chat.
+                mutable.update {
+                    it.copy(
+                        connectionTest = "failed",
+                        error = (e as? ApiFailure)?.code ?: "invalid_response",
+                    )
+                }
+            } finally {
+                candidate?.close()
+                mutable.update { it.copy(busy = false) }
+            }
+        }
+    }
+
+    fun clearConnectionTest() {
+        mutable.update { it.copy(connectionTest = null) }
+    }
+
+    fun retryPairing() {
+        if (mutable.value.busy) return
+        viewModelScope.launch {
+            try {
+                val saved = withContext(io) { settings.readPendingPairing() } ?: return@launch
+                pair(WireJson.decodeFromString<PendingPairing>(saved).qr)
+            } catch (e: Exception) { error(e) }
+        }
+    }
+
+    fun cancelPairing() {
+        if (mutable.value.busy) return
+        viewModelScope.launch {
+            try { withContext(io) { settings.storePendingPairing(null) }; mutable.update { it.copy(pairingPending = false) } }
+            catch (e: Exception) { error(e) }
+        }
+    }
+
+    fun pair(raw: String) {
+        if (mutable.value.busy || (mutable.value.generating && mutable.value.connected)) return
+        mutable.update { it.copy(busy = true, error = null, pairingSucceeded = false) }
+        viewModelScope.launch {
+            try {
+                val qr = PairingPolicy.parse(raw)
+                val stored = withContext(io) {
+                    val old = settings.readPendingPairing()?.let { WireJson.decodeFromString<PendingPairing>(it) }
+                    val value = old?.takeIf { it.qr == raw } ?: PendingPairing(raw,
+                        ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it.toInt() and 255) })
+                    settings.storePendingPairing(WireJson.encodeToString(PendingPairing.serializer(), value))
+                    value to (old?.qr == raw)
+                }
+                val pending = stored.first
+                val derived = PairingPolicy.credential(qr.code, pending.nonce)
+                mutable.update { it.copy(pairingPending = true) }
+                val recovered = if (stored.second) withContext(io) {
+                    val candidate = repository(qr.url, derived)
+                    try { candidate.health().status == "ok" }
+                    catch (e: ApiFailure) { if (e.code == "unauthorized") false else throw e }
+                    finally { candidate.close() }
+                } else false
+                var credential: PairingCredential? = if (recovered) PairingCredential("", derived) else null
+                for (attempt in 0..2) {
+                    if (credential != null) break
+                    try {
+                        credential = withContext(io) {
+                            val candidate = repository(qr.url, "")
+                            try { candidate.redeemPairing(qr.code, pending.nonce) } finally { candidate.close() }
+                        }
+                        break
+                    } catch (e: ApiFailure) {
+                        if (e.code != "connection_error" || attempt == 2) throw e
+                        delay(500L * (attempt + 1))
+                    }
+                }
+                val token = credential?.token ?: throw ApiFailure("pairing_invalid")
+                if (!token.matches(Regex("[a-f0-9]{64}"))) throw ApiFailure("pairing_invalid")
+                withContext(io) {
+                    val candidate = repository(qr.url, token)
+                    try { if (candidate.health().status != "ok") throw ApiFailure("invalid_response") }
+                    finally { candidate.close() }
+                    settings.commitConnection(qr.url, token, true)
+                    settings.storePendingPairing(null)
+                }
+                val changedServer = !ConnectionPolicy.sameOrigin(qr.url, mutable.value.url.ifBlank { qr.url })
+                if (changedServer) {
+                    settings.conversationId = null
+                    settings.generationId = null
+                    pendingConversation = null
+                    this@OmniViewModel.pending = null
+                }
+                mutable.update {
+                    if (changedServer) UiState(url = qr.url, trustedLan = true, theme = it.theme, language = it.language,
+                        parameters = settings.parameters, defaultParameters = settings.parameters, hasToken = true, pairingSucceeded = true)
+                    else it.copy(url = qr.url, trustedLan = true, busy = false, pairingPending = false, pairingSucceeded = true,
+                        selectedConversation = settings.conversationId, hasToken = true)
+                }
+                connect()
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                // Failure of a candidate server must not invalidate an existing session.
+                mutable.update { it.copy(busy = false, error = (e as? ApiFailure)?.code ?: "pairing_invalid") }
+            }
+        }
+    }
+
+    fun autoTitle(enabled: Boolean) = action { service ->
+        service.saveHistorySettings(HistorySettings(enabled, mutable.value.titleMaxLength))
+        mutable.update { it.copy(autoTitle = enabled) }
+    }
+
+    fun clearProviderStatus() { mutable.update { it.copy(providerModels = emptyList(), providerTest = null) } }
+
+    fun saveProvider(id: String?, input: ProviderInput) = action { service ->
+        val uri = java.net.URI(mutable.value.url)
+        if (!input.apiKey.isNullOrEmpty() && uri.scheme != "https" && uri.host !in listOf("127.0.0.1", "localhost", "[::1]"))
+            throw ApiFailure("provider_key_requires_https")
+        val saved = service.saveProvider(id, input)
+        val providers = service.providers()
+        mutable.update { it.copy(providers = providers, providerTest = null, providerEditingId = saved.id) }
+    }
+
+    fun deleteProvider(id: String) = action { service ->
+        service.deleteProvider(id)
+        refresh(service)
+    }
+
+    fun providerModels(id: String) = action { service ->
+        val models = service.providerModels(id)
+        mutable.update { it.copy(providerModels = models) }
+    }
+
+    fun testProvider(id: String) = action { service ->
+        service.testProvider(id)
+        mutable.update { it.copy(providerTest = "ok") }
+    }
+
+    fun addProviderModel(id: String, model: String) = action { service ->
+        service.addProviderModel(id, model)
+        refresh(service)
+    }
+
+    fun titleLength(value: Int) = action { service ->
+        if (value !in 20..80) throw ApiFailure("invalid_parameters")
+        service.saveHistorySettings(HistorySettings(mutable.value.autoTitle, value))
+        mutable.update { it.copy(titleMaxLength = value) }
+    }
+
+    fun deleteAll(expectedCount: Int) = action { service ->
+        service.deleteAll(expectedCount)
+        epoch++
+        events?.cancel()
+        events = null
+        settings.conversationId = null
+        settings.generationId = null
+        pending = null
+        pendingConversation = null
+        mutable.update {
+            it.copy(conversations = emptyList(), selectedConversation = null,
+                messages = emptyList(), generation = null, draft = "", parameters = settings.parameters)
+        }
+        refresh(service)
     }
 
     fun saveConnection(raw: String, newToken: String, clearToken: Boolean, trustedLan: Boolean) {
@@ -225,23 +453,9 @@ class OmniViewModel(
         mutable.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             try {
-                val url = ConnectionPolicy.validatedUrl(raw, trustedLan)
-                if (
-                    settings.url.isNotBlank() &&
-                        !ConnectionPolicy.sameOrigin(settings.url, url) &&
-                        newToken.isEmpty() &&
-                        !clearToken
-                )
-                    throw ApiFailure("token_for_new_host")
-                if (
-                    newToken.isNotEmpty() &&
-                        (!newToken.matches(Regex("[A-Za-z0-9]{32,}")) || newToken.length > 4096)
-                )
-                    throw ApiFailure("invalid_token")
+                val url = validateConnection(raw, newToken, clearToken, trustedLan)
                 withContext(io) {
-                    if (newToken.isNotEmpty() || clearToken) settings.storeToken(newToken)
-                    settings.url = url
-                    settings.trustedLan = trustedLan
+                    settings.commitConnection(url, newToken.takeIf { it.isNotEmpty() || clearToken }, trustedLan)
                 }
                 if (url != mutable.value.url) {
                     settings.conversationId = null
@@ -254,6 +468,8 @@ class OmniViewModel(
                             trustedLan = trustedLan,
                             theme = it.theme,
                             language = it.language,
+                            defaultParameters = settings.parameters,
+                            parameters = settings.parameters,
                         )
                     }
                 } else mutable.update { it.copy(url = url, trustedLan = trustedLan, busy = false) }
@@ -277,21 +493,24 @@ class OmniViewModel(
         mutable.update { it.copy(language = value) }
     }
 
-    fun parameters(value: Parameters) {
+    fun parameters(value: Parameters, defaults: Boolean = false) {
         if (!value.valid()) {
             mutable.update { it.copy(error = "invalid_parameters") }
             return
         }
         if (mutable.value.generating || mutable.value.busy) return
+        parameterRevision++
         val id = mutable.value.selectedConversation
-        if (id == null) {
+        if (id == null || defaults) {
             settings.parameters = value
-            mutable.update { it.copy(parameters = value) }
+            mutable.update { it.copy(defaultParameters = value, parameters = if (id == null) value else it.parameters) }
         } else
             action { service ->
                 service.saveParameters(id, value)
-                settings.parameters = value
-                mutable.update { it.copy(parameters = value) }
+                mutable.update { previous ->
+                    if (previous.selectedConversation == id) previous.copy(parameters = value)
+                    else previous
+                }
                 refresh(service)
             }
     }
@@ -327,15 +546,20 @@ class OmniViewModel(
         action {
             refresh(it)
             recoverGeneration(it)
+            resumeStream(it)
         }
     }
 
     private suspend fun refresh(service: OmniRepository) {
+        val revision = parameterRevision
+        val selection = mutable.value.selectedConversation
         val conversations = service.conversations()
         val models = service.models()
         val engines = service.engines()
         val downloads = service.downloads()
         val diagnostics = service.diagnostics()
+        val historySettings = service.historySettings()
+        val providers = service.providers()
         mutable.update { previous ->
             previous.copy(
                 conversations = conversations,
@@ -343,9 +567,12 @@ class OmniViewModel(
                 engines = engines,
                 downloads = downloads,
                 diagnostics = diagnostics,
+                providers = providers,
+                autoTitle = historySettings.autoTitle,
+                titleMaxLength = historySettings.titleMaxLength,
                 selectedModel =
                     previous.selectedModel?.takeIf { id -> models.any { it.id == id } }
-                        ?: models.firstOrNull()?.id,
+                        ?: models.firstOrNull { it.backend != "cloud" }?.id,
             )
         }
         mutable.value.selectedConversation?.let { id ->
@@ -354,7 +581,10 @@ class OmniViewModel(
                 mutable.update {
                     it.copy(
                         selectedModel = conversation.modelId ?: it.selectedModel,
-                        parameters = conversation.parameters,
+                        parameters =
+                            if (it.selectedConversation == selection && parameterRevision == revision)
+                                conversation.parameters
+                            else it.parameters,
                     )
                 }
                 loadMessages(service, id)
@@ -367,6 +597,7 @@ class OmniViewModel(
                         messages = emptyList(),
                         generation = null,
                         draft = "",
+                        parameters = settings.parameters,
                     )
                 }
             }
@@ -410,6 +641,7 @@ class OmniViewModel(
         action {
             loadMessages(it, id)
             recoverGeneration(it)
+            resumeStream(it)
         }
     }
 
@@ -453,12 +685,14 @@ class OmniViewModel(
                     mutable.update { it.copy(error = "model_required") }
                     return
                 }
+        val parameters = state.parameters.forBackend(state.models.firstOrNull { it.id == model }?.backend)
         val request =
             pending?.takeIf {
                 pendingConversation == conversation &&
                     it.content == state.draft &&
-                    it.modelId == model
-            } ?: GenerationRequest(state.draft, UUID.randomUUID().toString(), model)
+                    it.modelId == model &&
+                    it.parameters == parameters
+            } ?: GenerationRequest(state.draft, UUID.randomUUID().toString(), model, parameters)
         pending = request
         pendingConversation = conversation
         action { service ->
@@ -489,6 +723,12 @@ class OmniViewModel(
         }
     }
 
+    private fun resumeStream(service: OmniRepository) {
+        if (!paused && events?.isActive != true) {
+            mutable.value.generation?.takeIf { !it.terminal }?.let { watch(service, it) }
+        }
+    }
+
     private fun watch(service: OmniRepository, record: Generation) {
         epoch++
         val current = epoch
@@ -496,40 +736,21 @@ class OmniViewModel(
         if (paused || record.terminal) return
         events =
             viewModelScope.launch {
-                var backoff = 500L
-                while (
-                    isActive &&
-                        !paused &&
-                        epoch == current &&
-                        mutable.value.generation?.terminal == false
-                ) {
-                    try {
-                        service.snapshots(record.id).collect { snapshot ->
-                            if (epoch == current && snapshot.id == record.id) {
-                                mutable.update {
-                                    it.copy(connected = true, reconnecting = false, error = null)
-                                }
-                                accept(snapshot)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        if (e is CancellationException) throw e
-                        if ((e as? ApiFailure)?.code == "unauthorized") {
-                            error(e)
-                            return@launch
+                try {
+                    service.snapshots(record.id).collect { snapshot ->
+                        if (epoch == current && snapshot.id == record.id) {
+                            mutable.update { it.copy(connected = true, reconnecting = false, error = null) }
+                            accept(snapshot)
                         }
                     }
-                    if (epoch != current || mutable.value.generation?.terminal != false) break
-                    mutable.update { it.copy(reconnecting = true) }
-                    delay(backoff)
-                    backoff = (backoff * 2).coerceAtMost(8000)
-                    try {
-                        val next = service.generation(record.id)
-                        if (epoch == current) accept(next)
-                    } catch (e: Exception) {
-                        error(e)
-                        if ((e as? ApiFailure)?.code == "unauthorized") return@launch
+                    if (epoch == current && mutable.value.generation?.terminal == false) {
+                        error(ApiFailure("connection_error"))
+                        scheduleReconnect()
                     }
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    error(if ((e as? ApiFailure)?.code == "unauthorized") e else ApiFailure("connection_error"))
+                    scheduleReconnect()
                 }
             }
     }
@@ -571,6 +792,7 @@ class OmniViewModel(
     fun pause() {
         paused = true
         recovery?.cancel()
+        connectionJob?.cancel()
         downloadUpdates?.cancel()
         epoch++
         events?.cancel()
@@ -580,7 +802,32 @@ class OmniViewModel(
     fun resume() {
         val wasPaused = paused
         paused = false
-        if (wasPaused && settings.url.isNotBlank()) connect()
+        if (wasPaused && settings.url.isNotBlank() && !mutable.value.authorizationFailed && networkOnline) {
+            if (mutable.value.connected) { api?.let { service ->
+                viewModelScope.launch {
+                    try { refresh(service); recoverGeneration(service); resumeStream(service); pollDownloads(service) }
+                    catch (e: Exception) { error(e); scheduleReconnect() }
+                }
+            } }
+            else connectNow(manual = false)
+        }
+    }
+
+    private suspend fun refreshSharedHistory(service: OmniRepository) {
+        val chats = service.conversations()
+        val preferences = service.historySettings()
+        if (mutable.value.busy) return
+        val removed = mutable.value.selectedConversation?.let { id -> chats.none { it.id == id } } == true
+        if (removed) {
+            epoch++
+            events?.cancel()
+            events = null
+            settings.conversationId = null
+            settings.generationId = null
+            mutable.update { it.copy(selectedConversation = null, messages = emptyList(),
+                generation = null, draft = "", parameters = settings.parameters) }
+        }
+        mutable.update { it.copy(conversations = chats, autoTitle = preferences.autoTitle, titleMaxLength = preferences.titleMaxLength) }
     }
 
     private fun pollDownloads(service: OmniRepository) {
@@ -588,10 +835,12 @@ class OmniViewModel(
         downloadUpdates =
             viewModelScope.launch {
                 while (isActive && !paused) {
-                    delay(2000)
+                    delay(if (mutable.value.downloads.any { it.state in setOf("queued", "running") }) 2000 else 30000)
                     try {
                         val records = service.downloads()
                         mutable.update { it.copy(downloads = records) }
+                        // Shared history includes titles and deletions from Linux.
+                        if (!mutable.value.busy) refreshSharedHistory(service)
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
                         error(e)

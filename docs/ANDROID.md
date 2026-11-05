@@ -4,11 +4,17 @@ Kotlin + Jetpack Compose + Material 3, bez WebView. Aplikacja korzysta z istniej
 FastAPI REST/SSE. SQLite, inferencja, kolejka i modele pozostają na komputerze.
 **Nie ma lokalnej inferencji GGUF na telefonie ani wymaganego komponentu Rust.**
 
-Identyfikator RC: `io.github.vex2137.omnicore.rc`. Wersja: `0.1.0-rc.1`, versionCode 4.
+Identyfikator RC.3: `io.github.vex2137.omnicore.rc3`. Wersja: `0.1.0-rc.3`, versionCode 6.
 Minimalny Android 8.0/API 26, target/compile SDK 36. Dystrybucyjny plik:
-`OmniCore-0.1.0-rc.1-android-arm64.apk`, ABI arm64-v8a. Jest to build **debug/test**,
+`OmniCore-0.1.0-rc.3-android-arm64.apk`, ABI arm64-v8a. Jest to build **debug/test**,
 podpisany kluczem testowym, nie oficjalnym kluczem produkcyjnym. W APK nie ma
 adresu prywatnego serwera, tokenów użytkownika ani wag modeli.
+
+RC.3 instaluje się **obok** RC.2, RC.1 i Alpha jako „OmniCore RC3”. Klucze testowe
+runnery CI generują niezależnie, dlatego nie próbujemy zastąpić instalacji RC.1
+APK z niezgodnym podpisem. Nie odinstalowuj starej aplikacji i nie czyść jej danych.
+W RC3 skonfiguruj ponownie adres/token; historia pozostaje na tym samym backendzie.
+To bezpieczna instalacja równoległa, a nie potwierdzona aktualizacja APK.
 
 Wersjonowanie APK, AppImage i aplikacji pochodzi z
 `backend/src/omnicore/distribution.json`. Publiczna Alpha.2 zachowuje poprzednie
@@ -116,8 +122,8 @@ cd apps/android
 ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
 cd ../..
 python3 scripts/package_android.py
-sha256sum -c dist/OmniCore-0.1.0-rc.1-android-arm64.apk.sha256
-adb install dist/OmniCore-0.1.0-rc.1-android-arm64.apk
+sha256sum -c dist/OmniCore-0.1.0-rc.3-android-arm64.apk.sha256
+adb install dist/OmniCore-0.1.0-rc.3-android-arm64.apk
 ```
 
 Budowanie tworzy oddzielne APK arm64-v8a i x86_64 do emulatora. Skrypt pakowania
@@ -213,3 +219,80 @@ OMNICORE_MODEL_ROOTS (np. katalog Pulpit z modelami), allowed hosts i token zgod
 z powyższą instrukcją. Desktop można potem podłączyć do tego serwera przez
 OMNICORE_DESKTOP_URL i OMNICORE_DESKTOP_TOKEN (token w środowisku, nie w argumentach
 ani logach). Nie uruchamiaj dwóch niezależnych backendów do tej samej bazy.
+
+
+## Test adresu i szybkie ponowne połączenie
+
+W Ustawieniach wpisz adres komputera oraz token. **Test połączenia** sprawdza
+health i uwierzytelnione API modeli, ale nie zapisuje adresu/tokenów i nie przerywa
+aktywnego czatu. **Zapisz i połącz** zapisuje konfigurację; token trafia do Keystore.
+**Połącz ponownie** używa już zapisanej konfiguracji. Zmiana pól usuwa stary wynik testu.
+Localhost/127.0.0.1 telefonu nie wskazuje komputera; użyj jego adresu LAN lub HTTPS.
+Nie ma automatycznego skanowania sieci/mDNS: wykrycie hosta nie uwierzytelnia serwera.
+
+GUI Linux uruchamia domyślnie serwer wyłącznie na loopback. Sam test połączenia
+w telefonie nie włącza zdalnego dostępu. Zaawansowaną konfigurację zdalnego
+serwera AppImage bez Pythona opisuje [instrukcja Linux](LINUX_DESKTOP.md#backend-lokalny-i-serwer-dla-telefonu).
+Nie uruchamiaj drugiego backendu na tej samej bazie — połącz klientów z jednym.
+
+Podpis Stable, kopie klucza i sprawdzenie zgodności aktualizacji:
+[ANDROID_SIGNING.md](ANDROID_SIGNING.md). Skonfigurowanie workflow nie oznacza
+wygenerowania ani sprawdzenia produkcyjnego podpisu.
+
+
+## RC.4: Parowanie i parametry GPU
+
+W ustawieniach wybierz **Sparuj z komputerem (QR)**. Skaner ZXing działa lokalnie,
+bez usług Google Play. Uprawnienie kamery jest potrzebne do skanowania; odmowa
+lub brak kamery nie usuwa ręcznej konfiguracji połączenia. Sprawdź pokazany adres
+PC i potwierdź zaufaną sieć. Aplikacja nie zapisuje obrazów kodu ani głównego tokenu
+serwera. Jednorazowy kod jest wymieniany na osobny token urządzenia, przechowywany
+przez istniejący Keystore. Błędny, wygasły i wykorzystany kod nie zmienia działającego
+połączenia. Nie skanuj kodów od niezaufanych osób; parowanie daje dostęp do historii
+wspólnego backendu. Kamera/fizyczny telefon pozostają do testów właściciela.
+
+CPU/Auto/CUDA odnoszą się do komputera backendu, nie GPU telefonu. Wybór trybu
+zapisuje się od razu; pozostałe pola, w tym własna liczba warstw GPU (0–999),
+wymagają **Zapisz parametry**. 99 oznacza żądanie wszystkich warstw typowego modelu;
+silnik ogranicza offload do rzeczywistych warstw. CUDA z zerową liczbą warstw jest
+odrzucana przez backend, bez cichego przejścia na CPU. Auto raportuje przyczynę
+fallbacku. W statystykach widoczne są rzeczywiste urządzenie i offload.
+
+Wybierz zakres edycji: bieżąca rozmowa albo domyślne nowych rozmów. Zapis rozmowy
+nie zmienia domyślnych. Generowanie wysyła jawny snapshot zapisanych parametrów;
+nie może wyprzedzić zapisu. Odświeżenie, otwarcie rozmowy i restart odczytują
+parametry z backendu, zamiast przywracać stary wybór z formularza. Parametry GPU
+llama.cpp nie są narzucane modelom Ollama. Ręczne zmiany innych klientów odczytuje
+pełne odświeżenie lub ponowne otwarcie rozmowy.
+
+Ustawienia zawierają wspólny przełącznik automatycznych nazw i **Usuń wszystkie
+rozmowy** z liczbą rozmów oraz potwierdzeniem nieodwracalności. Operacja zbiorcza
+korzysta z jednego endpointu i nie usuwa modeli ani konfiguracji. Historię i tytuły
+synchronizuje wspólny backend; błędy generowania tytułu nie uszkadzają odpowiedzi.
+
+Testowy RC.4 ma osobny identyfikator `.rc4` i versionCode 7, więc można pozostawić
+RC.3 oraz jego lokalne ustawienia. Nowa instalacja wymaga parowania/konfiguracji,
+a po połączeniu widzi istniejącą historię backendu. Nie jest to dowód aktualizacji
+owner-signed APK w miejscu; docelowy podpis i taki test nadal są osobną bramką.
+
+
+## RC.5: parowanie i zewnętrzne modele
+
+Skaner przyjmuje jeden QR naraz. Przed wymianą zapisuje szyfrowany stan operacji
+w Keystore, a adres/token zastępuje dopiero po sprawdzeniu połączenia i trwałego
+zapisu. Przy utracie odpowiedzi powtarza tę samą wymianę, bez nowego urządzenia.
+Przycisk ponowienia odzyskuje już wydany token także po restarcie aplikacji;
+nieprzetworzony wygasły kod wymaga nowego QR. Można anulować oczekującą operację.
+Zegar telefonu nie unieważnia kodu; ważność sprawdza backend. Cofnięty token nie
+może zostać odtworzony przez ponowienie.
+
+Bez kamery wpisz adres serwera i nazwany token utworzony w Linux GUI. Najpierw
+użyj testu połączenia, następnie Połącz. Zwykły HTTP jest dopuszczony wyłącznie
+po świadomym zaufaniu prywatnej sieci LAN. Kod i token nie trafiają do URL/logów.
+
+[Dostawcy AI](EXTERNAL_AI.md) mają sekcję ustawień również na Androidzie;
+wykonawcą i magazynem kluczy pozostaje Linux. Przy HTTP LAN wpisz klucz na PC,
+na telefonie wybierz już zapisany model. Długie tytuły są wizualnie skrócone,
+a pełna nazwa pozostaje w edycji; zapisane ręczne nazwy nie są skracane.
+APK RC.5 ma oddzielne ID `.rc5`, więc instaluje się obok RC.4 i wymaga połączenia
+z tym samym backendem. Nie usuwa poprzedniej aplikacji ani wspólnej historii.

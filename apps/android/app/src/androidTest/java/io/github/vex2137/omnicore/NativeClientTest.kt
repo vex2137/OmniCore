@@ -21,6 +21,8 @@ import org.junit.runner.RunWith
 class NativeClientTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private val token = "a".repeat(48)
+    @Volatile private var parameters = Parameters()
+    @Volatile private var requestedParameters: Parameters? = null
     @Volatile private var exists = false
     @Volatile private var title = "New conversation"
     @Volatile private var selectedModelId = "m1"
@@ -31,10 +33,38 @@ class NativeClientTest {
     @Volatile private var downloadState = "running"
     @Volatile private var downloaded = false
 
+    @Test
+    fun pendingPairingAndConnectionSurviveKeystoreReopenWithoutPlaintext() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val settings = SecureSettings(context)
+        val previousUrl = settings.url
+        val previousToken = settings.readToken()
+        val previousTrusted = settings.trustedLan
+        val pending = WireJson.encodeToString(PendingPairing.serializer(), PendingPairing("private-qr-fixture", "c".repeat(64)))
+        try {
+            settings.storePendingPairing(pending)
+            assertTrue(SecureSettings(context).hasPendingPairing())
+            assertEquals(pending, SecureSettings(context).readPendingPairing())
+            settings.commitConnection("http://192.168.1.12:8000", token, true)
+            val reopened = SecureSettings(context)
+            assertEquals(token, reopened.readToken())
+            assertEquals("http://192.168.1.12:8000", reopened.url)
+            assertTrue(reopened.trustedLan)
+            val stored = context.getSharedPreferences("omnicore", 0).all.toString()
+            assertFalse(stored.contains(token))
+            assertFalse(stored.contains("private-qr-fixture"))
+            settings.storePendingPairing(null)
+            assertFalse(SecureSettings(context).hasPendingPairing())
+        } finally {
+            settings.storePendingPairing(null)
+            settings.commitConnection(previousUrl, previousToken, previousTrusted)
+        }
+    }
+
     private fun transfer() =
         """{"id":"d","source":{"repository":"owner/repo","revision":"abc","filename":"model.gguf","size_bytes":123},"state":"$downloadState","received_bytes":60,"percent":48}"""
 
-    private fun conversation() = """{"id":"c1","title":"$title","model_id":"$selectedModelId"}"""
+    private fun conversation() = WireJson.encodeToString(Conversation.serializer(), Conversation("c1", title, parameters, selectedModelId))
 
     private fun job(
         state: String = jobState,
@@ -72,6 +102,8 @@ class NativeClientTest {
                         }
                         path == "/api/v1/text/downloads" ->
                             json(if (downloaded) "[${transfer()}]" else "[]")
+                        path == "/api/v1/text/history/settings" -> json("""{"auto_title":true}""")
+                        path == "/api/v1/providers/configs" -> json("[]")
                         path == "/api/v1/text/diagnostics" -> json("""{"generations":[]}""")
                         path == "/api/v1/text/huggingface/files" ->
                             json(
@@ -89,11 +121,18 @@ class NativeClientTest {
                             exists = true
                             json(conversation()).setResponseCode(201)
                         }
+                        path == "/api/v1/text/conversations" && request.method == "DELETE" -> {
+                            exists = false
+                            content = ""
+                            jobState = "cancelled"
+                            json("""{"deleted":1}""")
+                        }
                         path == "/api/v1/text/conversations" ->
                             json(if (exists) "[${conversation()}]" else "[]")
                         path == "/api/v1/text/conversations/c1" && request.method == "PATCH" -> {
                             val patch =
                                 WireJson.parseToJsonElement(request.body.readUtf8()).jsonObject
+                            patch["parameters"]?.let { parameters = WireJson.decodeFromString<Parameters>(it.toString()) }
                             patch["title"]?.let { title = it.jsonPrimitive.content }
                             patch["model_id"]?.let { selectedModelId = it.jsonPrimitive.content }
                             json(conversation())
@@ -110,11 +149,9 @@ class NativeClientTest {
                                     """[{"id":"u","role":"user","content":"$content"},{"id":"a","role":"assistant","content":"Hello from backend","generation_id":"j$generationNumber","status":"${if(jobState == "cancelled") "cancelled" else "completed"}"}]"""
                             )
                         path.endsWith("/generations") && request.method == "POST" -> {
-                            content =
-                                WireJson.parseToJsonElement(request.body.readUtf8())
-                                    .jsonObject["content"]!!
-                                    .jsonPrimitive
-                                    .content
+                            val submitted = WireJson.decodeFromString<GenerationRequest>(request.body.readUtf8())
+                            content = submitted.content
+                            requestedParameters = submitted.parameters
                             generationNumber++
                             jobState = "running"
                             json(job(answer = "", sequence = 0)).setResponseCode(202)
@@ -151,12 +188,21 @@ class NativeClientTest {
             compose.onNodeWithTag("url").performTextInput(server.url("/").toString().trimEnd('/'))
             compose.onNodeWithTag("token").performTextInput(token)
             compose.onNodeWithTag("trusted_lan").performScrollTo().performClick()
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val savedUrl = SecureSettings(context).url
+            compose.onNodeWithTag("test_connection").performScrollTo().performClick()
+            compose.waitUntil(10000) {
+                compose
+                    .onAllNodesWithText(context.getString(R.string.connection_test_passed))
+                    .fetchSemanticsNodes()
+                    .isNotEmpty()
+            }
+            assertEquals(savedUrl, SecureSettings(context).url)
             compose.onNodeWithTag("connect").performScrollTo().assertIsEnabled().performClick()
             compose.waitUntil(15000) {
                 compose.onAllNodesWithText("Connected").fetchSemanticsNodes().isNotEmpty() &&
                     compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty()
             }
-            val context = InstrumentationRegistry.getInstrumentation().targetContext
             val preferences = context.getSharedPreferences("omnicore", 0)
             assertFalse(preferences.all.toString().contains(token))
             assertEquals(token, SecureSettings(context).readToken())
@@ -176,8 +222,19 @@ class NativeClientTest {
                 compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty()
             }
             assertEquals("m2", selectedModelId)
+            compose.onNodeWithTag("nav_3").performClick()
+            compose.onNodeWithTag("device_cuda").performScrollTo().performClick()
+            compose.waitUntil(10000) { parameters.device == "cuda" && compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty() }
+            compose.onNodeWithTag("gpu_layers").performScrollTo().performTextClearance()
+            compose.onNodeWithTag("gpu_layers").performTextInput("23")
+            compose.onNodeWithTag("parameters_save").performScrollTo().performClick()
+            compose.waitUntil(10000) { parameters.gpuLayers == 23 && compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty() }
+            compose.onNodeWithTag("nav_1").performClick()
             compose.onNodeWithTag("composer").performTextInput("Hello")
             compose.onNodeWithTag("send").performClick()
+            compose.waitUntil(10000) { requestedParameters != null }
+            assertEquals("cuda", requestedParameters?.device)
+            assertEquals(23, requestedParameters?.gpuLayers)
             compose.waitUntil(15000) {
                 compose.onAllNodesWithText("Completed").fetchSemanticsNodes().isNotEmpty()
             }
@@ -279,6 +336,15 @@ class NativeClientTest {
                         .isNotEmpty()
             }
             compose.onNodeWithText("Hello from backend").assertDoesNotExist()
+            compose.onNodeWithTag("new_chat").performClick()
+            compose.waitUntil(10000) { exists && compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty() }
+            compose.onNodeWithTag("nav_3").performClick()
+            compose.onNodeWithTag("delete_all_chats").performScrollTo().performClick()
+            compose.onNodeWithText("Cancel", useUnmergedTree = true).performClick()
+            assertTrue(exists)
+            compose.onNodeWithTag("delete_all_chats").performScrollTo().performClick()
+            compose.onNodeWithTag("confirm_delete_all").performClick()
+            compose.waitUntil(10000) { !exists && compose.onAllNodesWithTag("busy").fetchSemanticsNodes().isEmpty() }
         } catch (failure: Throwable) {
             // Capture fixture pixels before querying Compose, which itself may not be idle.
             runCatching {

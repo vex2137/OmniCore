@@ -148,6 +148,32 @@
       "default": null,
       "title": "Execution Device"
     },
+    "execution_model": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Execution Model"
+    },
+    "execution_provider": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Execution Provider"
+    },
     "fallback_reason": {
       "anyOf": [
         {
