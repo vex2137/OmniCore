@@ -2,6 +2,7 @@
 
 import math
 import os
+import platform
 import re
 import uuid
 from datetime import datetime
@@ -2440,7 +2441,12 @@ class MainWindow(QMainWindow):
                     else "llama_unavailable"
                 )
             )
+            provenance = build_info()
             lines = [
+                f"OmniCore {distribution_version()} · {platform.system()} · {platform.machine()}",
+                f"{provenance['channel']} · {provenance.get('source_commit') or '—'} · "
+                f"{provenance.get('built_at') or self.tr('source_checkout')}",
+                f"Qt: {QApplication.platformName()}",
                 f"{self.tr('backend')}: {self.api.base_url}",
                 f"{self.tr('active_task')}: {self.active_job or self.tr('none')}",
             ]
@@ -2468,7 +2474,8 @@ class MainWindow(QMainWindow):
                 for gpu in record.get("nvidia_devices", []):
                     lines.append(
                         f"{gpu['name']} · {self.tr('vram')}: "
-                        f"{human_size(gpu['free_bytes'])}/{human_size(gpu['total_bytes'])}"
+                        f"{human_size(gpu['free_bytes'])}/{human_size(gpu['total_bytes'])} · "
+                        f"{self.tr('driver')}: {gpu.get('driver_version') or '—'}"
                     )
                 for candidate in record.get("candidates", []):
                     lines.append(
@@ -2482,6 +2489,7 @@ class MainWindow(QMainWindow):
                     )
 
             def hardware_received(snapshot):
+                self.diagnostic_snapshot = snapshot
                 hardware = snapshot["hardware"]
                 lines.extend(
                     [

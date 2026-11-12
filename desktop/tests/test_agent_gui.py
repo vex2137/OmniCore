@@ -321,3 +321,34 @@ def test_context_log_slider_keeps_exact_manual_input(desktop):
     assert w.context_tokens.value() == 128
     w.context_slider.setValue(1000)
     assert w.context_tokens.value() == 32768
+
+
+def test_diagnostics_beta3_redacts_models_and_excludes_prompts(desktop):
+    import json
+
+    from omnicore.desktop.report import diagnostic_report
+
+    w = desktop
+    token = w.api._token
+    w.models = [
+        {
+            "id": "model",
+            "name": "Model " + token,
+            "location": "/home/private-person/secret-folder/model.gguf",
+            "backend": "llama.cpp",
+            "format": "GGUF",
+            "size_bytes": 123,
+        }
+    ]
+    w.last_job = {
+        "state": "failed",
+        "error_code": "engine_timeout",
+        "content": "private conversation",
+    }
+    report = diagnostic_report(w, "offscreen")
+    raw = json.dumps(report)
+    assert token not in raw and "private-person" not in raw and "secret-folder" not in raw
+    assert "private conversation" not in raw
+    assert report["models"][0]["size_bytes"] == 123
+    assert report["last_generation"]["error_code"] == "engine_timeout"
+    assert report["build"]["channel"] == "beta"

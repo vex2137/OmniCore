@@ -331,5 +331,6 @@
   "decimal_separator": ",",
   "refresh_model_confirm": "Odświeżyć zweryfikowany wpis tego pliku? To ponownie odczyta GGUF i wyzeruje status kompatybilności. Ustawienia i rozmowy pozostaną zachowane.",
   "favorite_add": "Dodaj do ulubionych",
-  "favorite_remove": "Usuń z ulubionych"
+  "favorite_remove": "Usuń z ulubionych",
+  "driver": "Sterownik NVIDIA"
 }

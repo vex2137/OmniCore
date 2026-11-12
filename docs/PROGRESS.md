@@ -1142,3 +1142,12 @@ Stare wpisy bez mtime zachowują dotychczasowe sprawdzenie inode/device/rozmiaru
 (do jawnego odświeżenia). Nie haszowano wielogigabajtowych wag.
 45 testów modeli/API/generacji/Qt oraz 56 testów agentów PASS, Ruff i kontrakty PASS.
 Nazwy działań odróżniają ulubione, zwolnienie pamięci i usunięcie wpisu katalogu.
+
+### 0.2.0 Beta 3 — etap 4: diagnostyka
+
+Rozszerzono istniejący widok o OS/architekturę, commit/datę/kanał, platformę Qt
+oraz sterownik NVIDIA. Raport schema v2 dodaje zasoby, techniczne dane modeli,
+kontekst, offload, błędy i PID własnego backendu. Nie eksportuje rozmów ani logów;
+maskuje token API, rozpoznane tokeny dostawców i katalog domowy, zapisuje plik 0600.
+Zachowano asynchroniczne pobieranie diagnostyki. Dwa celowane testy eksportu PASS,
+w tym brak prywatnych ścieżek/treści i sekretu w nazwie modelu; Ruff PASS.

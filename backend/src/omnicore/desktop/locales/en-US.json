@@ -331,5 +331,6 @@
   "decimal_separator": ".",
   "refresh_model_confirm": "Refresh this file registration? This revalidates the GGUF and resets compatibility status. Settings and conversations are preserved.",
   "favorite_add": "Add to favorites",
-  "favorite_remove": "Remove from favorites"
+  "favorite_remove": "Remove from favorites",
+  "driver": "NVIDIA driver"
 }
