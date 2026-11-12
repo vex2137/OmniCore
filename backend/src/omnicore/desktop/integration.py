@@ -7,10 +7,13 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from importlib.resources import files
 from pathlib import Path
+
+from omnicore.text.native import native_environment
 
 APP_ID = "io.github.vex2137.OmniCore"
 
@@ -116,6 +119,15 @@ def install(image, data_home, *, png=None):
 
 def refresh_caches(data_home):
     result = {}
+    environment = native_environment()
+    if getattr(sys, "frozen", False):
+        for key in (
+            "QT_PLUGIN_PATH",
+            "QT_QPA_PLATFORM_PLUGIN_PATH",
+            "QML2_IMPORT_PATH",
+            "QT_QPA_PLATFORMTHEME",
+        ):
+            environment.pop(key, None)
     for tool, args in (
         ("update-desktop-database", [str(data_home / "applications")]),
         ("kbuildsycoca6", ["--noincremental"]),
@@ -124,7 +136,11 @@ def refresh_caches(data_home):
         if executable:
             try:
                 code = subprocess.run(  # noqa: S603 — fixed desktop cache tools, no shell.
-                    [executable, *args], timeout=20, capture_output=True, check=False
+                    [executable, *args],
+                    timeout=20,
+                    capture_output=True,
+                    check=False,
+                    env=environment,
                 ).returncode
                 result[tool] = "ok" if code == 0 else "failed"
             except (OSError, subprocess.TimeoutExpired):

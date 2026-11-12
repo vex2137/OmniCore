@@ -93,3 +93,36 @@ def test_invalid_install_does_not_replace_launcher(tmp_path, kind):
     with pytest.raises((ValueError, OSError)):
         install(image, data, **options)
     assert desktop.read_bytes() == original
+
+
+def test_frozen_cache_tools_use_host_libraries_without_mutating_environment(tmp_path, monkeypatch):
+    import os
+    from types import SimpleNamespace
+
+    from omnicore.desktop import integration
+
+    internal = tmp_path / "bundle/_internal"
+    internal.mkdir(parents=True)
+    monkeypatch.setattr(integration.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(integration.sys, "_MEIPASS", str(internal), raising=False)
+    original = str(internal) + ":/opt/native-libraries"
+    monkeypatch.setenv("LD_LIBRARY_PATH_ORIG", original)
+    monkeypatch.setenv("LD_LIBRARY_PATH", str(internal))
+    monkeypatch.setenv("QT_PLUGIN_PATH", str(internal / "PySide6/Qt/plugins"))
+    monkeypatch.setattr(integration.shutil, "which", lambda name: "/usr/bin/" + name)
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(integration.subprocess, "run", run)
+    assert set(integration.refresh_caches(tmp_path).values()) == {"ok"}
+    assert len(calls) == 2
+    for command, kwargs in calls:
+        assert command[0] in {"/usr/bin/kbuildsycoca6", "/usr/bin/update-desktop-database"}
+        assert kwargs["env"]["LD_LIBRARY_PATH"] == "/opt/native-libraries"
+        assert "QT_PLUGIN_PATH" not in kwargs["env"]
+        assert "shell" not in kwargs
+    assert os.environ["QT_PLUGIN_PATH"].startswith(str(internal))
+    assert os.environ["LD_LIBRARY_PATH_ORIG"] == original

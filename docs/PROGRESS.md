@@ -1193,3 +1193,9 @@ Istniejący workflow AppImage otrzymał sprawdzenie frozen API agentów i dokła
 SHA; smoke wymaga obu trybów GUI, spójnej proweniencji i instalatora KDE.
 Build/artefakt Bety 3 jeszcze niepotwierdzony — wynik zostanie dopisany po Actions.
 Brak testu nowej paczki z rzeczywistym GGUF, RTX4060, CachyOS lub panelem Plasma 6.
+
+Kontrola końcowa wykryła ryzyko dziedziczenia bibliotek/pluginów zamrożonego Qt
+przez systemowe kbuildsycoca6. Narzędzia cache używają teraz istniejącego
+native_environment i pomijają pluginy Qt paczki; środowisko GUI nie jest zmieniane.
+8 testów instalatora PASS. Pierwszy run 43305371384 zatrzymano przed dostarczeniem
+paczki, aby nie udostępnić wariantu bez tej izolacji; wymagany nowy build poprawki.
