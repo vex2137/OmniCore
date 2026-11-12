@@ -30,6 +30,10 @@ on:
         description: Build the exact Agents Beta 2 application source (no release)
         type: boolean
         default: false
+      verify_run_id:
+        description: Verify an existing successful Agents Beta 2 artifact without rebuilding
+        type: string
+        default: ''
       source_sha:
         description: Exact application SHA for the Agents Beta 2 test package
         type: string
@@ -44,6 +48,7 @@ concurrency:
 
 jobs:
   linux-appimage:
+    if: ${{ !inputs.verify_run_id }}
     runs-on: ubuntu-22.04
     timeout-minutes: 35
     env:
@@ -162,3 +167,73 @@ jobs:
             dist/agents-delivery.json
           if-no-files-found: error
           retention-days: ${{ inputs.agents_beta2 == true && 7 || 30 }}
+
+  verify-existing-agents-artifact:
+    if: github.event_name == 'workflow_dispatch' && inputs.verify_run_id != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Validate original successful workflow run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.verify_run_id }}
+          EXPECTED_SHA: ${{ inputs.source_sha }}
+        run: |
+          test "$EXPECTED_SHA" = b50153c6c21956a04c7ceeb31a5ccba65555f63c
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > original-run.json
+          python - <<'PYVERIFY'
+          import json
+          run = json.load(open('original-run.json'))
+          assert run['conclusion'] == 'success'
+          assert run['name'] == 'Linux desktop and AppImage'
+          assert run['event'] == 'workflow_dispatch'
+          assert run['head_branch'] == 'feature/0.2.0-agents-beta2'
+          PYVERIFY
+      - uses: actions/download-artifact@v4
+        with:
+          name: OmniCore-0.2.0-Agents-Beta-2-linux-x86_64
+          run-id: ${{ inputs.verify_run_id }}
+          github-token: ${{ github.token }}
+          path: downloaded
+      - name: Verify actual downloaded bytes and source provenance
+        id: verified
+        env:
+          EXPECTED_SHA: ${{ inputs.source_sha }}
+          ORIGINAL_RUN: ${{ inputs.verify_run_id }}
+        run: |
+          python - <<'PYVERIFY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path('downloaded')
+          delivery = json.loads((root / 'agents-delivery.json').read_text())
+          manifest = json.loads((root / 'build-manifest.json').read_text())
+          package = json.loads((root / 'agents-package-test.json').read_text())
+          gui = json.loads((root / 'appimage-test.json').read_text())
+          original = json.load(open('original-run.json'))
+          image = root / 'OmniCore-0.2.0-Agents-Beta-2-x86_64.AppImage'
+          with image.open('rb') as stream:
+              actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+          assert actual == delivery['sha256']
+          assert image.stat().st_size == delivery['bytes']
+          assert image.with_suffix('.AppImage.sha256').read_text().split()[0] == actual
+          assert delivery['source_commit'] == manifest['source_commit'] == package['source_commit'] == os.environ['EXPECTED_SHA']
+          assert delivery['workflow_commit'] == original['head_sha']
+          assert manifest['model_weights'] is False and delivery['models_bundled'] is False
+          assert package['frozen_backend'] == package['agent_api'] == 'PASS'
+          assert len(gui) == 2 and all(run['ok'] for run in gui)
+          delivery.update(download_verification='PASS', original_run=os.environ['ORIGINAL_RUN'])
+          Path('download-verification.json').write_text(json.dumps(delivery, indent=2) + '\n')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f"sha256={actual}\nbytes={image.stat().st_size}\n")
+          print(json.dumps(delivery, indent=2))
+          PYVERIFY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OmniCore-Beta2-verified-${{ steps.verified.outputs.sha256 }}-${{ steps.verified.outputs.bytes }}
+          path: download-verification.json
+          if-no-files-found: error
+          retention-days: 7

@@ -1090,3 +1090,7 @@ użytkownika. Artefakt Actions: 7 dni, bez Release. Nowy check sprawdza rzeczywi
 paczkę, SHA źródła, PySide6, biblioteki/sumę silnika i API agentów zamrożonego
 backendu. Lokalnie: 6 testów zabezpieczeń paczki, Ruff, YAML i składnia bash PASS;
 285 testów nie powtarzano. Wynik rzeczywistego builda wymaga odczytu biegu Actions.
+Build Actions `43183737436` zakończył się sukcesem: rzeczywisty AppImage przeszedł
+podwójny start Xvfb/restart/dane i nowy test API agentów. Cloud blokuje pobranie
+z Azure (403), dlatego dodano oddzielny wariant `verify_run_id`, który ponownie
+pobiera istniejący artefakt i weryfikuje bajty na runnerze, bez budowania paczki.
