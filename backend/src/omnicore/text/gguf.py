@@ -117,6 +117,7 @@ def read_gguf(stream) -> dict:
                 "general.license",
                 "general.alignment",
                 "general.quantization_version",
+                "tokenizer.chat_template",
                 "split.count",
             }
             keep |= key.endswith(".context_length")

@@ -84,5 +84,13 @@
   "error.agent_timeout": "Osiągnięto limit czasu agenta.",
   "error.agent_tool_error": "Operacja narzędzia nie powiodła się. Nie potwierdzono sukcesu.",
   "error.agent_tool_timeout": "Przekroczono limit czasu narzędzia.",
-  "error.agent_unknown_tool": "Nieznane narzędzie; niczego nie wykonano."
+  "error.agent_unknown_tool": "Nieznane narzędzie; niczego nie wykonano.",
+  "error.agent_write_replay_blocked": "Poprzedni zapis/propozycja nie może być automatycznie powtórzony. Przed nowym zadaniem sprawdź plik.",
+  "error.agent_model_unsupported": "Test zgodności nie powiódł się. Ponów test lub jawnie wybierz tryb JSON.",
+  "error.agent_retry_unavailable": "Nie można ponowić tego zadania.",
+  "error.agent_plan_limit": "Osiągnięto limit planu.",
+  "error.agent_invalid_plan_step": "Nieznany krok planu.",
+  "error.agent_turn_limit": "Osiągnięto limit wywołań modelu.",
+  "error.agent_token_limit": "Wyczerpano przybliżony budżet tokenów odpowiedzi zadania.",
+  "error.agent_call_conflict": "Powtórzone ID narzędzia ma inne argumenty. Niczego nie wykonano."
 }

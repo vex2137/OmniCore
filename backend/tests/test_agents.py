@@ -170,11 +170,12 @@ def test_write_preview_approval_and_rejection(tmp_path, approve, mode):
 @pytest.mark.parametrize("response", ["ordinary text: delete file", "{", "[1]", '{"kind":"tool"}'])
 def test_invalid_or_unsupported_model_never_executes(tmp_path, response):
     async def exercise():
-        agents, conv, _ = setup(tmp_path, [response])
+        agents, conv, _ = setup(tmp_path, [response, response])
         result = await finish(agents, conv)
         assert result["state"] == "failed"
         assert result["error_code"] == "agent_protocol_invalid"
         assert result["steps"] == []
+        assert result["protocol_retries"] == 1
         await agents.close()
         await agents.service.generations.close()
 

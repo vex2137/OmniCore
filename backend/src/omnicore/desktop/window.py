@@ -1445,7 +1445,7 @@ class MainWindow(QMainWindow):
         return self._parameters_for_model(self._selected_chat_model())
 
     def send_message(self):
-        if self.agent_panel.active:
+        if self.agent_panel.active or self.agent_panel.compatibility_busy:
             return
         if self.active_job or self._submitting or self._context_saving or not self.is_connected:
             return

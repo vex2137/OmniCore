@@ -1050,3 +1050,30 @@ dialogi/clipboard/czytnik ekranu) opisano w README przy screenshotach.
   Uprawnienia do katalogów trzeba nadać ponownie po restarcie backendu.
 - Następny krok: rzeczywisty lokalny test modelu oraz zatwierdzenia/odmowy/Stop
   na katalogu roboczym właściciela. Nie deklarować zgodności wszystkich GGUF.
+
+## 0.2.0 Agents Beta 2 — niezawodność i planowanie
+
+- Kontynuacja potwierdzonej Bety 1 `785224c0dbdae4f91a5bd28fdf0e481a3db6259a`;
+  gałąź `feature/0.2.0-agents-beta2`, bez zmiany zależności i schematu SQLite.
+- Deklaracje możliwości i opcjonalny test zgodności (natywny Ollama / JSON
+  llama.cpp), trwały wynik per model/backend, odczyt szablonu GGUF jako metadanych,
+  cztery stany GUI. Timeout testu oznacza niezweryfikowany, nie brak obsługi.
+- Ścisły protokół obsługuje tekst wewnątrz wywołania, ID, plany i korekty.
+  Jedna naprawa JSON; walidacja argumentów zwraca szczegóły bez ich wartości.
+  Deduplikacja ID i identycznych wywołań w natywnej paczce, limity tur/tokenów.
+- SQLite zachowuje hashowane potwierdzenia zapisów przed commitem. Jawna nowa
+  próba nie powtarza zapisów ani odrzuconych celów; zgody i zabezpieczenia Bety 1
+  pozostają aktywne. Zakończonych kroków planu nie można przemianować na nowe.
+- Kontekst: dwie ostatnie szczegółowe tury, ograniczone wyniki, checkpoint,
+  przybliżone zużycie i rezerwa wyjścia. Ustawienia użytkownika nie są nadpisywane.
+- PASS: 59 testów celowanych; końcowa pełna regresja **285 testów** backend/Qt
+  offscreen. Ruff, formatowanie 118 plików, kontrakty i diff-check PASS.
+  Testy obejmują rzeczywiste HTTP/pliki/GUI z mockowanymi modelami; fixture
+  niepoprawnego protokołu Bety 1 odpowiada dwa razy, aby sprawdzić nowy limit
+  jednej naprawy, zachowując asercję braku wykonanych narzędzi.
+- NOT TESTED: rzeczywiste GGUF/Ollama, CachyOS/KDE/Wayland, RTX4060/CUDA.
+  llama.cpp używa adaptera JSON, nie nowego natywnego API tools. Długie wyniki
+  są jawnie ucinane do 4 KiB; brak paginacji. Szczegóły: AGENTS_BETA1.md.
+- Bez wydania i instalatorów; nie rozpoczęto Bety 3. Następny krok: lokalny
+  krótki scenariusz porównania dwóch plików, korekta planu, zgoda/odmowa,
+  anulowanie i nowa próba oraz restart dla modeli właściciela.

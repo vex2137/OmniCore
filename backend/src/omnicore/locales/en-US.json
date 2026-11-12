@@ -84,5 +84,13 @@
   "error.agent_timeout": "Agent time limit reached.",
   "error.agent_tool_error": "Tool operation failed. No success was confirmed.",
   "error.agent_tool_timeout": "Tool time limit reached.",
-  "error.agent_unknown_tool": "Unknown tool; nothing was executed."
+  "error.agent_unknown_tool": "Unknown tool; nothing was executed.",
+  "error.agent_write_replay_blocked": "Previous write/proposal cannot be automatically repeated. Inspect the file before a new task.",
+  "error.agent_model_unsupported": "Compatibility test failed. Retest or explicitly select JSON mode.",
+  "error.agent_retry_unavailable": "This task cannot be retried.",
+  "error.agent_plan_limit": "Plan limit reached.",
+  "error.agent_invalid_plan_step": "Unknown plan step.",
+  "error.agent_turn_limit": "Model turn limit reached.",
+  "error.agent_token_limit": "Task output token budget exhausted (approximate).",
+  "error.agent_call_conflict": "Repeated tool call ID has conflicting arguments. Nothing was executed."
 }

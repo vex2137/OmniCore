@@ -33,6 +33,8 @@ class AgentPanel(QWidget):
         self.active = None
         self.dialog = None
         self.seen = set()
+        self.retry_id = None
+        self.compatibility_busy = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         row = QHBoxLayout()
@@ -58,6 +60,13 @@ class AgentPanel(QWidget):
         inner.setContentsMargins(0, 0, 0, 0)
         self.hint = QLabel(main.tr("agent_hint"))
         self.hint.setWordWrap(True)
+        self.compatibility_label = QLabel()
+        self.compatibility_label.setTextFormat(Qt.PlainText)
+        self.compatibility_label.setWordWrap(True)
+        self.compatibility_test = QPushButton(main.tr("agent_test_model"))
+        self.compatibility_test.clicked.connect(self.test_model)
+        inner.addWidget(self.compatibility_label)
+        inner.addWidget(self.compatibility_test)
         inner.addWidget(self.hint)
         self.folders = QListWidget()
         self.folders.setMaximumHeight(58)
@@ -68,7 +77,7 @@ class AgentPanel(QWidget):
         self.tree.setHeaderLabels([main.tr("agent_tool"), main.tr("agent_state"), "ms"])
         self.tree.setMaximumHeight(160)
         self.tree.setMinimumHeight(70)
-        inner.addWidget(self.tree)
+        inner.insertWidget(0, self.tree)
         self.status = QLabel()
         self.status.setTextFormat(Qt.PlainText)
         self.status.setWordWrap(True)
@@ -80,6 +89,10 @@ class AgentPanel(QWidget):
         self.scroll.setMinimumHeight(90)
         layout.addWidget(self.scroll)
         layout.addWidget(self.status)
+        self.retry_button = QPushButton(main.tr("agent_retry"))
+        self.retry_button.clicked.connect(self.retry)
+        self.retry_button.hide()
+        layout.addWidget(self.retry_button)
         self.scroll.hide()
         self.status.hide()
         self.details.hide()
@@ -95,6 +108,7 @@ class AgentPanel(QWidget):
         self.timer = QTimer(self)
         self.timer.setInterval(350)
         self.timer.timeout.connect(self.poll)
+        main.model_combo.currentIndexChanged.connect(self.refresh_compatibility)
         self.pending_poll = False
         self.settings_saving = False
         self.settings_loading = False
@@ -106,9 +120,12 @@ class AgentPanel(QWidget):
         self.mode.setAccessibleName(tr("agent_work_mode"))
         self.steps.setToolTip(tr("agent_step_count"))
         self.folder.setText(tr("agent_folder"))
+        self.compatibility_test.setText(tr("agent_test_model"))
+        self.retry_button.setText(tr("agent_retry"))
         self.revoke.setText(tr("agent_revoke"))
         self.hint.setText(tr("agent_hint"))
         self.tree.setHeaderLabels([tr("agent_tool"), tr("agent_state"), "ms"])
+        self.refresh_compatibility()
 
     def visibility(self):
         enabled = self.mode.currentData() == "agent"
@@ -121,11 +138,14 @@ class AgentPanel(QWidget):
             self.folder,
         ):
             widget.setVisible(enabled)
+        self.retry_button.setVisible(enabled and bool(self.retry_id) and not self.active)
 
     def load(self, conversation):
         self.conversation = conversation
         self.timer.stop()
         self.active = None
+        self.retry_id = None
+        self.retry_button.hide()
         self.tree.clear()
         self.folders.clear()
         self.pending_poll = False
@@ -165,6 +185,7 @@ class AgentPanel(QWidget):
             failure=load_failed,
         )
         self.refresh_folders()
+        self.refresh_compatibility()
 
         def history(records):
             if self.conversation != conversation:
@@ -175,6 +196,9 @@ class AgentPanel(QWidget):
                     self.timer.start()
                     break
             self.render(records)
+            if records and records[0]["state"] in {"failed", "cancelled", "interrupted"}:
+                self.retry_id = records[0]["id"]
+                self.visibility()
 
         self.api.request("GET", BASE + f"/conversations/{conversation}/runs", success=history)
 
@@ -209,6 +233,102 @@ class AgentPanel(QWidget):
             BASE + f"/conversations/{conversation}/settings",
             body,
             success=saved,
+            failure=failed,
+        )
+
+    def refresh_compatibility(self, *_):
+        model = self.main.model_combo.currentData()
+        if not model:
+            self.compatibility_label.setText(self.main.tr("model_required"))
+            return
+
+        def received(info):
+            if self.main.model_combo.currentData() != model:
+                return
+            evidence = self.main.tr("agent_tested" if info["tested"] else "agent_declared")
+            self.compatibility_label.setText(
+                self.main.tr("agent_cap_" + info["status"]) + " · " + evidence
+            )
+            self.compatibility_label.setToolTip(
+                self.main.tr(info.get("error_code") or "agent_hint")
+            )
+
+        self.api.request("GET", BASE + f"/models/{model}/compatibility", success=received)
+
+    def test_model(self):
+        model = self.main.model_combo.currentData()
+        if not model or self.active or self.compatibility_busy or self.main.active_job:
+            return
+        if (
+            QMessageBox.question(
+                self,
+                self.main.tr("agent_test_model"),
+                self.main.tr("agent_test_warning"),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            != QMessageBox.Yes
+        ):
+            return
+        self.compatibility_busy = True
+        self.compatibility_test.setEnabled(False)
+        self.main.send_button.setEnabled(False)
+        self.compatibility_label.setText(self.main.tr("agent_running"))
+
+        def finished(_):
+            self.compatibility_busy = False
+            self.compatibility_test.setEnabled(True)
+            self.main.send_button.setEnabled(True)
+            self.refresh_compatibility()
+
+        def failed(code):
+            finished(None)
+            self.main.show_error(code)
+
+        self.api.request(
+            "POST",
+            BASE + f"/models/{model}/compatibility-test",
+            {
+                "confirmed": True,
+                "parameters": self.main.request_parameters(),
+                "protocol": self.protocol.currentData(),
+            },
+            success=finished,
+            failure=failed,
+            timeout=45000,
+        )
+
+    def retry(self):
+        if not self.retry_id or self.active or self.settings_saving:
+            return
+        if (
+            QMessageBox.question(
+                self,
+                self.main.tr("agent_retry"),
+                self.main.tr("agent_retry_warning"),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            != QMessageBox.Yes
+        ):
+            return
+        self.busy(True)
+
+        def received(record):
+            self.active = record["id"]
+            self.render([record])
+            self.timer.start()
+            self.main.refresh_messages()
+
+        def failed(code):
+            self.busy(False)
+            self.main.show_error(code)
+
+        self.api.request(
+            "POST",
+            BASE + f"/runs/{self.retry_id}/retry",
+            {"parameters": self.main.request_parameters()},
+            success=received,
             failure=failed,
         )
 
@@ -270,6 +390,8 @@ class AgentPanel(QWidget):
             self.steps,
             self.protocol,
             self.folder,
+            self.compatibility_test,
+            self.retry_button,
             self.main.send_button,
             self.main.model_combo,
             self.main.conversation_list,
@@ -280,6 +402,8 @@ class AgentPanel(QWidget):
         ):
             widget.setEnabled(not enabled)
         self.main.stop_button.setEnabled(enabled)
+        if enabled:
+            self.retry_button.hide()
 
     def send(self, content, model, parameters):
         if self.active or self.settings_saving or not self.conversation:
@@ -325,6 +449,12 @@ class AgentPanel(QWidget):
                 self.busy(False)
                 if self.dialog:
                     self.dialog.reject()
+                self.retry_id = (
+                    record["id"]
+                    if record["state"] in {"failed", "cancelled", "interrupted"}
+                    else None
+                )
+                self.visibility()
                 self.main.refresh_messages()
 
         def failed(code):
@@ -342,6 +472,15 @@ class AgentPanel(QWidget):
     def render(self, records):
         self.tree.clear()
         for record in records:
+            plan = record.get("plan", [])
+            if plan:
+                parent = QTreeWidgetItem([self.main.tr("agent_plan"), "", ""])
+                for item in plan:
+                    parent.addChild(
+                        QTreeWidgetItem([item["title"], self.main.tr("agent_" + item["state"]), ""])
+                    )
+                self.tree.addTopLevelItem(parent)
+                parent.setExpanded(True)
             for step in record["steps"]:
                 item = QTreeWidgetItem(
                     [step["tool"], self.main.tr("agent_" + step["state"]), str(step["duration_ms"])]
@@ -351,8 +490,22 @@ class AgentPanel(QWidget):
                 self.tree.addTopLevelItem(item)
                 if step.get("proposal_id") and step["proposal_id"] not in self.seen:
                     self.approval(record["id"], step)
+            count = sum(step["state"] == "completed" for step in record["steps"])
+            attempts = len(record["steps"])
+            limit = record.get("step_limit", self.steps.value())
+            context = record.get("context", {})
+            extra = self.main.tr("agent_progress", done=count, remaining=max(0, limit - attempts))
+            if context:
+                extra += self.main.tr(
+                    "agent_context_usage", used=context["approx_tokens"], limit=context["limit"]
+                )
+            if record["steps"]:
+                current = record["steps"][-1]
+                extra += " · " + current["tool"] + ": " + self.main.tr("agent_" + current["state"])
+            if record.get("tool_mode"):
+                extra += " · " + self.main.tr("agent_cap_" + record["tool_mode"])
             self.status.setText(
-                self.main.tr(record.get("error_code") or "agent_" + record["state"])
+                self.main.tr(record.get("error_code") or "agent_" + record["state"]) + " · " + extra
             )
         if self.active:
             self.busy(True)
@@ -403,7 +556,13 @@ class AgentPanel(QWidget):
         text.setPlainText(
             result.get("text")
             or "\n".join(f"{k}: {v}" for k, v in result.items())
-            or data.get("error_code")
+            or (
+                self.main.tr(data["error_code"])
+                + "\n"
+                + "\n".join(f"{e['field']}: {e['type']}" for e in data.get("error_details", []))
+                if data.get("error_code")
+                else ""
+            )
             or data["summary"]
         )
         layout.addWidget(text)

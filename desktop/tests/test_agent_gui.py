@@ -35,6 +35,18 @@ class ToolEngine:
         assert file_descriptor is not None
 
     async def stream(self, model, messages, parameters):
+        if not any(m.role == "assistant" for m in messages):
+            raw = json.dumps(
+                {
+                    "kind": "plan",
+                    "steps": [
+                        {"id": "read", "title": "Read input"},
+                        {"id": "write", "title": "Propose output"},
+                    ],
+                }
+            )
+            yield TextChunk(content=raw, finish_reason="stop")
+            return
         grants = json.loads(messages[2].content.split(": ", 1)[1])
         calls = sum('"kind": "tool"' in m.content for m in messages if m.role == "assistant")
         if calls == 0:
@@ -130,7 +142,8 @@ def test_agent_gui_read_review_write_and_durable_mode(agent_window, qtbot, monke
     qtbot.mouseClick(w.send_button, Qt.LeftButton)
     qtbot.waitUntil(lambda: panel.dialog is not None, timeout=10000)
     assert not (folder / "output.txt").exists()
-    assert panel.tree.topLevelItemCount() == 2
+    assert panel.tree.topLevelItemCount() == 3
+    assert panel.tree.topLevelItem(0).childCount() == 2
     assert not w.send_button.isEnabled()
     buttons = panel.dialog.findChild(QDialogButtonBox)
     qtbot.mouseClick(buttons.button(QDialogButtonBox.Yes), Qt.LeftButton)
@@ -142,7 +155,7 @@ def test_agent_gui_read_review_write_and_durable_mode(agent_window, qtbot, monke
     assert [step["state"] for step in saved["steps"]] == ["completed", "completed"]
     assert "sample text" not in json.dumps(saved)
     panel.load(w.current_id)
-    qtbot.waitUntil(lambda: panel.tree.topLevelItemCount() == 2)
+    qtbot.waitUntil(lambda: panel.tree.topLevelItemCount() == 3)
     assert service.agents.settings(w.current_id).mode == "agent"
 
 
@@ -174,3 +187,49 @@ def test_agent_controls_themes_scale_and_chat_default(desktop, qtbot):
     assert (
         request(w, "GET", f"/api/v1/agents/conversations/{w.current_id}/settings")["mode"] == "chat"
     )
+
+
+def test_model_check_and_explicit_new_retry_in_gui(agent_window, qtbot, monkeypatch):
+    class CompatibilityEngine(ToolEngine):
+        attempt = 0
+
+        async def stream(self, model, messages, parameters):
+            if messages[0].content.startswith("Call calculate"):
+                raw = json.dumps(
+                    {"kind": "tool", "name": "calculate", "arguments": {"expression": "2+3"}}
+                )
+            else:
+                self.attempt += 1
+                raw = (
+                    "{"
+                    if self.attempt <= 2
+                    else json.dumps({"kind": "final", "text": "Recovered safely"})
+                )
+            yield TextChunk(content=raw, finish_reason="stop")
+
+    w, service = agent_window
+    service.engines["llama.cpp"] = CompatibilityEngine()
+    w.model_combo.setCurrentIndex(1)
+    w.new_conversation()
+    qtbot.waitUntil(lambda: bool(w.current_id))
+    panel = w.agent_panel
+    qtbot.waitUntil(lambda: not panel.settings_loading)
+    panel.mode.setCurrentIndex(panel.mode.findData("agent"))
+    qtbot.waitUntil(lambda: not panel.settings_saving)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.Yes)
+    panel.scroll.ensureWidgetVisible(panel.compatibility_test)
+    qtbot.mouseClick(panel.compatibility_test, Qt.LeftButton)
+    qtbot.waitUntil(lambda: not panel.compatibility_busy)
+    qtbot.waitUntil(lambda: w.tr("agent_cap_json") in panel.compatibility_label.text())
+    w.composer.setPlainText("Try task")
+    qtbot.mouseClick(w.send_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: bool(panel.retry_id), timeout=10000)
+    assert panel.retry_button.isVisible()
+    source = panel.retry_id
+    qtbot.mouseClick(panel.retry_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: "Recovered safely" in w.transcript.toPlainText(), timeout=10000)
+    qtbot.waitUntil(lambda: panel.active is None, timeout=5000)
+    assert not panel.retry_button.isVisible()
+    records = request(w, "GET", f"/api/v1/agents/conversations/{w.current_id}/runs")
+    assert records[0]["id"] != source and records[0]["retry_of"] == source
+    assert records[0]["state"] == "completed" and records[1]["state"] == "failed"

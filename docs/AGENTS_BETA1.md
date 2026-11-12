@@ -66,3 +66,31 @@ and committed writes. This does not establish real GGUF tool-calling quality,
 CUDA behavior, or native CachyOS/KDE/Wayland behavior. Those remain owner tests.
 The desktop shows tool progress and the final answer; intermediate model planning
 and partial protocol JSON are intentionally not displayed as chat messages.
+
+## Beta 2 — reliability and plans
+
+On `feature/0.2.0-agents-beta2`, the same panel additionally shows model support
+(native / JSON / unverified / failed compatibility test), a bounded task plan,
+current operation and approximate context usage. **Test model compatibility**
+runs one opt-in calculation request (up to 30 s, at most 192 output tokens and
+never above your selected limit). It never executes a requested file tool.
+Declared capabilities are distinct from tested evidence, saved per model/backend
+and configuration fingerprint. Retest after an Ollama server/model-tag update;
+external server changes at the same URL cannot be detected without contacting it.
+
+Structured responses may carry `call_id`, `step_id`, `text`, or a plan:
+`{"kind":"plan","steps":[{"id":"read","title":"Read files"}]}`.
+There are at most three plan versions, one JSON repair, `max_steps + 5` model
+turns, and a bounded cumulative output budget using reported tokens where
+available, otherwise an explicitly approximate estimate. Old detailed tool
+rounds are replaced by redacted checkpoints; only two recent rounds are kept.
+File-result text is capped at 4 KiB for the model and explicitly marked truncated;
+these tools do not yet offer pagination. Context exhaustion is an error, not
+permission to change the user's settings or silently discard the newest result.
+
+**Start a new attempt** is an explicit retry of a failed/cancelled Beta 2 task.
+The new attempt inherits hashed write receipts: completed, uncertain and denied
+writes/targets cannot be automatically repeated, even after regranting folders.
+New writes still require approval. Inspect files and start a separate deliberate
+user task to change a protected target. Beta 1 tasks without a saved request
+message reference cannot use this retry endpoint. Normal chat is unchanged.

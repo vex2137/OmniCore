@@ -3,15 +3,26 @@
 from fastapi import APIRouter
 from pydantic import Field
 
+from omnicore.agents.capabilities import capability
 from omnicore.agents.service import AgentRequest, AgentSettings
 from omnicore.schemas import WireModel
-from omnicore.text.types import TextError
+from omnicore.text.types import GenerationParameters, TextError
 
 
 class FolderGrant(WireModel):
     path: str = Field(min_length=1, max_length=4096)
     include_sensitive: bool = False
     confirmed: bool = False
+
+
+class CompatibilityTest(WireModel):
+    confirmed: bool = False
+    parameters: GenerationParameters | None = None
+    protocol: str = Field(default="auto", pattern=r"^(auto|structured)$")
+
+
+class RetryRequest(WireModel):
+    parameters: GenerationParameters | None = None
 
 
 class Approval(WireModel):
@@ -22,6 +33,20 @@ class Approval(WireModel):
 def routes(service):
     router = APIRouter(prefix="/api/v1/agents", tags=["Local agents"])
     agents = service.agents
+
+    @router.get("/models/{model_id}/compatibility")
+    def model_compatibility(model_id: str):
+        return capability(service, service.store.model(model_id))
+
+    @router.post("/models/{model_id}/compatibility-test")
+    async def test_compatibility(model_id: str, body: CompatibilityTest):
+        if not body.confirmed:
+            raise TextError("agent_confirmation_required", 422)
+        return await agents.test_compatibility(model_id, body.parameters, body.protocol)
+
+    @router.post("/runs/{run_id}/retry", status_code=202)
+    async def retry(run_id: str, body: RetryRequest | None = None):
+        return await agents.retry(run_id, body.parameters if body else None)
 
     @router.get("/conversations/{conversation_id}/settings", response_model=AgentSettings)
     def settings(conversation_id: str):

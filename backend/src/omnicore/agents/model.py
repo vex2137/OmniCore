@@ -3,7 +3,10 @@
 import asyncio
 import json
 import os
+from contextvars import ContextVar
 
+from omnicore.agents.capabilities import capability, native_declared
+from omnicore.agents.protocol import PlanUpdate
 from omnicore.agents.tools import schemas
 from omnicore.text.types import TextError, TextMessage
 
@@ -11,13 +14,18 @@ from omnicore.text.types import TextError, TextMessage
 class AgentModel:
     def __init__(self, service):
         self.service = service
+        self.output_tokens = ContextVar("agent_output_tokens", default=0)
+        self.backend_version = ContextVar("agent_backend_version", default=None)
 
     async def turn(self, model, messages, parameters, protocol):
         service = self.service
         async with service.generations.semaphore:
             engine = service.engines.get(model.backend)
-            if engine is None or not (await engine.probe()).available:
+            info = await engine.probe() if engine else None
+            if info is None or not info.available:
                 raise TextError("engine_unavailable", 503)
+            self.output_tokens.set(0)
+            self.backend_version.set(info.version)
             location = model.location
             if model.backend == "llama.cpp":
                 path = service.models.validated_reference(model.id)
@@ -29,8 +37,8 @@ class AgentModel:
                 location = str(path)
             native = (
                 protocol == "auto"
-                and model.backend == "ollama"
-                and "tool-calling" in model.capabilities
+                and native_declared(model, engine)
+                and capability(service, model)["status"] != "json"
             )
             if native:
                 return await self.ollama(engine, location, messages, parameters)
@@ -44,6 +52,8 @@ class AgentModel:
                 async for chunk in engine.stream(location, converted, parameters):
                     content += chunk.content
                     finish = chunk.finish_reason or finish
+                    if isinstance(chunk.output_tokens, int):
+                        self.output_tokens.set(max(self.output_tokens.get(), chunk.output_tokens))
                     if len(content.encode("utf-8")) > 65536:
                         raise TextError("agent_response_limit", 422)
             if finish != "stop":
@@ -71,7 +81,17 @@ class AgentModel:
                 "messages": messages,
                 "stream": False,
                 "think": parameters.thinking,
-                "tools": schemas(),
+                "tools": [
+                    *schemas(),
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "set_plan",
+                            "description": "Set or correct the bounded task plan, not file access.",
+                            "parameters": PlanUpdate.model_json_schema(),
+                        },
+                    },
+                ],
                 "options": options,
             },
         ) as response:
@@ -84,4 +104,7 @@ class AgentModel:
         result = json.loads(body)
         if not result.get("done") or result.get("done_reason") == "length":
             raise TextError("agent_incomplete_response", 422)
+        count = result.get("eval_count")
+        if type(count) is int and count >= 0:
+            self.output_tokens.set(count)
         return result["message"], True
