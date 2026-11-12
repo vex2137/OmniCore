@@ -1127,3 +1127,18 @@ Naprawiono padding ikony konfiguracji wykryty macierzą rozdzielczości/skal.
 6 testów agentowego Qt ponownie PASS. Ruff PASS. Zrzut w docs/screenshots/beta3
 jest rzeczywistym GUI z kontrolowanym modelem i faktycznym zatwierdzonym zapisem
 pliku; nie jest testem rzeczywistej inferencji GGUF ani CUDA.
+
+### 0.2.0 Beta 3 — etap 3: kontekst i rejestr GGUF
+
+Zastosowano wzorzec Kalendarza z 13cf46a: suwak logarytmiczny zsynchronizowany
+z dokładną liczbą, Auto/Ręczny per model i odrębne potwierdzenie zastosowanego
+kontekstu. Nie zgaduje się KV cache/pamięci; Auto pozostaje konserwatywne.
+Potwierdzono stary wpis po zastąpieniu pliku: zwykły ponowny import zwracał dawną
+tożsamość. Jawne odświeżenie z potwierdzeniem ponownie parsuje GGUF, zachowuje ID,
+parametry i kontekst, resetuje kompatybilność i zwalnia wcześniej załadowany model.
+Jest blokowane przy aktywnych generacjach/agentach. Zwykłe ładowanie nadal odrzuca
+zmieniony plik; nowe importy zapisują także mtime dla wykrywania zmian w miejscu.
+Stare wpisy bez mtime zachowują dotychczasowe sprawdzenie inode/device/rozmiaru
+(do jawnego odświeżenia). Nie haszowano wielogigabajtowych wag.
+45 testów modeli/API/generacji/Qt oraz 56 testów agentów PASS, Ruff i kontrakty PASS.
+Nazwy działań odróżniają ulubione, zwolnienie pamięci i usunięcie wpisu katalogu.

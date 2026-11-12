@@ -453,3 +453,29 @@ def test_pin_survives_restart_and_rename(config):
     with TestClient(create_app(config), base_url="http://localhost") as client:
         assert client.get(url).json()["pinned"]
         assert not client.patch(url, json={"pinned": False}).json()["pinned"]
+
+
+def test_refresh_model_entry_is_blocked_during_generation(text_app):
+    app, path = text_app
+    app.state.text.engines["llama.cpp"] = ProtocolTestEngine(wait=True)
+    with TestClient(app, base_url="http://localhost") as client:
+        model = client.post("/api/v1/text/models/import", json={"path": str(path)}).json()
+        conversation = client.post(
+            "/api/v1/text/conversations", json={"model_id": model["id"]}
+        ).json()
+        job = client.post(
+            f"/api/v1/text/conversations/{conversation['id']}/generations",
+            json={"content": "Wait", "request_key": "refresh-busy"},
+        ).json()
+        wait_job(client, job["id"], "running")
+        response = client.post(
+            "/api/v1/text/models/import", json={"path": str(path), "refresh_existing": True}
+        )
+        assert response.status_code == 409
+        client.post(f"/api/v1/text/generations/{job['id']}/cancel")
+        assert (
+            client.post(
+                "/api/v1/text/models/import", json={"path": str(path), "refresh_existing": True}
+            ).status_code
+            == 201
+        )

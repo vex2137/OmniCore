@@ -270,7 +270,14 @@ class GenerationManager:
                     path = self.models.validated_reference(model.id)
                     with self.models.policy.open(path) as stream:
                         info = os.fstat(stream.fileno())
-                        if (info.st_dev, info.st_ino) != self.store.model_identity(model.id):
+                        if (
+                            (info.st_dev, info.st_ino) != self.store.model_identity(model.id)
+                            or info.st_size != model.size_bytes
+                            or (
+                                model.metadata.get("file_mtime_ns") is not None
+                                and info.st_mtime_ns != model.metadata["file_mtime_ns"]
+                            )
+                        ):
                             raise TextError("model_file_changed", 409)
                         loading = time.monotonic()
                         try:

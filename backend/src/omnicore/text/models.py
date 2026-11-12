@@ -12,12 +12,13 @@ class ModelManager:
     def __init__(self, store: TextStore, policy: FilePolicy):
         self.store, self.policy = store, policy
 
-    def import_gguf(self, path: Path):
+    def import_gguf(self, path: Path, refresh_existing=False):
         if is_multipart_gguf(path.name):
             raise TextError("multipart_gguf_unsupported", 422)
         with self.policy.open(path) as stream:
             metadata = read_gguf(stream)
             info = os.fstat(stream.fileno())
+        metadata["file_mtime_ns"] = info.st_mtime_ns
         return self.store.add_model(
             backend="llama.cpp",
             location=str(path),
@@ -29,6 +30,7 @@ class ModelManager:
             metadata=metadata,
             device=info.st_dev,
             inode=info.st_ino,
+            refresh_existing=refresh_existing,
         )
 
     def validated_reference(self, model_id):
@@ -37,9 +39,14 @@ class ModelManager:
             raise TextError("unsupported_backend", 422)
         with self.policy.open(Path(record.location)) as stream:
             info = os.fstat(stream.fileno())
-            if (info.st_dev, info.st_ino) != self.store.model_identity(
-                model_id
-            ) or info.st_size != record.size_bytes:
+            if (
+                (info.st_dev, info.st_ino) != self.store.model_identity(model_id)
+                or info.st_size != record.size_bytes
+                or (
+                    record.metadata.get("file_mtime_ns") is not None
+                    and info.st_mtime_ns != record.metadata["file_mtime_ns"]
+                )
+            ):
                 raise TextError("model_file_changed", 409)
         return Path(record.location)
 

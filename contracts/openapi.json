@@ -1614,6 +1614,11 @@
             "minLength": 1,
             "title": "Path",
             "type": "string"
+          },
+          "refresh_existing": {
+            "default": false,
+            "title": "Refresh Existing",
+            "type": "boolean"
           }
         },
         "required": [

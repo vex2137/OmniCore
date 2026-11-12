@@ -154,3 +154,41 @@ def test_embedded_multipart_metadata_is_rejected_even_when_renamed(catalog):
     path.write_bytes(bytes(header) + entry + data[24:])
     with pytest.raises(TextError, match="multipart_gguf_unsupported"):
         manager.import_gguf(path)
+
+
+def test_explicit_reimport_revalidates_without_losing_catalog_identity(catalog):
+    manager, path = catalog
+    original = manager.import_gguf(path)
+    original.parameters = {"temperature": 0.5}
+    original.metadata["desktop_context"] = {"mode": "manual", "manual_tokens": 4096}
+    manager.store.update_model(original)
+    replacement = path.with_name("replacement.gguf")
+    replacement.write_bytes(synthetic_gguf())
+    os.replace(replacement, path)
+    with pytest.raises(TextError, match="model_file_changed"):
+        manager.validated_reference(original.id)
+    with pytest.raises(TextError, match="model_file_changed"):
+        manager.import_gguf(path)
+    refreshed = manager.import_gguf(path, refresh_existing=True)
+    assert refreshed.id == original.id
+    assert refreshed.parameters == original.parameters
+    assert refreshed.metadata["desktop_context"] == original.metadata["desktop_context"]
+    assert refreshed.compatibility == "unverified"
+    assert manager.validated_reference(original.id) == path
+    assert len(manager.store.models()) == 1 and path.is_file()
+
+
+def test_in_place_same_size_change_is_not_silently_accepted(catalog):
+    manager, path = catalog
+    record = manager.import_gguf(path)
+    content = bytearray(path.read_bytes())
+    content[-1] ^= 1
+    path.write_bytes(content)
+    original = record.metadata["file_mtime_ns"]
+    os.utime(path, ns=(original, original + 1_000_000))
+    with pytest.raises(TextError, match="model_file_changed"):
+        manager.validated_reference(record.id)
+    path.write_bytes(b"invalid GGUF")
+    with pytest.raises(TextError):
+        manager.import_gguf(path, refresh_existing=True)
+    assert manager.store.model(record.id).metadata["file_mtime_ns"] == original

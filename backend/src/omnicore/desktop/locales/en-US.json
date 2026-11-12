@@ -34,8 +34,8 @@
   "import_gguf": "＋ Import GGUF",
   "sync_ollama": "Discover Ollama",
   "load": "Load",
-  "unload": "Unload",
-  "remove_entry": "Remove entry",
+  "unload": "Unload model from memory",
+  "remove_entry": "Remove catalog entry",
   "remove_model": "Remove this catalog entry? The model file stays on disk.",
   "installed": "My models",
   "download": "Hugging Face",
@@ -328,5 +328,8 @@
   "source_checkout": "source checkout (no build date)",
   "context_configure": "Model context settings",
   "tokens_short": "tok.",
-  "decimal_separator": "."
+  "decimal_separator": ".",
+  "refresh_model_confirm": "Refresh this file registration? This revalidates the GGUF and resets compatibility status. Settings and conversations are preserved.",
+  "favorite_add": "Add to favorites",
+  "favorite_remove": "Remove from favorites"
 }

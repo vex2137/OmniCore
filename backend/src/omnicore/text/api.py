@@ -39,6 +39,7 @@ from omnicore.text.types import GenerationParameters, TextError
 
 
 class ModelImport(WireModel):
+    refresh_existing: bool = False
     path: str = Field(min_length=1, max_length=4096)
 
 
@@ -240,8 +241,15 @@ def routes(service: TextService):
         return service.store.models(query, backend, format)
 
     @router.post("/models/import", response_model=ModelRecord, status_code=201)
-    def import_model(body: ModelImport):
-        return service.models.import_gguf(Path(body.path))
+    async def import_model(body: ModelImport):
+        async with service.generations.submission_lock:
+            if body.refresh_existing:
+                service.require_idle()
+                if service.llama.model == str(Path(body.path)):
+                    await service.llama.unload()
+            return await run_in_threadpool(
+                service.models.import_gguf, Path(body.path), body.refresh_existing
+            )
 
     @router.post("/models/sync-ollama", response_model=list[ModelRecord])
     async def sync_ollama():

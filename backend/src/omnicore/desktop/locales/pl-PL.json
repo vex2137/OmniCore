@@ -34,8 +34,8 @@
   "import_gguf": "＋ Importuj GGUF",
   "sync_ollama": "Wykryj modele Ollamy",
   "load": "Załaduj",
-  "unload": "Zwolnij",
-  "remove_entry": "Usuń wpis",
+  "unload": "Zwolnij model z pamięci",
+  "remove_entry": "Usuń wpis z katalogu",
   "remove_model": "Usunąć wpis z katalogu? Plik modelu pozostanie na dysku.",
   "installed": "Moje modele",
   "download": "Hugging Face",
@@ -328,5 +328,8 @@
   "source_checkout": "kod źródłowy (bez daty kompilacji)",
   "context_configure": "Ustawienia kontekstu modelu",
   "tokens_short": "tok.",
-  "decimal_separator": ","
+  "decimal_separator": ",",
+  "refresh_model_confirm": "Odświeżyć zweryfikowany wpis tego pliku? To ponownie odczyta GGUF i wyzeruje status kompatybilności. Ustawienia i rozmowy pozostaną zachowane.",
+  "favorite_add": "Dodaj do ulubionych",
+  "favorite_remove": "Usuń z ulubionych"
 }

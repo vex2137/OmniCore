@@ -309,3 +309,15 @@ def test_beta3_statistics_are_measured_compact_and_localized(qtbot):
         "0,87 s TTFT" in t and "100,30 tok/s" in t and "17 tok." in t and "1,04 s" in t
         for t in labels
     )
+
+
+def test_context_log_slider_keeps_exact_manual_input(desktop):
+    w = desktop
+    w.context_mode.setCurrentIndex(w.context_mode.findData("manual"))
+    w.context_tokens.setMaximum(32768)
+    w.context_tokens.setValue(8193)
+    assert w.context_tokens.value() == 8193
+    w.context_slider.setValue(0)
+    assert w.context_tokens.value() == 128
+    w.context_slider.setValue(1000)
+    assert w.context_tokens.value() == 32768

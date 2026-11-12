@@ -1,5 +1,6 @@
 """Native widgets for the existing API. Network and inference never block Qt."""
 
+import math
 import os
 import re
 import uuid
@@ -35,6 +36,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSlider,
     QSpinBox,
     QSplitter,
     QStackedWidget,
@@ -353,6 +355,12 @@ class MainWindow(QMainWindow):
         )
         self.context_status = QLabel()
         self.context_status.setWordWrap(True)
+        self.context_slider = QSlider(Qt.Horizontal)
+        self.context_slider.setRange(0, 1000)
+        self.context_slider.setAccessibleName(self.tr("context_configure"))
+        self.context_slider.valueChanged.connect(self.context_slider_changed)
+        self.context_tokens.valueChanged.connect(self.sync_context_slider)
+        context_layout.addWidget(self.context_slider)
         context_layout.addWidget(self.context_status)
         self.agent_panel = AgentPanel(self)
         self.chat_header.insertWidget(1, self.agent_panel.mode)
@@ -1371,7 +1379,29 @@ class MainWindow(QMainWindow):
     def _context_edited(self, *_):
         self._context_dirty = True
 
+    def sync_context_slider(self, *_):
+        maximum = self.context_tokens.maximum()
+        position = (
+            round(1000 * math.log(self.context_tokens.value() / 128) / math.log(maximum / 128))
+            if maximum > 128
+            else 0
+        )
+        self.context_slider.blockSignals(True)
+        self.context_slider.setValue(position)
+        self.context_slider.blockSignals(False)
+
+    def context_slider_changed(self, position):
+        maximum = self.context_tokens.maximum()
+        self.context_tokens.setValue(round(128 * (maximum / 128) ** (position / 1000)))
+
     def _context_mode_changed(self, *_):
+        self.context_slider.setEnabled(
+            bool(self._selected_chat_model())
+            and self.context_mode.currentData() == "manual"
+            and not self._context_saving
+            and not self.active_job
+            and not self.agent_panel.active
+        )
         self.context_tokens.setEnabled(
             bool(self._selected_chat_model())
             and self.context_mode.currentData() == "manual"
@@ -1401,6 +1431,7 @@ class MainWindow(QMainWindow):
         self.context_tokens.setMaximum(saved["maximum"])
         self.context_tokens.setValue(saved["manual_tokens"])
         self.context_tokens.blockSignals(False)
+        self.sync_context_slider()
         self._context_mode_changed()
         applied = saved.get("applied_tokens")
         text = self.tr("context_configured", tokens=saved["effective_tokens"])
@@ -1855,6 +1886,13 @@ class MainWindow(QMainWindow):
             self.tr("ollama_managed") if record and record["backend"] == "ollama" else ""
         )
         self.favorite_button.setEnabled(bool(record))
+        self.favorite_button.setText(
+            self.tr(
+                "favorite_remove"
+                if record and record["id"] in self.config.favorite_models
+                else "favorite_add"
+            )
+        )
         self.model_actions.setEnabled(bool(record))
         self.model_detail.setToolTip(escape(record["location"]) if record else "")
         if not record:
@@ -1921,8 +1959,25 @@ class MainWindow(QMainWindow):
             self.engine_filter.setCurrentText(record["backend"])
             self.refresh_models()
 
+        existing = next(
+            (
+                r
+                for r in self.models
+                if r["backend"] == "llama.cpp" and r["location"] == str(candidate)
+            ),
+            None,
+        )
+        if (
+            existing
+            and QMessageBox.question(self, self.tr("confirm"), self.tr("refresh_model_confirm"))
+            != QMessageBox.Yes
+        ):
+            return
         self.api.request(
-            "POST", TEXT + "/models/import", {"path": str(candidate)}, success=imported
+            "POST",
+            TEXT + "/models/import",
+            {"path": str(candidate), "refresh_existing": bool(existing)},
+            success=imported,
         )
 
     def sync_ollama(self):

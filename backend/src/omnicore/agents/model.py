@@ -31,7 +31,14 @@ class AgentModel:
                 path = service.models.validated_reference(model.id)
                 with service.models.policy.open(path) as file:
                     info = os.fstat(file.fileno())
-                    if (info.st_dev, info.st_ino) != service.store.model_identity(model.id):
+                    if (
+                        (info.st_dev, info.st_ino) != service.store.model_identity(model.id)
+                        or info.st_size != model.size_bytes
+                        or (
+                            model.metadata.get("file_mtime_ns") is not None
+                            and info.st_mtime_ns != model.metadata["file_mtime_ns"]
+                        )
+                    ):
                         raise TextError("model_file_changed", 409)
                     await engine.load(path, parameters, file_descriptor=file.fileno())
                 location = str(path)

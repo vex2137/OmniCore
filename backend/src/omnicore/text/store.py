@@ -141,6 +141,7 @@ class TextStore:
         capabilities=None,
         device=None,
         inode=None,
+        refresh_existing=False,
     ):
         record = ModelRecord(
             id=uuid.uuid4().hex,
@@ -157,10 +158,32 @@ class TextStore:
         )
         with self.db.connect() as connection, connection:
             existing = connection.execute(
-                "SELECT record FROM text_models WHERE backend=? AND location=?", (backend, location)
+                "SELECT record,device,inode FROM text_models WHERE backend=? AND location=?",
+                (backend, location),
             ).fetchone()
             if existing:
-                return ModelRecord.model_validate_json(existing[0])
+                previous = ModelRecord.model_validate_json(existing[0])
+                changed = (device, inode) != (
+                    existing[1],
+                    existing[2],
+                ) or size_bytes != previous.size_bytes
+                old_mtime = previous.metadata.get("file_mtime_ns")
+                changed |= old_mtime is not None and old_mtime != record.metadata.get(
+                    "file_mtime_ns"
+                )
+                if not refresh_existing:
+                    if backend == "llama.cpp" and device is not None and changed:
+                        raise TextError("model_file_changed", 409)
+                    return previous
+                record.id, record.created_at = previous.id, previous.created_at
+                record.parameters = previous.parameters
+                if "desktop_context" in previous.metadata:
+                    record.metadata["desktop_context"] = previous.metadata["desktop_context"]
+                connection.execute(
+                    "UPDATE text_models SET record=?,device=?,inode=? WHERE id=?",
+                    (record.model_dump_json(), device, inode, record.id),
+                )
+                return record
             connection.execute(
                 "INSERT INTO text_models VALUES(?,?,?,?,?,?)",
                 (record.id, backend, location, record.model_dump_json(), device, inode),
