@@ -1175,3 +1175,21 @@ oraz instrukcję ponownego przypięcia wyłącznie OmniCore w docs/APPIMAGE.md.
 7 testów instalatora PASS: quoting, idempotencja, kopie, zachowanie danych i pinów,
 bezpieczne odrzucanie błędnych ścieżek/symlinków/ikony. Ruff PASS.
 PNG pochodzi z oryginalnego SVG. Rzeczywista ikona panelu Plasma 6: NOT TESTED.
+
+### 0.2.0 Beta 3 — etap 7: regresja i kontrola pakowania
+
+Końcowa lokalna regresja: **321 PASS** (backend + natywny Qt offscreen), Ruff,
+format i kontrakty PASS. Smoke CLI/HTTP/WebSocket/restart danych PASS. Wheel
+budowany offline ma normalizowaną wersję 0.2.0b3; metadane dystrybucji 0.2.0-beta.3.
+Rzeczywiste ręczne zapytanie HTTPS listy GitHub Releases PASS: brak nowszej wersji.
+Naprawiono dodatkowo wysokość i szerokość nagłówków historii: test wszystkich
+6 grup, PL/EN, szerokości 200/232, skale 80/100/125/150 PASS. Macierz 96 widoków
+(4 rozdzielczości × 4 skale × 6 widoków) PASS, autentyczne wybrane screenshoty
+oraz raport w docs/screenshots/beta3. Dane na screenshotach to dane testowe;
+kontrolowany model w agentowym zrzucie nie potwierdza rzeczywistej inferencji.
+W CI backendowym poprawiono brak warunku opcjonalnego PySide6 w teście HF;
+ten test nadal uruchamia się w pełnym zadaniu desktopowym.
+Istniejący workflow AppImage otrzymał sprawdzenie frozen API agentów i dokładnego
+SHA; smoke wymaga obu trybów GUI, spójnej proweniencji i instalatora KDE.
+Build/artefakt Bety 3 jeszcze niepotwierdzony — wynik zostanie dopisany po Actions.
+Brak testu nowej paczki z rzeczywistym GGUF, RTX4060, CachyOS lub panelem Plasma 6.

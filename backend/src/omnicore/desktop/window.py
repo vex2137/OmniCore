@@ -934,7 +934,7 @@ class MainWindow(QMainWindow):
             QWidget#historyGroupRow {{ background: {panel}; }}
             QWidget#historyGroupRow[selected="true"] {{ background: {field}; }}
             QPushButton#historyHeading {{ background: transparent; border: 1px solid transparent;
-                padding: 2px 0; text-align: left; }}
+                padding: 2px 0; text-align: left; font-size: 12px; }}
             QPushButton#historyHeading:focus {{ border: 2px solid {accent}; }}
             QToolButton {{ background: {field}; border: 1px solid {border}; border-radius: 6px; }}
             QToolButton:hover {{ border-color: {accent}; }}
@@ -986,6 +986,7 @@ class MainWindow(QMainWindow):
             QListWidget::item {{ padding: 12px 8px;
                 border-radius: 6px;
                 }}
+            QListWidget#conversations::item {{ padding: 6px 2px; }}
             QListWidget::item:selected, QTableWidget::item:selected {{ background: {field};
                 color: {accent};
                 }}
@@ -1153,11 +1154,11 @@ class MainWindow(QMainWindow):
                 item.setToolTip(escape(title))
                 self.conversation_list.addItem(item)
                 if index == 0:
-                    row = QWidget()
+                    row = QWidget(self.conversation_list)
                     row.setObjectName("historyGroupRow")
                     row.setProperty("selected", record["id"] == current)
                     column = QVBoxLayout(row)
-                    column.setContentsMargins(4, 8, 4, 4)
+                    column.setContentsMargins(2, 8, 2, 4)
                     collapsed = group in self.config.collapsed_history
                     heading = QPushButton(
                         ("▸ " if collapsed else "▾ ") + self.tr("history_" + group)
@@ -1168,6 +1169,8 @@ class MainWindow(QMainWindow):
                         lambda checked=False, key=group: self.toggle_history_group(key)
                     )
                     column.addWidget(heading)
+                    heading.ensurePolished()
+                    heading.setMinimumHeight(heading.fontMetrics().height() + 8)
                     label = QLabel(
                         self.fontMetrics().elidedText(
                             title, Qt.ElideRight, max(80, self.config.sidebar_width - 56)

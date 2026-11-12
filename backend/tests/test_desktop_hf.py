@@ -4,6 +4,10 @@ import os
 import subprocess
 import sys
 
+import pytest
+
+pytest.importorskip("PySide6")
+
 
 def test_model_browser_filters_card_and_download_progress():
     code = r"""

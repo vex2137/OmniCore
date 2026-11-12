@@ -86,7 +86,30 @@ def main():
             check=True,
             timeout=60,
         )
-        binary = extracted / "squashfs-root/usr/bin/OmniCore"
+        root = extracted / "squashfs-root"
+        manifest = json.loads((root / "build-manifest.json").read_text())
+        assert all(
+            record["build"]["source_commit"] == manifest["source_commit"] for record in result
+        )
+        assert all(record["build"]["built_at"] == manifest["built_at"] for record in result)
+        assert (
+            (root / "io.github.vex2137.OmniCore.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+        )
+        binary = root / "usr/bin/OmniCore"
+        # Explicit integration must work with the bundled interpreter, without GUI/backend.
+        integration_env = dict(environment, XDG_DATA_HOME=str(directory / "integration"))
+        for _ in range(2):
+            subprocess.run(  # noqa: S603 — verified own packaged installer.
+                [str(binary), "--install-desktop-entry", str(args.appimage.resolve())],
+                env=integration_env,
+                check=True,
+                timeout=50,
+                stdout=subprocess.DEVNULL,
+            )
+        launcher = directory / "integration/applications/io.github.vex2137.OmniCore.desktop"
+        assert launcher.is_file() and "StartupWMClass=OmniCore" in launcher.read_text()
+        assert not list(launcher.parent.glob("*.bak-*")), "Installer is not idempotent"
+
         native_env = dict(environment)
         polluted = str(binary.parent / "_internal") + ":/opt/omnicore-acceptance-cuda"
         native_env.update(LD_LIBRARY_PATH=polluted, LD_LIBRARY_PATH_ORIG=polluted)

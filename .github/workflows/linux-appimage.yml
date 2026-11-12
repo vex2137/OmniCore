@@ -126,6 +126,12 @@ jobs:
         run: uv run --frozen python scripts/build_appimage.py --llama-server "$RUNNER_TEMP/llama.cpp/build/bin/llama-server"
       - name: Run actual AppImage twice and verify persistence and process cleanup
         run: xvfb-run -a uv run --frozen python scripts/test_appimage.py
+      - name: Verify frozen agent API and exact source
+        if: inputs.agents_beta2 != true
+        run: |
+          image=$(find dist -maxdepth 1 -name '*.AppImage' -type f)
+          test -n "$image"
+          uv run --frozen python scripts/test_agents_appimage.py --appimage "$image" --expected-source "$(git rev-parse HEAD)" --output dist/agents-package-test.json
       - name: Verify packaged Agents Beta 2 and prepare delivery metadata
         if: inputs.agents_beta2 == true
         env:

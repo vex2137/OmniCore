@@ -237,3 +237,43 @@ def test_keyboard_search_from_compact_mode(desktop, qtbot):
     qtbot.keyClick(w.history_search, Qt.Key_Tab)
     assert w.history_refresh.hasFocus()
     assert w.history_refresh.accessibleName()
+
+
+def test_beta3_all_history_headers_fit_at_narrow_widths(desktop, qtbot):
+    from datetime import UTC, datetime, timedelta
+
+    w = desktop
+    now = datetime.now(UTC)
+    w.conversations = [
+        {
+            "id": str(index),
+            "title": "Historia o długiej nazwie " * 4,
+            "pinned": index == 0,
+            "updated_at": (now - timedelta(days=age)).isoformat(),
+        }
+        for index, age in enumerate((0, 0, 1, 3, 10, 60))
+    ]
+    w.onboarding.hide()
+    w.resize(1280, 720)
+    for locale in ("pl-PL", "en-US"):
+        w.language.setCurrentIndex(w.language.findData(locale))
+        for scale in (80, 100, 125, 150):
+            w.ui_scale.setValue(scale)
+            for width in (200, 232):
+                w.sidebar_width.setValue(width)
+                w._fill_conversations()
+                qtbot.wait(20)
+                headings = w.conversation_list.findChildren(QPushButton, "historyHeading")
+                assert len(headings) == 6
+                for heading in headings:
+                    assert (
+                        heading.width()
+                        >= heading.fontMetrics().horizontalAdvance(heading.text()) + 4
+                    ), (locale, scale, width, heading.text(), heading.width())
+                    assert heading.height() >= heading.fontMetrics().height() + 4
+    output = os.environ.get("OMNICORE_STABILITY_OUTPUT")
+    if output:
+        Path(output).mkdir(parents=True, exist_ok=True)
+        w.language.setCurrentIndex(w.language.findData("pl-PL"))
+        qtbot.wait(80)
+        w.grab().save(str(Path(output) / "history-groups-150.png"))

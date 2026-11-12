@@ -1,7 +1,16 @@
 # OmniCore
-OmniCore is an open-source local AI platform. This Alpha provides native Linux and Android clients for text models; image generation and other modules are planned.
+OmniCore is an open-source local AI platform. It provides native Linux and Android clients for text models; image generation and other modules are planned.
 
-## Stan: 0.1.0 Release Candidate — natywne aplikacje Linux i Android
+## Rozwój: 0.2.0 Beta 3
+
+Gałąź `feature/0.2.0-beta3` bazuje na Agents Beta 2 i ma kanoniczną wersję
+`0.2.0-beta.3`: Czat/Agent, kompaktowy nagłówek i metryki, kontekst per model,
+jawne odświeżanie rejestru GGUF, prywatny eksport diagnostyki oraz ręczne
+sprawdzanie aktualizacji Stable/Beta/RC. Nie jest wydaniem Stable. Wyniki i paczka
+Actions: [PROGRESS](docs/PROGRESS.md). Integracja menu i panelu KDE jest świadomą
+operacją użytkownika: [AppImage / fish](docs/APPIMAGE.md#beta-3-świadoma-integracja-z-kde-plasma-6).
+
+## Poprzednie wydanie: 0.1.0 Release Candidate — Linux i Android
 
 OmniCore ma działające GUI Qt6/PySide6: czat ze streamingiem i historią, menedżer
 GGUF/Hugging Face, ustawienia PL/EN i motywów oraz diagnostykę. GUI Linux zostało
