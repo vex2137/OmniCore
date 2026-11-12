@@ -40,6 +40,7 @@ class DesktopConfig:
     sidebar_compact: bool = False
     sidebar_width: int = 232
     accent: str = ""
+    update_channel: str = "stable"
     ui_scale: int = 100
     favorite_models: list[str] = field(default_factory=list)
     collapsed_history: list[str] = field(default_factory=list)
@@ -68,6 +69,8 @@ class DesktopConfig:
             "forest",
         }:
             raise ValueError("Invalid desktop preferences")
+        if obj.update_channel not in {"stable", "beta", "rc"}:
+            obj.update_channel = "stable"
         if not isinstance(obj.sidebar_width, int) or isinstance(obj.sidebar_width, bool):
             obj.sidebar_width = 232
         obj.sidebar_width = max(200, min(360, obj.sidebar_width))

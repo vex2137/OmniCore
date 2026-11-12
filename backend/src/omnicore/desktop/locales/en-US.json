@@ -332,5 +332,15 @@
   "refresh_model_confirm": "Refresh this file registration? This revalidates the GGUF and resets compatibility status. Settings and conversations are preserved.",
   "favorite_add": "Add to favorites",
   "favorite_remove": "Remove from favorites",
-  "driver": "NVIDIA driver"
+  "driver": "NVIDIA driver",
+  "updates": "Updates",
+  "updates_current": "Installed version: {version}",
+  "updates_channel": "Release channel",
+  "updates_check": "Check for updates",
+  "updates_open": "Open GitHub release",
+  "updates_hint": "Manual check of the latest 100 public releases. No automatic installation.",
+  "updates_checking": "Checking releases…",
+  "updates_available": "Update available: {version}",
+  "updates_none": "No newer release in this channel.",
+  "updates_error": "Cannot check updates. Check the connection or try again later."
 }

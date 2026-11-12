@@ -332,5 +332,15 @@
   "refresh_model_confirm": "Odświeżyć zweryfikowany wpis tego pliku? To ponownie odczyta GGUF i wyzeruje status kompatybilności. Ustawienia i rozmowy pozostaną zachowane.",
   "favorite_add": "Dodaj do ulubionych",
   "favorite_remove": "Usuń z ulubionych",
-  "driver": "Sterownik NVIDIA"
+  "driver": "Sterownik NVIDIA",
+  "updates": "Aktualizacje",
+  "updates_current": "Zainstalowana wersja: {version}",
+  "updates_channel": "Kanał wydań",
+  "updates_check": "Sprawdź aktualizacje",
+  "updates_open": "Otwórz wydanie na GitHubie",
+  "updates_hint": "Ręczne sprawdzanie ostatnich 100 publicznych wydań. Bez automatycznej instalacji.",
+  "updates_checking": "Sprawdzanie wydań…",
+  "updates_available": "Dostępna aktualizacja: {version}",
+  "updates_none": "Brak nowszego wydania w tym kanale.",
+  "updates_error": "Nie można sprawdzić aktualizacji. Sprawdź połączenie lub spróbuj później."
 }

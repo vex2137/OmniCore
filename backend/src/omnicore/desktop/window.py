@@ -59,6 +59,7 @@ from omnicore.desktop.model_card import safe_card_markdown
 from omnicore.desktop.report import diagnostic_report, save_report
 from omnicore.desktop.themes import contrast_ratio, palette, readable_accent
 from omnicore.desktop.transcript import ChatTranscript, statistics_text
+from omnicore.desktop.updates import UpdatePanel
 from omnicore.release import build_info, distribution_version
 from omnicore.text.context import context_settings
 from omnicore.text.downloads import is_multipart_gguf
@@ -695,6 +696,8 @@ class MainWindow(QMainWindow):
         self.about.setWordWrap(True)
         self.about.setTextInteractionFlags(Qt.TextSelectableByMouse)
         basic.addRow(self.about)
+        self.updates = UpdatePanel(self.config, self.tr, self)
+        basic.addRow(self.updates)
         scroll.setWidget(page)
         self.pages.addWidget(scroll)
 
@@ -837,6 +840,7 @@ class MainWindow(QMainWindow):
                 channel=info["channel"],
             )
         )
+        self.updates.retranslate(self.tr)
         self.refresh_model_table()
         self.render_messages()
         self._fill_conversations()

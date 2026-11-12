@@ -1151,3 +1151,14 @@ kontekst, offload, błędy i PID własnego backendu. Nie eksportuje rozmów ani 
 maskuje token API, rozpoznane tokeny dostawców i katalog domowy, zapisuje plik 0600.
 Zachowano asynchroniczne pobieranie diagnostyki. Dwa celowane testy eksportu PASS,
 w tym brak prywatnych ścieżek/treści i sekretu w nazwie modelu; Ruff PASS.
+
+### 0.2.0 Beta 3 — etap 5: aktualizacje
+
+Adaptowano wzorzec ustawień Kalendarza z 13cf46a, rozszerzając go o listę
+ostatnich 100 publicznych wydań i poprawny wybór Stable/Beta/RC (packaging.Version).
+Sprawdzanie jest ręczne, w osobnym wątku z limitami czasu/odpowiedzi. Oddzielny
+klient HTTPS nie otrzymuje tokenu backendu; dopuszczane są tylko adresy wydań
+OmniCore. Notatki są zwykłym tekstem, brak wydań to normalny stan. Kanał jest
+zapisywany, aktualizacje nie instalują się automatycznie. 19 testów aktualizacji
+oraz stabilizacji GUI PASS (kanały, numery bet, błędy, prywatność, trwałość,
+asynchroniczność i macierz układu), Ruff PASS.
