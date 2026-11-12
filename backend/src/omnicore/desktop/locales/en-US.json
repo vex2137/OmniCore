@@ -323,5 +323,7 @@
   "agent_invalid_plan_step": "Unknown plan step.",
   "agent_turn_limit": "Model turn limit reached.",
   "agent_token_limit": "Task output token budget exhausted (approximate).",
-  "agent_call_conflict": "Repeated tool call ID has conflicting arguments. Nothing was executed."
+  "agent_call_conflict": "Repeated tool call ID has conflicting arguments. Nothing was executed.",
+  "build_provenance": "Commit: {commit} · Channel: {channel} · Build: {date}",
+  "source_checkout": "source checkout (no build date)"
 }

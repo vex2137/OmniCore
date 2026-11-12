@@ -1099,3 +1099,17 @@ AppImage: 98 875 896 bajtów, SHA-256
 `9d483e6daf4e3289ad8a89b9b00cc10f763ae0abb4d82616b3daab2dc2d2bb69`.
 Artefakt: https://github.com/vex2137/OmniCore/actions/runs/43183737436/artifacts/13927718352
 (wygasa 2026-11-19). KDE/Wayland, realny GGUF i RTX4060: NOT TESTED.
+
+### 0.2.0 Beta 3 — etap 1: Agent i wersjonowanie
+
+Bazą jest nie scalona do main gałąź Agents Beta 2, commit 4024dd5. Poprzednia
+paczka Bety 2 świadomie zachowywała metadane RC6; w poprawnym źródle GUI są
+obie pozycje Czat/Agent. Braku Agent w nieznanym pliku użytkownika nie odtworzono.
+Naprawiono blokowanie wyboru trybu po błędzie odczytu ustawień. Nowy test
+zamrożonego GUI wymaga obu trybów i danych kompilacji, zamiast sprawdzać tylko API.
+Kanoniczna wersja distribution.json to 0.2.0-beta.3; Python/hatch normalizują ją
+z tego samego źródła. Dodano scripts/set_version.py (po zmianie: uv lock i eksport
+kontraktów), metadane commit/data/kanał w AppImage i kontrolę zgodności wersji.
+81 testów celowanych PASS, w tym rzeczywiste HTTP i narzędzia plikowe z kontrolowanym
+modelem w Qt; to nie dowód kompatybilności rzeczywistego GGUF ani CUDA. Ruff PASS.
+Pozostałe etapy i paczka Bety 3 pozostają do wykonania. Bez wydania.

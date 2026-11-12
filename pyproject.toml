@@ -4,13 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "omnicore"
-version = "0.1.0rc6"
+dynamic = ["version"]
 description = "Local AI platform with a native Linux desktop client"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
   "httpx>=0.28,<0.29",
+  "packaging>=24,<27",
   "fastapi>=0.115,<1",
   "pydantic>=2.10,<3",
   "uvicorn>=0.34,<1",
@@ -55,3 +56,7 @@ ignore = ["S101"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["omnicore"]
+
+[tool.hatch.version]
+path = "backend/src/omnicore/distribution.json"
+pattern = '"version":\s*"(?P<version>[^\"]+)"'

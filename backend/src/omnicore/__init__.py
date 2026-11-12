@@ -1,3 +1,5 @@
-"""OmniCore backend. No inference engines are bundled with the foundation."""
+"""OmniCore application version, derived from distribution metadata."""
 
-__version__ = "0.1.0rc6"
+from omnicore.release import package_version
+
+__version__ = package_version()

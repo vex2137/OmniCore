@@ -233,3 +233,27 @@ def test_model_check_and_explicit_new_retry_in_gui(agent_window, qtbot, monkeypa
     records = request(w, "GET", f"/api/v1/agents/conversations/{w.current_id}/runs")
     assert records[0]["id"] != source and records[0]["retry_of"] == source
     assert records[0]["state"] == "completed" and records[1]["state"] == "failed"
+
+
+def test_agent_mode_remains_available_after_settings_request_failure(
+    agent_window, qtbot, monkeypatch
+):
+    w, _ = agent_window
+    w.new_conversation()
+    qtbot.waitUntil(lambda: bool(w.current_id) and not w.agent_panel.settings_loading)
+    panel = w.agent_panel
+    assert [panel.mode.itemData(i) for i in range(panel.mode.count())] == ["chat", "agent"]
+    original = w.api.request
+
+    def failing_once(method, path, *args, **kwargs):
+        if path.endswith("/settings"):
+            kwargs["failure"]("engine_timeout")
+        else:
+            original(method, path, *args, **kwargs)
+
+    monkeypatch.setattr(w.api, "request", failing_once)
+    panel.load(w.current_id)
+    assert not panel.settings_loading
+    assert panel.mode.isEnabled()
+    assert panel.steps.isEnabled()
+    assert panel.mode.findData("agent") >= 0

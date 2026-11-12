@@ -60,6 +60,10 @@ def main():
             record = json.loads(report.read_text())
             assert record["ok"] and record["owned"], record
             assert record["version"] == VERSION
+            assert record["agent_modes"] == ["chat", "agent"]
+            assert record["build"]["version"] == VERSION
+            assert record["build"]["built_at"]
+            assert len(record["build"]["source_commit"]) == 40
             assert record["backend_pid"] and not Path(f"/proc/{record['backend_pid']}").exists()
             if index == 0:
                 config = directory / "config/omnicore/desktop.json"

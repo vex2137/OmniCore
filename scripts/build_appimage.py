@@ -11,11 +11,16 @@ import shutil
 import subprocess
 import sys
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
+
+from packaging.version import Version
+
+from omnicore.release import distribution_version, package_version, release_channel
 
 ROOT = Path(__file__).resolve().parents[1]
 GIT = shutil.which("git") or "/usr/bin/git"
-VERSION = json.loads((ROOT / "backend/src/omnicore/distribution.json").read_text())["version"]
+VERSION = distribution_version()
 NAME = f"OmniCore-{VERSION}-x86_64.AppImage"
 
 
@@ -126,6 +131,18 @@ def main():
         raise RuntimeError(
             "AppImage runtime checksum mismatch; review official release before updating"
         )
+    if Version(importlib.metadata.version("omnicore")) != Version(package_version()):
+        raise RuntimeError("Installed package version differs from canonical distribution metadata")
+    provenance = {
+        "version": VERSION,
+        "channel": release_channel(),
+        "source_commit": subprocess.check_output(  # noqa: S603 — fixed Git metadata command.
+            [GIT, "rev-parse", "HEAD"], cwd=ROOT, text=True
+        ).strip(),  # noqa: S603
+        "built_at": datetime.now(UTC).isoformat(),
+    }
+    build_info_file = build / "build_info.json"
+    build_info_file.write_text(json.dumps(provenance, indent=2) + "\n")
     appdir = build / "OmniCore.AppDir"
     run(
         sys.executable,
@@ -144,6 +161,8 @@ def main():
         str(build),
         "--collect-all",
         "omnicore",
+        "--add-data",
+        f"{build_info_file}:omnicore",
         "--collect-submodules",
         "uvicorn",
         "--hidden-import",
@@ -175,11 +194,7 @@ def main():
         "python": platform.python_version(),
         "build_platform": platform.platform(),
         "glibc_build_host": platform.libc_ver(),
-        "source_commit": subprocess.check_output(  # noqa: S603 — local Git metadata.
-            [GIT, "rev-parse", "HEAD"],
-            cwd=ROOT,
-            text=True,  # noqa: S607
-        ).strip(),  # noqa: S603,S607
+        **provenance,
         "runtime": metadata,
         "engine": engine,
         "model_weights": False,

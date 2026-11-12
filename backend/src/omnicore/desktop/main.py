@@ -16,7 +16,7 @@ from omnicore.desktop.i18n import Translator
 from omnicore.desktop.lifecycle import BackendSession
 from omnicore.desktop.platforms import configure_platform
 from omnicore.desktop.window import MainWindow
-from omnicore.release import distribution_version
+from omnicore.release import build_info, distribution_version
 
 
 class SmokeRun:
@@ -90,7 +90,7 @@ class SmokeRun:
         if self.window._health_pending or (self.window.conversations and not self.window.messages):
             return
         self.finished = True
-        self.ok = self.window.is_connected
+        self.ok = self.window.is_connected and self.window.agent_panel.mode.findData("agent") >= 0
         if self.screenshot:
             self.screenshot.parent.mkdir(parents=True, exist_ok=True)
             self.ok = self.window.grab().save(str(self.screenshot)) and self.ok
@@ -110,6 +110,11 @@ class SmokeRun:
                     {
                         "ok": self.ok,
                         "version": distribution_version(),
+                        "build": build_info(),
+                        "agent_modes": [
+                            self.window.agent_panel.mode.itemData(i)
+                            for i in range(self.window.agent_panel.mode.count())
+                        ],
                         "history_digest": hashlib.sha256(
                             json.dumps(
                                 self.window.messages, sort_keys=True, ensure_ascii=False

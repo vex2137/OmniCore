@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator
 
+from omnicore import __version__
 from omnicore.app import create_app
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -13,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_health_checks_database_and_contract(client):
     response = client.get("/api/v1/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.1.0rc6", "database_version": 1}
+    assert response.json() == {"status": "ok", "version": __version__, "database_version": 1}
 
 
 def test_settings_persist_across_restarts(config):

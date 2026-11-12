@@ -176,6 +176,8 @@ class AgentPanel(QWidget):
         def load_failed(code):
             if self.conversation == conversation:
                 self.settings_loading = False
+                for widget in (self.mode, self.steps, self.protocol):
+                    widget.setEnabled(not self.active)
                 self.main.show_error(code)
 
         self.api.request(

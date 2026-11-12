@@ -56,7 +56,7 @@ from omnicore.desktop.model_card import safe_card_markdown
 from omnicore.desktop.report import diagnostic_report, save_report
 from omnicore.desktop.themes import contrast_ratio, palette, readable_accent
 from omnicore.desktop.transcript import ChatTranscript, statistics_text
-from omnicore.release import distribution_version
+from omnicore.release import build_info, distribution_version
 from omnicore.text.context import context_settings
 from omnicore.text.downloads import is_multipart_gguf
 
@@ -796,7 +796,17 @@ class MainWindow(QMainWindow):
         for index, key in enumerate(("auto", "cpu", "cuda")):
             self.device.setItemText(index, self.tr("mode_" + key))
         self.connection.setText(self.tr(self._connection_key))
-        self.about.setText(self.tr("about", path=data_path(), version=distribution_version()))
+        info = build_info()
+        self.about.setText(
+            self.tr("about", path=data_path(), version=distribution_version())
+            + "\n"
+            + self.tr(
+                "build_provenance",
+                commit=info.get("source_commit") or self.tr("unknown"),
+                date=info.get("built_at") or self.tr("source_checkout"),
+                channel=info["channel"],
+            )
+        )
         self.refresh_model_table()
         self.render_messages()
         self._fill_conversations()
