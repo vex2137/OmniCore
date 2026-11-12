@@ -1094,3 +1094,8 @@ Build Actions `43183737436` zakończył się sukcesem: rzeczywisty AppImage prze
 podwójny start Xvfb/restart/dane i nowy test API agentów. Cloud blokuje pobranie
 z Azure (403), dlatego dodano oddzielny wariant `verify_run_id`, który ponownie
 pobiera istniejący artefakt i weryfikuje bajty na runnerze, bez budowania paczki.
+Ponowne pobranie i kontrola bajtów w Actions `43184892219`: PASS, bez rebuilda.
+AppImage: 98 875 896 bajtów, SHA-256
+`9d483e6daf4e3289ad8a89b9b00cc10f763ae0abb4d82616b3daab2dc2d2bb69`.
+Artefakt: https://github.com/vex2137/OmniCore/actions/runs/43183737436/artifacts/13927718352
+(wygasa 2026-11-19). KDE/Wayland, realny GGUF i RTX4060: NOT TESTED.
