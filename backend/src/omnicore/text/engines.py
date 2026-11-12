@@ -458,9 +458,7 @@ class LlamaEngine:
                     "CUDA0",
                 )
             elif requested_device == "auto":
-                requested_device = (
-                    self.devices[0] if wants_gpu and self.devices else "cpu"
-                )
+                requested_device = self.devices[0] if wants_gpu and self.devices else "cpu"
 
             if not parameters.gpu_layers:
                 requested_device = "cpu"
@@ -471,14 +469,8 @@ class LlamaEngine:
                 and self.parameters is not None
                 and requested_device in {"cpu", *self.devices}
             ):
-                selected = self._device_executables.get(
-                    requested_device, self._cpu_executable
-                )
-                fallback = (
-                    "gpu_unavailable"
-                    if wants_gpu and requested_device == "cpu"
-                    else None
-                )
+                selected = self._device_executables.get(requested_device, self._cpu_executable)
+                fallback = "gpu_unavailable" if wants_gpu and requested_device == "cpu" else None
                 layers = parameters.gpu_layers if requested_device != "cpu" else 0
                 desired = (
                     str(path),

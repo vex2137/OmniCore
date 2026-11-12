@@ -17,6 +17,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from omnicore import __version__
 from omnicore.adapters import AdapterRegistry
+from omnicore.agents.api import routes as agent_routes
 from omnicore.config import RuntimeConfig
 from omnicore.database import Database
 from omnicore.events import EventHub
@@ -72,6 +73,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
     app.state.hub = hub
     app.state.text = text
     app.include_router(routes(text))
+    app.include_router(agent_routes(text))
 
     def openapi():
         if app.openapi_schema is None:

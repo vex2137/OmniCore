@@ -47,6 +47,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from omnicore.desktop.agents import AgentPanel
 from omnicore.desktop.composer import Composer
 from omnicore.desktop.config import data_path
 from omnicore.desktop.history import grouped_history
@@ -334,6 +335,8 @@ class MainWindow(QMainWindow):
         self.context_status = QLabel()
         self.context_status.setWordWrap(True)
         chat.addWidget(self.context_status)
+        self.agent_panel = AgentPanel(self)
+        chat.addWidget(self.agent_panel)
         self.transcript = ChatTranscript()
         self.transcript.regenerate_requested.connect(self.regenerate_answer)
         chat.addWidget(self.transcript, 1)
@@ -757,6 +760,7 @@ class MainWindow(QMainWindow):
             self.refresh_diagnostics()
 
     def retranslate(self):
+        self.agent_panel.retranslate()
         for widget, key in self._texts:
             widget.setText(self.tr(key))
         self.page_title.setText(
@@ -1206,6 +1210,9 @@ class MainWindow(QMainWindow):
             self.refresh_messages()
 
     def new_conversation(self):
+        if self.agent_panel.active:
+            self.show_error("conversation_busy")
+            return
         if not self.is_connected:
             return
         if self.active_job:
@@ -1227,7 +1234,11 @@ class MainWindow(QMainWindow):
             self.open_conversation(item.data(Qt.UserRole))
 
     def open_conversation(self, conversation_id):
+        if self.agent_panel.active and conversation_id != self.current_id:
+            self.show_error("conversation_busy")
+            return
         self.current_id = conversation_id
+        self.agent_panel.load(conversation_id)
         self.last_job = None
         record = next((r for r in self.conversations if r["id"] == conversation_id), None)
         if record and record["model_id"]:
@@ -1302,6 +1313,7 @@ class MainWindow(QMainWindow):
             return
 
         def deleted(_):
+            self.agent_panel.load(None)
             self.current_id = None
             self.last_job = None
             self.messages = []
@@ -1387,6 +1399,9 @@ class MainWindow(QMainWindow):
         self.api.request("GET", TEXT + f"/models/{model_id}/context", success=received)
 
     def save_model_context(self):
+        if self.agent_panel.active:
+            self.show_error("conversation_busy")
+            return
         model = self._selected_chat_model()
         if not model or self._context_saving or self.active_job:
             return
@@ -1430,6 +1445,8 @@ class MainWindow(QMainWindow):
         return self._parameters_for_model(self._selected_chat_model())
 
     def send_message(self):
+        if self.agent_panel.active:
+            return
         if self.active_job or self._submitting or self._context_saving or not self.is_connected:
             return
         if not self.current_id:
@@ -1441,6 +1458,11 @@ class MainWindow(QMainWindow):
             return
         content = self.composer.toPlainText().strip()
         if not content:
+            return
+        if self.agent_panel.settings_saving or self.agent_panel.settings_loading:
+            return
+        if self.agent_panel.mode.currentData() == "agent":
+            self.agent_panel.send(content, model, self.request_parameters())
             return
         self.send_button.setEnabled(False)
         self._submitting = True
@@ -1526,6 +1548,9 @@ class MainWindow(QMainWindow):
             )
 
     def stop_generation(self):
+        if self.agent_panel.active:
+            self.agent_panel.stop()
+            return
         if self.active_job:
             self.api.request(
                 "POST",
@@ -2439,6 +2464,7 @@ class MainWindow(QMainWindow):
             return
         self._closing = True
         self._poll.stop()
+        self.agent_panel.timer.stop()
         self.pages.setEnabled(False)
         self._connection_key = "closing"
         self.connection.setText(self.tr("closing"))

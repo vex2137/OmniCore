@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
+from omnicore.agents.service import Agents
 from omnicore.config import RuntimeConfig
 from omnicore.diagnostics import HardwareSnapshot, hardware_snapshot
 from omnicore.events import EventHub
@@ -153,18 +154,24 @@ class TextService:
             self.store, self.models, self.engines, hub, timeout=config.generation_timeout
         )
         self.history = Conversations(self.store)
+        self.agents = Agents(self)
+        self.generations.external_busy = self.agents.active_for
 
     def initialize(self):
         self.store.initialize()
         self.downloads.initialize()
         self.generations.initialize()
+        self.agents.initialize()
 
     async def close(self):
+        await self.agents.close()
         await self.generations.close()
         await self.downloads.close()
 
     def require_idle(self, *, model_id=None, conversation_id=None):
-        if self.generations.active_for(model_id=model_id, conversation_id=conversation_id):
+        if self.generations.active_for(
+            model_id=model_id, conversation_id=conversation_id
+        ) or self.agents.active_for(model_id=model_id, conversation_id=conversation_id):
             raise TextError("conversation_busy", 409)
 
 
@@ -413,6 +420,9 @@ def routes(service: TextService):
         async with service.generations.submission_lock:
             service.require_idle(conversation_id=conversation_id)
             await run_in_threadpool(service.history.delete, conversation_id)
+            for grant in list(service.agents.files.grants.values()):
+                if grant.active and grant.conversation_id == conversation_id:
+                    service.agents.files.revoke(grant.id, conversation_id)
             return {"status": "removed"}
 
     @router.get("/conversations/{conversation_id}/messages", response_model=list[MessageRecord])

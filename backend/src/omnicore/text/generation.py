@@ -97,6 +97,8 @@ class GenerationManager:
 
     async def submit(self, conversation_id, request: GenerationRequest):
         async with self.submission_lock:
+            if getattr(self, "external_busy", lambda **_: False)(conversation_id=conversation_id):
+                raise TextError("conversation_busy", 409)
             conversation = await asyncio.to_thread(self.history.get, conversation_id)
             model_id = request.model_id or conversation.model_id
             if not model_id:

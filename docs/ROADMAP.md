@@ -200,6 +200,15 @@ Przepływy są zweryfikowane na Linux, Web i Android; diagnostyka i interfejs
 PL/EN z trzema trybami motywu działają zgodnie z udokumentowaną macierzą.
 Instrukcje i znane ograniczenia są aktualne. Publiczne wydanie wymaga zgody właściciela.
 
+## Bieżące zlecenie: 0.2.0 Agents Beta 1
+
+Właściciel przesunął podstawowego lokalnego agenta przed Training Studio.
+Zaimplementowano pionowy przepływ Qt/API/narzędzia/zgoda/SQLite, bez terminala,
+sieci ani automatycznego zapisu. Zakres i granice: [AGENTS_BETA1.md](AGENTS_BETA1.md).
+Rzeczywisty model oraz CachyOS/KDE/CUDA pozostają do weryfikacji właściciela.
+Nie rozpoczynać treningu ani rozszerzać automatyzacji w tym etapie.
+Poniższe dalsze plany historyczne nie są realizowane przez ten checkpoint.
+
 ## OmniCore 0.2.0 — AI Training Studio
 
 **Status:** planowane, nierozpoczęte.

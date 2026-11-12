@@ -1018,3 +1018,35 @@ zostało opublikowane ani uznane za zweryfikowane na natywnym pulpicie właścic
 Pozostałe obowiązkowe próby na CachyOS (Wayland/X11, KDE HiDPI i wiele ekranów,
 prywatne dane po aktualizacji, rzeczywisty offload RTX 4060 i modele właściciela,
 dialogi/clipboard/czytnik ekranu) opisano w README przy screenshotach.
+
+
+## 0.2.0 Agents Beta 1 — checkpoint źródłowy
+
+- Baza: zdalne RC8 `e0e968682f4019c3775d80c5f696451e21b3a2a9`, zawierające
+  main i 18 dodatkowych commitów. Gałąź `feature/0.2.0-agents-beta1`.
+- Dodano osobny orkiestrator, rejestr sześciu narzędzi, walidację ścisłego
+  protokołu JSON oraz natywne wywołania dla Ollama deklarującego tool-calling.
+  llama.cpp korzysta z istniejącego silnika, ustawień i adaptera JSON.
+- Działający przepływ Qt/API: Czat/Agent per rozmowa, udostępnienie/cofnięcie
+  katalogu, przebieg operacji, podgląd diff, zgoda/odmowa, Stop i historia SQLite.
+  Domyślnie zero dostępu do plików; brak terminala, internetu i wykonywania kodu.
+- Testy potwierdziły granice katalogów, symlinki/traversal, limity, konflikty
+  zapisu, anulowanie podczas streamingu i zatwierdzonego commitu, odrzucenie
+  niepełnych odpowiedzi, restart bez ponawiania zapisu i redakcję audytu.
+  Naprawiono wykryte wyścigi inicjalizacji GUI i anulowania w trakcie zapisu.
+- PASS: końcowe **266 testów** backendu i desktopu (Qt offscreen), w tym
+  38 nowych backendowych i 2 GUI. GUI wykorzystuje prawdziwe HTTP i operacje
+  plikowe, ale kontrolowany transport modelu. Ruff, formatowanie 114 plików,
+  kontrakty, diff-check i istniejący smoke CLI/HTTP/WS/restart PASS.
+  Normalizacja trzech istniejących wyrażeń w engines.py jest wyłącznie
+  formatowaniem wymaganym przez kontrolę Ruff; nie zmieniono mechanizmu inferencji.
+- NOT TESTED: prawdziwy GGUF/natywne tool-calling na modelu właściciela,
+  CachyOS/KDE/Wayland i CUDA RTX4060. Narzędzia plikowe Beta 1 wymagają
+  Linux/operacji na deskryptorach; inne systemy odmawiają bezpiecznie.
+- Nie zmieniono zależności, wersji dystrybucyjnej ani schematu bazy; stare rozmowy
+  zachowane. Nie budowano instalatorów i nie publikowano wydania.
+- Instrukcja i granice: [AGENTS_BETA1.md](AGENTS_BETA1.md). Agentowe metadane są
+  trwałe w SQLite, ale eksport rozmowy zachowuje format RC8 bez audytu/agenta.
+  Uprawnienia do katalogów trzeba nadać ponownie po restarcie backendu.
+- Następny krok: rzeczywisty lokalny test modelu oraz zatwierdzenia/odmowy/Stop
+  na katalogu roboczym właściciela. Nie deklarować zgodności wszystkich GGUF.

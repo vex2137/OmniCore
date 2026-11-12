@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Literal
@@ -109,6 +110,16 @@ class Conversations:
         self.get(conversation_id)
         with self.store.db.connect() as connection, connection:
             connection.execute("DELETE FROM text_conversations WHERE id=?", (conversation_id,))
+            connection.execute(
+                "DELETE FROM text_jobs WHERE kind='agent-settings' AND id=?", (conversation_id,)
+            )
+            for row in connection.execute(
+                "SELECT id,record FROM text_jobs WHERE kind='agent-run'"
+            ).fetchall():
+                if json.loads(row[1])["conversation_id"] == conversation_id:
+                    connection.execute(
+                        "DELETE FROM text_jobs WHERE kind='agent-run' AND id=?", (row[0],)
+                    )
 
     def messages(self, conversation_id, query=""):
         self.get(conversation_id)
