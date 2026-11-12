@@ -325,5 +325,8 @@
   "agent_token_limit": "Task output token budget exhausted (approximate).",
   "agent_call_conflict": "Repeated tool call ID has conflicting arguments. Nothing was executed.",
   "build_provenance": "Commit: {commit} · Channel: {channel} · Build: {date}",
-  "source_checkout": "source checkout (no build date)"
+  "source_checkout": "source checkout (no build date)",
+  "context_configure": "Model context settings",
+  "tokens_short": "tok.",
+  "decimal_separator": "."
 }

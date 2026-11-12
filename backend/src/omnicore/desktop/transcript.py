@@ -129,13 +129,15 @@ class MessageCard(QFrame):
             stats = message.get("statistics") or {}
             summary = []
             for key, suffix in (
-                ("tokens_per_second", "tok/s"),
-                ("output_tokens", tr("output_tokens")),
                 ("ttft_seconds", "s TTFT"),
+                ("tokens_per_second", "tok/s"),
+                ("output_tokens", tr("tokens_short")),
+                ("generation_seconds", "s"),
             ):
                 value = stats.get(key)
                 if value is not None:
                     number = f"{value:.2f}" if isinstance(value, float) else str(value)
+                    number = number.replace(".", tr("decimal_separator"))
                     summary.append(f"{number} {suffix}")
             label = QLabel(" · ".join(summary))
             label.setToolTip(details)

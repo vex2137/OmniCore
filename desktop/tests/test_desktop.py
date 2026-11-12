@@ -401,7 +401,7 @@ def test_native_markdown_code_model_identity_statistics_and_safe_resources(qtbot
         "Strong" in b.toPlainText() and "**Strong**" not in b.toPlainText() for b in browsers
     )
     assert any(
-        "2 Output tokens" in label.text()
+        "2 tok." in label.text()
         and "0.10 s TTFT" in label.text()
         and "token limit" in label.toolTip()
         for label in card.findChildren(QLabel)

@@ -325,5 +325,8 @@
   "agent_token_limit": "Wyczerpano przybliżony budżet tokenów odpowiedzi zadania.",
   "agent_call_conflict": "Powtórzone ID narzędzia ma inne argumenty. Niczego nie wykonano.",
   "build_provenance": "Commit: {commit} · Kanał: {channel} · Kompilacja: {date}",
-  "source_checkout": "kod źródłowy (bez daty kompilacji)"
+  "source_checkout": "kod źródłowy (bez daty kompilacji)",
+  "context_configure": "Ustawienia kontekstu modelu",
+  "tokens_short": "tok.",
+  "decimal_separator": ","
 }

@@ -2,9 +2,11 @@
 
 import asyncio
 import json
+import os
 import secrets
 import socket
 import threading
+from pathlib import Path
 
 import pytest
 import uvicorn
@@ -157,6 +159,15 @@ def test_agent_gui_read_review_write_and_durable_mode(agent_window, qtbot, monke
     panel.load(w.current_id)
     qtbot.waitUntil(lambda: panel.tree.topLevelItemCount() == 3)
     assert service.agents.settings(w.current_id).mode == "agent"
+    output = os.environ.get("OMNICORE_BETA3_SCREENSHOTS")
+    if output:
+        directory = Path(output)
+        directory.mkdir(parents=True, exist_ok=True)
+        w.resize(1280, 720)
+        qtbot.wait(100)
+        w.transcript.scroll_bottom()
+        qtbot.wait(50)
+        assert w.grab().save(str(directory / "agent-task-completed.png"))
 
 
 def test_agent_controls_themes_scale_and_chat_default(desktop, qtbot):
@@ -257,3 +268,44 @@ def test_agent_mode_remains_available_after_settings_request_failure(
     assert panel.mode.isEnabled()
     assert panel.steps.isEnabled()
     assert panel.mode.findData("agent") >= 0
+
+
+def test_beta3_compact_chat_header_and_context_disclosure(desktop, qtbot):
+    w = desktop
+    assert w.agent_panel.mode.parentWidget() is w.model_combo.parentWidget()
+    assert w.context_controls.isHidden()
+    qtbot.mouseClick(w.context_button, Qt.LeftButton)
+    assert not w.context_controls.isHidden()
+    qtbot.mouseClick(w.context_button, Qt.LeftButton)
+    assert w.context_controls.isHidden()
+    assert [w.agent_panel.mode.itemData(i) for i in range(w.agent_panel.mode.count())] == [
+        "chat",
+        "agent",
+    ]
+
+
+def test_beta3_statistics_are_measured_compact_and_localized(qtbot):
+    from PySide6.QtWidgets import QLabel
+
+    from omnicore.desktop.i18n import Translator
+    from omnicore.desktop.transcript import MessageCard
+
+    card = MessageCard(
+        {
+            "role": "assistant",
+            "content": "Answer",
+            "statistics": {
+                "ttft_seconds": 0.87,
+                "tokens_per_second": 100.3,
+                "output_tokens": 17,
+                "generation_seconds": 1.04,
+            },
+        },
+        Translator("pl-PL"),
+    )
+    qtbot.addWidget(card)
+    labels = [label.text() for label in card.findChildren(QLabel)]
+    assert any(
+        "0,87 s TTFT" in t and "100,30 tok/s" in t and "17 tok." in t and "1,04 s" in t
+        for t in labels
+    )

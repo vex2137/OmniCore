@@ -319,7 +319,24 @@ class MainWindow(QMainWindow):
         self.model_combo.setMinimumWidth(180)
         self.model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.model_combo.currentIndexChanged.connect(self.model_selected)
-        chat.addLayout(self.row(self.model_combo, self.button("refresh", self.refresh_models)))
+        self.chat_header = self.row(self.model_combo)
+        self.context_button = QPushButton("⚙")
+        self.context_button.setFixedWidth(36)
+        self.context_button.setStyleSheet("padding: 0; font-size: 16px;")
+        self.context_button.setCheckable(True)
+        self.chat_refresh = QPushButton("↻")
+        self.chat_refresh.setFixedWidth(36)
+        self.chat_refresh.setStyleSheet("padding: 0; font-size: 16px;")
+        self.chat_refresh.clicked.connect(self.refresh_models)
+        self.chat_header.addWidget(self.context_button)
+        self.chat_header.addWidget(self.chat_refresh)
+        chat.addLayout(self.chat_header)
+        self.context_controls = QWidget()
+        context_layout = QVBoxLayout(self.context_controls)
+        context_layout.setContentsMargins(0, 0, 0, 0)
+        self.context_controls.hide()
+        self.context_button.toggled.connect(self.context_controls.setVisible)
+        chat.addWidget(self.context_controls)
         self.context_mode = QComboBox()
         self.context_mode.addItem(self.tr("context_auto"), "auto")
         self.context_mode.addItem(self.tr("context_manual"), "manual")
@@ -331,11 +348,14 @@ class MainWindow(QMainWindow):
         self.context_tokens.setValue(2048)
         self.context_tokens.valueChanged.connect(self._context_edited)
         self.context_save = self.button("context_save", self.save_model_context)
-        chat.addLayout(self.row(self.context_mode, self.context_tokens, self.context_save))
+        context_layout.addLayout(
+            self.row(self.context_mode, self.context_tokens, self.context_save)
+        )
         self.context_status = QLabel()
         self.context_status.setWordWrap(True)
-        chat.addWidget(self.context_status)
+        context_layout.addWidget(self.context_status)
         self.agent_panel = AgentPanel(self)
+        self.chat_header.insertWidget(1, self.agent_panel.mode)
         chat.addWidget(self.agent_panel)
         self.transcript = ChatTranscript()
         self.transcript.regenerate_requested.connect(self.regenerate_answer)
@@ -364,19 +384,16 @@ class MainWindow(QMainWindow):
         self.context_toggle.toggled.connect(self.context_details.setVisible)
         chat.addWidget(self.context_toggle)
         chat.addWidget(self.context_details)
-        self.regenerate_button = self.button("regenerate", self.regenerate_answer)
-        self.regenerate_button.setToolTip(self.tr("regenerate_branch"))
         self.send_button = self.button("send", self.send_message, primary=True)
         self.stop_button = self.button("stop", self.stop_generation)
         self.stop_button.setEnabled(False)
-        chat.addLayout(
-            self.row(
-                self.button("copy", self.copy_answer),
-                self.regenerate_button,
-                self.stop_button,
-                self.send_button,
-            )
-        )
+        actions = QHBoxLayout()
+        actions.addStretch()
+        self.stop_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.send_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        actions.addWidget(self.stop_button)
+        actions.addWidget(self.send_button)
+        chat.addLayout(actions)
         outer.addWidget(pane, 1)
         self.pages.addWidget(page)
 
@@ -776,6 +793,10 @@ class MainWindow(QMainWindow):
         self.model_actions.setAccessibleName(self.tr("model_actions"))
         self.model_unload_action.setText(self.tr("unload"))
         self.model_remove_action.setText(self.tr("remove_entry"))
+        self.context_button.setToolTip(self.tr("context_configure"))
+        self.context_button.setAccessibleName(self.tr("context_configure"))
+        self.chat_refresh.setToolTip(self.tr("refresh"))
+        self.chat_refresh.setAccessibleName(self.tr("refresh"))
         self.model_search.setPlaceholderText(self.tr("model_search"))
         for index, key in enumerate(("sort_name", "sort_size", "sort_recent")):
             self.model_sort.setItemText(index, self.tr(key))
@@ -1594,13 +1615,6 @@ class MainWindow(QMainWindow):
             and not self._submitting
         )
         self.transcript.set_messages(messages, self.tr)
-        self.regenerate_button.setEnabled(
-            self.is_connected
-            and bool(self.model_combo.currentData())
-            and not self.active_job
-            and not self._submitting
-            and any(m["role"] == "assistant" and m.get("content") for m in messages)
-        )
         latest = next(
             (m.get("statistics") or {} for m in reversed(messages) if m["role"] == "assistant"), {}
         )
@@ -1632,7 +1646,7 @@ class MainWindow(QMainWindow):
             return
         source = self.current_id
         self._submitting = True
-        self.regenerate_button.setEnabled(False)
+        self.render_messages()
 
         def failed(code):
             self._submitting = False

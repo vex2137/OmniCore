@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QListWidget,
     QMessageBox,
@@ -75,7 +76,11 @@ class AgentPanel(QWidget):
         inner.addWidget(self.revoke)
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels([main.tr("agent_tool"), main.tr("agent_state"), "ms"])
-        self.tree.setMaximumHeight(160)
+        self.tree.header().setStretchLastSection(False)
+        self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.tree.setMaximumHeight(110)
         self.tree.setMinimumHeight(70)
         inner.insertWidget(0, self.tree)
         self.status = QLabel()
@@ -85,7 +90,7 @@ class AgentPanel(QWidget):
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setWidget(self.details)
-        self.scroll.setMaximumHeight(220)
+        self.scroll.setMaximumHeight(150)
         self.scroll.setMinimumHeight(90)
         layout.addWidget(self.scroll)
         layout.addWidget(self.status)

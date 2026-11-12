@@ -1113,3 +1113,17 @@ kontraktów), metadane commit/data/kanał w AppImage i kontrolę zgodności wers
 81 testów celowanych PASS, w tym rzeczywiste HTTP i narzędzia plikowe z kontrolowanym
 modelem w Qt; to nie dowód kompatybilności rzeczywistego GGUF ani CUDA. Ruff PASS.
 Pozostałe etapy i paczka Bety 3 pozostają do wykonania. Bez wydania.
+
+### 0.2.0 Beta 3 — etap 2: kompaktowy czat
+
+Model i tryb Czat/Agent są razem w nagłówku. Kontekst przeniesiono do rozwijanego
+panelu, usunięto duże duplikaty kopiowania/regeneracji pod polem wiadomości,
+zachowując te akcje pod odpowiedziami. Przyciski wysyłania/zatrzymania mają
+naturalną szerokość. Pasek metryk obejmuje TTFT, tok/s, tokeny i czas całkowity,
+z polskim/angielskim formatem liczbowym i bez wypełniania brakujących danych.
+Panel aktywności agenta ma mniejszy limit wysokości i czytelne szerokości kolumn.
+Naprawiono padding ikony konfiguracji wykryty macierzą rozdzielczości/skal.
+13 testów GUI agentów i stabilizacji PASS; po dopracowaniu tabeli aktywności
+6 testów agentowego Qt ponownie PASS. Ruff PASS. Zrzut w docs/screenshots/beta3
+jest rzeczywistym GUI z kontrolowanym modelem i faktycznym zatwierdzonym zapisem
+pliku; nie jest testem rzeczywistej inferencji GGUF ani CUDA.
