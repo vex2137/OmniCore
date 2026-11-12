@@ -25,6 +25,15 @@ on:
       - 'uv.lock'
       - '.github/workflows/linux-appimage.yml'
   workflow_dispatch:
+    inputs:
+      agents_beta2:
+        description: Build the exact Agents Beta 2 application source (no release)
+        type: boolean
+        default: false
+      source_sha:
+        description: Exact application SHA for the Agents Beta 2 test package
+        type: string
+        default: b50153c6c21956a04c7ceeb31a5ccba65555f63c
 
 permissions:
   contents: read
@@ -44,6 +53,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Preserve workflow-side packaging check and validate requested source
+        if: inputs.agents_beta2 == true
+        env:
+          REQUESTED_SHA: ${{ inputs.source_sha }}
+        run: |
+          test "$REQUESTED_SHA" = b50153c6c21956a04c7ceeb31a5ccba65555f63c
+          cp scripts/test_agents_appimage.py "$RUNNER_TEMP/test_agents_appimage.py"
+          git fetch origin feature/0.2.0-agents-beta2
+          git merge-base --is-ancestor "$REQUESTED_SHA" origin/feature/0.2.0-agents-beta2
+      - uses: actions/checkout@v4
+        if: inputs.agents_beta2 == true
+        with:
+          ref: ${{ inputs.source_sha }}
+      - name: Check exact application source
+        if: inputs.agents_beta2 == true
+        env:
+          REQUESTED_SHA: ${{ inputs.source_sha }}
+        run: test "$(git rev-parse HEAD)" = "$REQUESTED_SHA"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -52,6 +80,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build cmake patchelf squashfs-tools xvfb libegl1 libopengl0 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-shape0 libxcb-xfixes0 libxcb-randr0 libxcb-sync1 libxcb-xinput0 libxcb-glx0
           python -m pip install uv==0.12.23
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-appimage-${{ runner.os }}-${{ hashFiles('uv.lock') }}
       - run: uv sync --frozen --extra desktop --group gui-test --group packaging
       - run: uv run --frozen ruff check .
       - run: uv run --frozen ruff format --check .
@@ -59,25 +91,74 @@ jobs:
       - name: Check native Qt platform before pytest capture
         run: xvfb-run -a uv run --frozen python -c 'from PySide6.QtWidgets import QApplication; app = QApplication([]); print("Qt platform:", app.platformName())'
       - name: Backend and native GUI tests (no GPU or weights)
+        if: inputs.agents_beta2 != true
         run: xvfb-run -a uv run --frozen pytest backend/tests desktop/tests -q
+      - name: Reuse completed source tests
+        if: inputs.agents_beta2 == true
+        run: echo 'Exact b50153c source already passed 285 tests; run package-specific smoke below.'
+      - uses: actions/cache@v4
+        id: cpu-engine
+        with:
+          path: ${{ runner.temp }}/llama.cpp
+          key: llama-cpu-ubuntu22-x86_64-${{ env.LLAMA_COMMIT }}-nativeOFF-openmpOFF-curlOFF-v1
       - name: Build pinned CPU engine
+        if: steps.cpu-engine.outputs.cache-hit != 'true'
         run: |
           git clone https://github.com/ggml-org/llama.cpp.git "$RUNNER_TEMP/llama.cpp"
           git -C "$RUNNER_TEMP/llama.cpp" checkout --detach "$LLAMA_COMMIT"
           cmake -S "$RUNNER_TEMP/llama.cpp" -B "$RUNNER_TEMP/llama.cpp/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON
           cmake --build "$RUNNER_TEMP/llama.cpp/build" --target llama-server -j 2
+      - name: Verify CPU source and binary, including cache hits
+        run: |
+          test "$(git -C "$RUNNER_TEMP/llama.cpp" rev-parse HEAD)" = "$LLAMA_COMMIT"
+          git -C "$RUNNER_TEMP/llama.cpp" diff --exit-code
+          grep -Fx 'GGML_CUDA:BOOL=OFF' "$RUNNER_TEMP/llama.cpp/build/CMakeCache.txt"
+          grep -Fx 'GGML_NATIVE:BOOL=OFF' "$RUNNER_TEMP/llama.cpp/build/CMakeCache.txt"
+          "$RUNNER_TEMP/llama.cpp/build/bin/llama-server" --version
+          ldd "$RUNNER_TEMP/llama.cpp/build/bin/llama-server" > "$RUNNER_TEMP/engine-libraries.txt"
+          ! grep -q 'not found' "$RUNNER_TEMP/engine-libraries.txt"
       - name: Build AppImage
         run: uv run --frozen python scripts/build_appimage.py --llama-server "$RUNNER_TEMP/llama.cpp/build/bin/llama-server"
       - name: Run actual AppImage twice and verify persistence and process cleanup
         run: xvfb-run -a uv run --frozen python scripts/test_appimage.py
+      - name: Verify packaged Agents Beta 2 and prepare delivery metadata
+        if: inputs.agents_beta2 == true
+        env:
+          EXPECTED_SHA: ${{ inputs.source_sha }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          image=$(find dist -maxdepth 1 -name '*.AppImage' -type f)
+          test -n "$image"
+          python "$RUNNER_TEMP/test_agents_appimage.py" --appimage "$image" --expected-source "$EXPECTED_SHA" --output dist/agents-package-test.json
+          python - <<'PYMETA'
+          import hashlib, json, os
+          from pathlib import Path
+          old, = Path('dist').glob('*.AppImage')
+          new = old.with_name('OmniCore-0.2.0-Agents-Beta-2-x86_64.AppImage')
+          old.rename(new)
+          with new.open('rb') as stream:
+              checksum = hashlib.file_digest(stream, 'sha256').hexdigest()
+          old.with_suffix('.AppImage.sha256').unlink()
+          new.with_suffix('.AppImage.sha256').write_text(f'{checksum}  {new.name}\n')
+          result = {'filename': new.name, 'bytes': new.stat().st_size, 'sha256': checksum,
+                    'source_commit': os.environ['EXPECTED_SHA'], 'workflow_commit': os.environ['WORKFLOW_SHA'],
+                    'test_label': '0.2.0 Agents Beta 2', 'retention_days': 7,
+                    'bundled_engine': 'CPU', 'gpu_inference': 'NOT TESTED', 'models_bundled': False}
+          Path('dist/agents-delivery.json').write_text(json.dumps(result, indent=2) + '\n')
+          print(json.dumps(result, indent=2))
+          PYMETA
+          cd dist
+          sha256sum -c OmniCore-0.2.0-Agents-Beta-2-x86_64.AppImage.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: OmniCore-linux-x86_64
+          name: ${{ inputs.agents_beta2 == true && 'OmniCore-0.2.0-Agents-Beta-2-linux-x86_64' || 'OmniCore-linux-x86_64' }}
           path: |
             dist/OmniCore-*.AppImage
             dist/OmniCore-*.AppImage.sha256
             dist/build-manifest.json
             dist/appimage-test.json
             dist/appimage-test.png
+            dist/agents-package-test.json
+            dist/agents-delivery.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: ${{ inputs.agents_beta2 == true && 7 || 30 }}

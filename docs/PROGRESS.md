@@ -1077,3 +1077,16 @@ dialogi/clipboard/czytnik ekranu) opisano w README przy screenshotach.
 - Bez wydania i instalatorów; nie rozpoczęto Bety 3. Następny krok: lokalny
   krótki scenariusz porównania dwóch plików, korekta planu, zgoda/odmowa,
   anulowanie i nowa próba oraz restart dla modeli właściciela.
+
+### Agents Beta 2 — ręczny testowy AppImage
+
+Rozszerzono zarejestrowany workflow `linux-appimage.yml` o wejścia `agents_beta2`
+i `source_sha`. Kod aplikacji pozostaje dokładnie `b50153c6c21956a04c7ceeb31a5ccba65555f63c`;
+commit workflow jest osobno zapisany w metadanych dostawy. Bez zmiany aplikacji,
+modeli, GUI i wersji dystrybucyjnej RC; nazwa paczki zawiera testową etykietę Bety 2.
+Wykorzystano istniejący PyInstaller/AppImage i przypięty silnik CPU, bez GGUF
+ani sterowników NVIDIA. Zewnętrzny llama.cpp CUDA/Ollama pozostaje konfiguracją
+użytkownika. Artefakt Actions: 7 dni, bez Release. Nowy check sprawdza rzeczywistą
+paczkę, SHA źródła, PySide6, biblioteki/sumę silnika i API agentów zamrożonego
+backendu. Lokalnie: 6 testów zabezpieczeń paczki, Ruff, YAML i składnia bash PASS;
+285 testów nie powtarzano. Wynik rzeczywistego builda wymaga odczytu biegu Actions.
