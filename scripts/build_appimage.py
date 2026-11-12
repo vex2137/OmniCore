@@ -184,7 +184,8 @@ def main():
     shutil.copy2(ROOT / "packaging/linux/io.github.vex2137.OmniCore.desktop", appdir)
     icon = ROOT / "backend/src/omnicore/desktop/icon.svg"
     shutil.copy2(icon, appdir / "io.github.vex2137.OmniCore.svg")
-    (appdir / ".DirIcon").symlink_to("io.github.vex2137.OmniCore.svg")
+    shutil.copy2(icon.with_suffix(".png"), appdir / "io.github.vex2137.OmniCore.png")
+    (appdir / ".DirIcon").symlink_to("io.github.vex2137.OmniCore.png")
     licenses = appdir / "usr/share/licenses/OmniCore"
     copy_licenses(licenses)
     shutil.copy2(ROOT / "packaging/linux/appimage-runtime-LICENSE", licenses)

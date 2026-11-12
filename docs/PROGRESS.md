@@ -1162,3 +1162,16 @@ OmniCore. Notatki są zwykłym tekstem, brak wydań to normalny stan. Kanał jes
 zapisywany, aktualizacje nie instalują się automatycznie. 19 testów aktualizacji
 oraz stabilizacji GUI PASS (kanały, numery bet, błędy, prywatność, trwałość,
 asynchroniczność i macierz układu), Ruff PASS.
+
+### 0.2.0 Beta 3 — etap 6: integracja KDE
+
+Zaadaptowano wzorzec Kalendarza 13cf46a do istniejącej tożsamości OmniCore, bez
+zmiany desktop ID/StartupWMClass. Opcja AppImage --install-desktop-entry zapisuje
+launcher użytkownika i PNG z hashem, wykonuje atomowe aktualizacje i backup,
+zachowuje tłumaczenia/własne akcje, usuwa nieaktualny TryExec. Wrapper jest jawny,
+a AppImage nie instaluje nic przy zwykłym starcie. Odświeżane są dostępne narzędzia
+KDE/desktop database; brak zmian przypięć, bazy i historii. Dodano fish, xprop/KWin
+oraz instrukcję ponownego przypięcia wyłącznie OmniCore w docs/APPIMAGE.md.
+7 testów instalatora PASS: quoting, idempotencja, kopie, zachowanie danych i pinów,
+bezpieczne odrzucanie błędnych ścieżek/symlinków/ikony. Ruff PASS.
+PNG pochodzi z oryginalnego SVG. Rzeczywista ikona panelu Plasma 6: NOT TESTED.
