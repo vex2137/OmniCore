@@ -79,6 +79,19 @@ def human_size(value):
     return f"{number:.1f} PiB"
 
 
+def sidebar_text(text, metrics, width):
+    """Wrap complete sidebar labels using the current platform's actual font metrics."""
+    lines, line = [], ""
+    for word in text.split():
+        candidate = (line + " " + word).strip()
+        if line and metrics.horizontalAdvance(candidate) > width:
+            lines.append(line)
+            line = word
+        else:
+            line = candidate
+    return "\n".join([*lines, line])
+
+
 class ModelCardBrowser(QTextBrowser):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -196,6 +209,7 @@ class MainWindow(QMainWindow):
         self.width_save_timer.setSingleShot(True)
         self.width_save_timer.setInterval(250)
         self.width_save_timer.timeout.connect(self.config.save)
+        self.width_save_timer.timeout.connect(self._fill_conversations)
         self.shell.splitterMoved.connect(self.sidebar_dragged)
         self.sidebar = QFrame()
         self.sidebar.setObjectName("sidebar")
@@ -726,6 +740,7 @@ class MainWindow(QMainWindow):
         if self.config.sidebar_compact:
             return
         self.config.sidebar_width = max(200, min(360, self.sidebar.width()))
+        self._apply_sidebar()
         self.sidebar_width.blockSignals(True)
         self.sidebar_width.setValue(self.config.sidebar_width)
         self.sidebar_width.blockSignals(False)
@@ -735,6 +750,7 @@ class MainWindow(QMainWindow):
         self.config.sidebar_width = width
         self._apply_sidebar()
         self.config.save()
+        self.width_save_timer.start()
 
     def toggle_sidebar(self):
         self.config.sidebar_compact = not self.config.sidebar_compact
@@ -763,10 +779,14 @@ class MainWindow(QMainWindow):
             ("＋", "◉", "▣", "⚙", "◌"),
             strict=True,
         ):
+            label = self.tr(key) if key == "new_chat" else f"{symbol}  {self.tr(key)}"
+            button.ensurePolished()
             button.setText(
                 symbol
                 if compact
-                else (self.tr(key) if key == "new_chat" else f"{symbol}  {self.tr(key)}")
+                else sidebar_text(
+                    label, button.fontMetrics(), max(48, self.config.sidebar_width - 32)
+                )
             )
             button.setToolTip(self.tr(key))
             button.setAccessibleName(self.tr(key))
@@ -858,6 +878,7 @@ class MainWindow(QMainWindow):
     def change_ui_scale(self, value):
         self.config.ui_scale = value
         self.apply_theme()
+        self._apply_sidebar()
         self.composer.fit()
         self.refresh_model_table()
         self._fill_conversations()
@@ -954,8 +975,9 @@ class MainWindow(QMainWindow):
                 color: {muted};
                 border-color: {border};
                 }}
+            QFrame#sidebar QPushButton#primary {{ padding: 10px 4px; }}
             QPushButton#nav {{ text-align: left;
-                padding: 13px;
+                padding: 13px 6px;
                 border: none;
                 background: transparent;
                 }}
@@ -1170,7 +1192,15 @@ class MainWindow(QMainWindow):
                     )
                     column.addWidget(heading)
                     heading.ensurePolished()
-                    heading.setMinimumHeight(heading.fontMetrics().height() + 8)
+                    heading.setToolTip(self.tr("history_" + group))
+                    heading.setText(
+                        sidebar_text(
+                            heading.text(), heading.fontMetrics(), self.config.sidebar_width - 64
+                        )
+                    )
+                    heading.setMinimumHeight(
+                        len(heading.text().splitlines()) * heading.fontMetrics().lineSpacing() + 8
+                    )
                     label = QLabel(
                         self.fontMetrics().elidedText(
                             title, Qt.ElideRight, max(80, self.config.sidebar_width - 56)

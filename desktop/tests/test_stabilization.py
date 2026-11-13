@@ -266,11 +266,14 @@ def test_beta3_all_history_headers_fit_at_narrow_widths(desktop, qtbot):
                 headings = w.conversation_list.findChildren(QPushButton, "historyHeading")
                 assert len(headings) == 6
                 for heading in headings:
-                    assert (
-                        heading.width()
-                        >= heading.fontMetrics().horizontalAdvance(heading.text()) + 4
-                    ), (locale, scale, width, heading.text(), heading.width())
-                    assert heading.height() >= heading.fontMetrics().height() + 4
+                    assert " ".join(heading.text().split()) == "▾ " + heading.accessibleName()
+                    for line in heading.text().splitlines():
+                        assert (
+                            heading.width() >= heading.fontMetrics().horizontalAdvance(line) + 4
+                        ), (locale, scale, width, heading.text(), heading.width())
+                    assert heading.height() >= (
+                        len(heading.text().splitlines()) * heading.fontMetrics().lineSpacing() + 4
+                    )
     output = os.environ.get("OMNICORE_STABILITY_OUTPUT")
     if output:
         Path(output).mkdir(parents=True, exist_ok=True)

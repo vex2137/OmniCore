@@ -1199,3 +1199,16 @@ przez systemowe kbuildsycoca6. Narzędzia cache używają teraz istniejącego
 native_environment i pomijają pluginy Qt paczki; środowisko GUI nie jest zmieniane.
 8 testów instalatora PASS. Pierwszy run 43305371384 zatrzymano przed dostarczeniem
 paczki, aby nie udostępnić wariantu bez tej izolacji; wymagany nowy build poprawki.
+
+### Beta 3 — kontynuacja 2026-11-13: natywne metryki czcionek
+
+Run 43305870215 zakończył się błędem przed buildem; nie utworzył artefaktu.
+320 testów PASS, dwa błędy układu X11/Xvfb: przy 150% napis nowej rozmowy
+oraz nagłówki historii przekraczały dostępną szerokość. Offscreen miał inne
+metryki czcionek. Dodano zawijanie kompletnych etykiet według fontMetrics,
+wysokość wieloliniowych nagłówków i odświeżanie po zmianie szerokości paska.
+Nowy czat ma krótszą nazwę PL/EN i mniejszy padding; nie zmieniono rozmiaru fontów,
+DPI aplikacji, danych ani inferencji. 8 testów stabilizacji z QT_FONT_DPI=120 PASS,
+11 testów historii/paska/agentów PASS; Ruff, format i kontrakty PASS.
+Zrzut history-font-dpi120.png pochodzi z rzeczywistego Qt offscreen z większym DPR;
+nie jest dowodem działania pulpitu CachyOS. Wymagany ponowny run istniejącego builda.
