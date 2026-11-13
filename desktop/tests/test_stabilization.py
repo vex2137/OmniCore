@@ -280,3 +280,25 @@ def test_beta3_all_history_headers_fit_at_narrow_widths(desktop, qtbot):
         w.language.setCurrentIndex(w.language.findData("pl-PL"))
         qtbot.wait(80)
         w.grab().save(str(Path(output) / "history-groups-150.png"))
+
+
+def test_beta3_compact_sidebar_scales_proportionally(desktop, qtbot):
+    w = desktop
+    w.resize(1280, 760)
+    w.toggle_sidebar()
+    assert w.config.sidebar_compact
+    for scale in (80, 90, 100, 125, 150):
+        w.ui_scale.setValue(scale)
+        qtbot.wait(30)
+        expected_sidebar = max(1, round(52 * scale / 100))
+        expected_btn = max(1, round(32 * scale / 100))
+        assert w.sidebar.width() == expected_sidebar
+        if scale == 100:
+            assert 52 <= w.sidebar.width() <= 60
+            assert 32 <= w.sidebar_toggle.width() <= 36
+        for btn in (w.sidebar_toggle, w.new_button, *w.nav):
+            assert btn.isVisible()
+            assert btn.width() == expected_btn and btn.height() == expected_btn
+            assert btn.width() < w.sidebar.width()
+            assert btn.width() >= btn.minimumSizeHint().width()
+            assert btn.height() >= btn.minimumSizeHint().height()

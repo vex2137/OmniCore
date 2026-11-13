@@ -235,7 +235,8 @@ class MainWindow(QMainWindow):
         self.side_layout.addWidget(self.nav[1])
         self.shell.addWidget(self.sidebar)
         main = QWidget()
-        body = QVBoxLayout(main)
+        self.body_layout = QVBoxLayout(main)
+        body = self.body_layout
         body.setContentsMargins(28, 22, 28, 22)
         header = QHBoxLayout()
         self.page_title = self.label("chat", title=True)
@@ -275,6 +276,8 @@ class MainWindow(QMainWindow):
         body.addWidget(self.pages, 1)
         self._build_chat()
         self.compact_spacer = QWidget()
+        self.compact_spacer.setObjectName("compactSpacer")
+        self.compact_spacer.setStyleSheet("background: transparent;")
         self.side_layout.addWidget(self.compact_spacer, 1)
         self.side_layout.addWidget(self.nav[3])
         self.side_layout.addWidget(self.nav[2])
@@ -757,12 +760,37 @@ class MainWindow(QMainWindow):
         self._apply_sidebar()
         self.config.save()
 
+    def _scaled(self, value: int) -> int:
+        return max(1, round(value * self.config.ui_scale / 100))
+
+    def _apply_scaled_metrics(self):
+        icon_btn = self._scaled(34)
+        icon_font = self._scaled(16)
+        icon_style = f"padding: 0; text-align: center; font-size: {icon_font}px;"
+        for widget in (self.history_refresh, self.context_button, self.chat_refresh):
+            widget.setFixedSize(icon_btn, icon_btn)
+            widget.setStyleSheet(icon_style)
+        self.model_actions.setFixedSize(self._scaled(32), self._scaled(32))
+        self.body_layout.setContentsMargins(
+            self._scaled(24), self._scaled(18), self._scaled(24), self._scaled(18)
+        )
+
     def _apply_sidebar(self):
         compact = self.config.sidebar_compact
-        self.sidebar.setMinimumWidth(52 if compact else 200)
-        self.sidebar.setMaximumWidth(52 if compact else 360)
+        compact_width = self._scaled(52)
+        btn_size = self._scaled(32)
+        glyph_px = self._scaled(18)
+        margin_h = max(4, (compact_width - 1 - btn_size) // 2) if compact else self._scaled(8)
+        margin_v = self._scaled(10 if compact else 12)
+        self.side_layout.setContentsMargins(margin_h, margin_v, margin_h, margin_v)
+        self.side_layout.setSpacing(self._scaled(6))
+        compact_btn_style = f"padding: 0; text-align: center; font-size: {glyph_px}px;"
+        self.sidebar_toggle.setFixedSize(btn_size, btn_size)
+        self.sidebar_toggle.setStyleSheet(compact_btn_style)
+        self.sidebar.setMinimumWidth(compact_width if compact else 200)
+        self.sidebar.setMaximumWidth(compact_width if compact else 360)
         if self.shell.count() > 1:
-            width = 52 if compact else self.config.sidebar_width
+            width = compact_width if compact else self.config.sidebar_width
             self.shell.setSizes([width, max(1, self.width() - width - 4)])
             self.shell.handle(1).setEnabled(not compact)
         self.brand.setVisible(not compact)
@@ -773,6 +801,7 @@ class MainWindow(QMainWindow):
         self.history_refresh.setAccessibleName(self.tr("refresh"))
         self.history_panel.setVisible(not compact)
         self.compact_spacer.setVisible(compact)
+        compact_btn_style = f"padding: 0; text-align: center; font-size: {glyph_px}px;"
         for button, key, symbol in zip(
             (self.new_button, *self.nav),
             ("new_chat", "conversations_nav", "models", "settings", "diagnostics"),
@@ -780,17 +809,24 @@ class MainWindow(QMainWindow):
             strict=True,
         ):
             label = self.tr(key) if key == "new_chat" else f"{symbol}  {self.tr(key)}"
-            button.ensurePolished()
-            button.setText(
-                symbol
-                if compact
-                else sidebar_text(
-                    label, button.fontMetrics(), max(48, self.config.sidebar_width - 32)
-                )
-            )
             button.setToolTip(self.tr(key))
             button.setAccessibleName(self.tr(key))
-            button.setStyleSheet("padding: 8px 0;" if compact else "")
+            if compact:
+                button.setFixedSize(btn_size, btn_size)
+                button.setStyleSheet(compact_btn_style)
+                button.setText(symbol)
+            else:
+                button.setMinimumSize(0, 0)
+                button.setMaximumSize(16777215, 16777215)
+                button.setStyleSheet("")
+                button.ensurePolished()
+                button.setText(
+                    sidebar_text(
+                        label,
+                        button.fontMetrics(),
+                        max(48, self.config.sidebar_width - self._scaled(32)),
+                    )
+                )
 
     def navigate(self, index):
         self.pages.setCurrentIndex(index)
@@ -928,9 +964,11 @@ class MainWindow(QMainWindow):
                 }}
             QLabel {{ background: transparent;
                 }}
-            QLabel#brand {{ font-size: 24px;
+            QLabel#brand {{ font-size: 20px;
                 font-weight: 700;
                 color: {accent};
+                }}
+            QWidget#compactSpacer {{ background: transparent;
                 }}
             QLabel#title {{ font-size: 26px;
                 font-weight: 650;
@@ -1057,15 +1095,20 @@ class MainWindow(QMainWindow):
                 border: 1px solid {border};
                 }}
         """
-        # Only logical font sizes: Qt applies the screen DPR once. Never multiply by
+        # Only logical font/control sizes: Qt applies the screen DPR once. Never multiply by
         # devicePixelRatio or modify QT_SCALE_FACTOR / the platform's DPI policy.
+        scale = self.config.ui_scale / 100
         stylesheet = re.sub(
-            r"(?P<prefix>font(?:-size)?: )(?P<size>\d+)px",
-            lambda m: f"{m['prefix']}{round(int(m['size']) * self.config.ui_scale / 100)}px",
+            r"(?P<size>\d+)px",
+            lambda m: (
+                m.group(0)
+                if int(m["size"]) <= 3
+                else f"{max(1, round(int(m['size']) * scale))}px"
+            ),
             stylesheet,
         )
         self.setStyleSheet(stylesheet)
-        self.brand.setStyleSheet("font-size: 22px;")
+        self._apply_scaled_metrics()
         self.ui_scale.setToolTip(self.tr("ui_scale_hint"))
         for widget, key in (
             (self.ui_scale, "ui_scale"),
@@ -1195,16 +1238,17 @@ class MainWindow(QMainWindow):
                     heading.setToolTip(self.tr("history_" + group))
                     heading.setText(
                         sidebar_text(
-                            heading.text(), heading.fontMetrics(), self.config.sidebar_width - 64
+                            heading.text(),
+                            heading.fontMetrics(),
+                            max(48, self.config.sidebar_width - self._scaled(52)),
                         )
                     )
                     heading.setMinimumHeight(
                         len(heading.text().splitlines()) * heading.fontMetrics().lineSpacing() + 8
                     )
+                    elide_width = max(60, self.config.sidebar_width - self._scaled(48))
                     label = QLabel(
-                        self.fontMetrics().elidedText(
-                            title, Qt.ElideRight, max(80, self.config.sidebar_width - 56)
-                        )
+                        self.fontMetrics().elidedText(title, Qt.ElideRight, elide_width)
                     )
                     label.setTextFormat(Qt.PlainText)
                     label.setWordWrap(True)
