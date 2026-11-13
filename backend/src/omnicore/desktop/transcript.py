@@ -104,10 +104,10 @@ class MessageCard(QFrame):
         title.setWordWrap(True)
         title.setObjectName("messageAuthor")
         header.addWidget(title, 1)
-        copy = QToolButton() if message["role"] == "assistant" else QPushButton(tr("copy"))
-        if message["role"] == "assistant":
-            self.icon_action(copy, "edit-copy", QStyle.SP_FileDialogContentsView, tr("copy"))
-        copy.setAccessibleName(tr("copy"))
+        copy_label = tr("copy") if message["role"] == "assistant" else tr("copy_message")
+        copy = QToolButton()
+        self.icon_action(copy, "edit-copy", QStyle.SP_FileDialogContentsView, copy_label)
+        copy.setAccessibleName(copy_label)
         copy.clicked.connect(lambda: QApplication.clipboard().setText(message["content"]))
         copy.setEnabled(bool(message["content"]))
         if message["role"] != "assistant":
@@ -129,8 +129,8 @@ class MessageCard(QFrame):
             stats = message.get("statistics") or {}
             summary = []
             for key, prefix, suffix in (
-                ("tokens_per_second", "", "tok/s"),
                 ("ttft_seconds", "⏱ ", "s TTFT"),
+                ("tokens_per_second", "", "tok/s"),
                 ("output_tokens", "", tr("tokens_short")),
                 ("generation_seconds", "", "s"),
             ):

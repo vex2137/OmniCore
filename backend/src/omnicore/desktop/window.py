@@ -491,8 +491,14 @@ class MainWindow(QMainWindow):
         context_layout.addWidget(self.context_slider)
         context_layout.addWidget(self.context_status)
         self.agent_panel = AgentPanel(self)
+        self.agent_panel.setMaximumWidth(840)
         self.chat_header.insertWidget(2, self.agent_panel.mode)
-        chat.addWidget(self.agent_panel)
+        agent_row = QHBoxLayout()
+        agent_row.setContentsMargins(0, 0, 0, 0)
+        agent_row.addStretch(1)
+        agent_row.addWidget(self.agent_panel, 100)
+        agent_row.addStretch(1)
+        chat.addLayout(agent_row)
         self.transcript = ChatTranscript()
         self.transcript.regenerate_requested.connect(self.regenerate_answer)
         chat.addWidget(self.transcript, 1)
@@ -575,10 +581,11 @@ class MainWindow(QMainWindow):
         self.engine_filter = QComboBox()
         self.engine_filter.addItems(["llama.cpp", "ollama"])
         self.engine_filter.currentTextChanged.connect(self.refresh_model_table)
+        self.scan_button = self.button("scan_models", self.scan_models)
         local.addLayout(
             self.row(
                 self.button("import_gguf", self.choose_gguf, primary=True),
-                self.engine_filter,
+                self.scan_button,
                 self.button("sync_ollama", self.sync_ollama),
                 self.button("refresh", self.refresh_models),
             )
@@ -592,7 +599,9 @@ class MainWindow(QMainWindow):
         self.favorites_only = QCheckBox(self.tr("favorites_only"))
         self._texts.append((self.favorites_only, "favorites_only"))
         self.favorites_only.toggled.connect(self.refresh_model_table)
-        local.addLayout(self.row(self.model_search, self.model_sort, self.favorites_only))
+        local.addLayout(
+            self.row(self.model_search, self.engine_filter, self.model_sort, self.favorites_only)
+        )
         self.models_empty = self.label("models_empty")
         local.addWidget(self.models_empty)
         self.model_table = QTableWidget(0, 4)
@@ -963,6 +972,7 @@ class MainWindow(QMainWindow):
         self.model_combo.setMinimumWidth(self._scaled(150))
         self.model_combo.setMaximumWidth(self._scaled(280))
         self.composer_wrap.setMaximumWidth(self._scaled(840))
+        self.agent_panel.setMaximumWidth(self._scaled(840))
         self.settings_container.setMaximumWidth(self._scaled(850))
         self.context_meter.setMaximumWidth(self._scaled(90))
         self.body_layout.setContentsMargins(
@@ -1288,6 +1298,7 @@ class MainWindow(QMainWindow):
             QFrame#sidebar[compact="true"] QPushButton#primary,
             QFrame#sidebar[compact="true"] QPushButton#sidebarToggle {{ padding: 0;
                 border-radius: 9px;
+                text-align: center;
                 }}
             QFrame#sidebar[compact="true"] QPushButton#nav:checked {{ border-color: {accent};
                 }}
@@ -2240,6 +2251,14 @@ class MainWindow(QMainWindow):
             self._loaded("models")
 
         self.api.request("GET", TEXT + "/models", success=received)
+
+    def scan_models(self):
+        self.api.request(
+            "POST",
+            TEXT + "/models/scan",
+            {},
+            success=lambda _: self.refresh_models(),
+        )
 
     def refresh_model_table(self):
         selected = self.selected_model()

@@ -363,5 +363,8 @@
   "updates_channel_mismatch": "Version {version} is installed. The Stable channel will not show further beta or RC releases.",
   "agent_steps_label": "Steps:",
   "agent_protocol_label": "Protocol:",
-  "agent_protocol_tooltip": "Tool-calling mode (Auto or forced JSON)."
+  "agent_protocol_tooltip": "Tool-calling mode (Auto or forced JSON).",
+  "copy_message": "Copy message",
+  "scan_models": "Scan models",
+  "model_load_failed": "Could not load the model with llama.cpp. Check the engine version, memory, and model compatibility."
 }

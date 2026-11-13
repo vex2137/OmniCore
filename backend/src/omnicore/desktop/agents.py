@@ -75,6 +75,8 @@ class AgentPanel(QWidget):
         inner.setSpacing(6)
         self.hint = QLabel(main.tr("agent_hint"))
         self.hint.setWordWrap(True)
+        self.hint.hide()
+        self.details.setToolTip(main.tr("agent_hint"))
         self.compatibility_label = QLabel()
         self.compatibility_label.setTextFormat(Qt.PlainText)
         self.compatibility_label.setWordWrap(True)
@@ -169,6 +171,7 @@ class AgentPanel(QWidget):
         self.retry_button.setText(tr("agent_retry"))
         self.revoke.setText(tr("agent_revoke"))
         self.hint.setText(tr("agent_hint"))
+        self.details.setToolTip(tr("agent_hint"))
         self.tree.setHeaderLabels([tr("agent_tool"), tr("agent_state"), "ms"])
         self.refresh_compatibility()
 
@@ -177,7 +180,6 @@ class AgentPanel(QWidget):
         for widget in (
             self.details,
             self.scroll,
-            self.status,
             self.steps_label,
             self.steps,
             self.protocol_label,
@@ -186,6 +188,7 @@ class AgentPanel(QWidget):
             self.folder,
         ):
             widget.setVisible(enabled)
+        self.status.setVisible(enabled and bool(self.status.text()))
         self.retry_button.setVisible(enabled and bool(self.retry_id) and not self.active)
 
     def load(self, conversation):
@@ -194,6 +197,8 @@ class AgentPanel(QWidget):
         self.active = None
         self.retry_id = None
         self.retry_button.hide()
+        self.status.clear()
+        self.status.hide()
         self.tree.clear()
         self.activity_label.hide()
         self.tree.hide()
@@ -552,7 +557,9 @@ class AgentPanel(QWidget):
 
     def render(self, records):
         self.tree.clear()
-        for record in records:
+        if not records:
+            self.status.setText("")
+        for record in records[:1]:
             plan = record.get("plan", [])
             if plan:
                 parent = QTreeWidgetItem([self.main.tr("agent_plan"), "", ""])
@@ -592,6 +599,7 @@ class AgentPanel(QWidget):
         self.activity_label.setVisible(has_activity)
         self.tree.setVisible(has_activity)
         self.inspect_hint.setVisible(has_activity)
+        self.status.setVisible(self.mode.currentData() == "agent" and bool(self.status.text()))
         self.scroll.setMaximumHeight(185 if has_activity else 90)
         if self.active:
             self.busy(True)

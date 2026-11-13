@@ -363,5 +363,8 @@
   "updates_channel_mismatch": "Zainstalowano wersję {version}. Kanał Stable nie pokaże kolejnych wydań beta ani RC.",
   "agent_steps_label": "Kroki:",
   "agent_protocol_label": "Protokół:",
-  "agent_protocol_tooltip": "Tryb wywoływania narzędzi (Auto lub wymuszony JSON)."
+  "agent_protocol_tooltip": "Tryb wywoływania narzędzi (Auto lub wymuszony JSON).",
+  "copy_message": "Kopiuj wiadomość",
+  "scan_models": "Przeskanuj modele",
+  "model_load_failed": "Nie można wczytać modelu w silniku llama.cpp. Sprawdź wersję silnika, pamięć i zgodność modelu."
 }
