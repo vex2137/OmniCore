@@ -238,7 +238,12 @@ def routes(service: TextService):
         backend: str = Query(default="", max_length=32),
         format: str = Query(default="", max_length=32),
     ):
+        service.models.scan_and_recover(import_all_roots=False)
         return service.store.models(query, backend, format)
+
+    @router.post("/models/scan", response_model=list[ModelRecord])
+    async def scan_models():
+        return await run_in_threadpool(service.models.scan_and_recover, import_all_roots=True)
 
     @router.post("/models/import", response_model=ModelRecord, status_code=201)
     async def import_model(body: ModelImport):

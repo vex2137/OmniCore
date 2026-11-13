@@ -143,6 +143,9 @@ class TextStore:
         inode=None,
         refresh_existing=False,
     ):
+        model_metadata = dict(metadata or {})
+        if backend == "llama.cpp":
+            model_metadata.setdefault("file_status", "available")
         record = ModelRecord(
             id=uuid.uuid4().hex,
             backend=backend,
@@ -150,7 +153,7 @@ class TextStore:
             name=name,
             size_bytes=size_bytes,
             format=format,
-            metadata=metadata or {},
+            metadata=model_metadata,
             quantization=quantization,
             license=license,
             capabilities=capabilities or [],
@@ -163,17 +166,35 @@ class TextStore:
             ).fetchone()
             if existing:
                 previous = ModelRecord.model_validate_json(existing[0])
-                changed = (device, inode) != (
-                    existing[1],
-                    existing[2],
-                ) or size_bytes != previous.size_bytes
+                old_dev, old_ino = existing[1], existing[2]
                 old_mtime = previous.metadata.get("file_mtime_ns")
-                changed |= old_mtime is not None and old_mtime != record.metadata.get(
-                    "file_mtime_ns"
+                new_mtime = record.metadata.get("file_mtime_ns")
+                old_digest = previous.metadata.get("gguf_digest")
+                new_digest = record.metadata.get("gguf_digest")
+                same_content = (
+                    inode == old_ino
+                    and size_bytes == previous.size_bytes
+                    and (
+                        old_mtime == new_mtime
+                        or (old_digest is not None and old_digest == new_digest)
+                    )
                 )
+                changed = (device, inode) != (old_dev, old_ino) or size_bytes != previous.size_bytes
+                changed |= old_mtime is not None and old_mtime != new_mtime
                 if not refresh_existing:
-                    if backend == "llama.cpp" and device is not None and changed:
-                        raise TextError("model_file_changed", 409)
+                    if backend == "llama.cpp" and device is not None:
+                        if same_content:
+                            return self._heal_with_connection(
+                                connection,
+                                previous,
+                                device=device,
+                                inode=inode,
+                                size_bytes=size_bytes,
+                                mtime_ns=new_mtime,
+                                digest=new_digest,
+                            )
+                        if changed:
+                            raise TextError("model_file_changed", 409)
                     return previous
                 record.id, record.created_at = previous.id, previous.created_at
                 record.parameters = previous.parameters
@@ -219,6 +240,59 @@ class TextStore:
                 "UPDATE text_models SET record=? WHERE id=?", (record.model_dump_json(), record.id)
             )
         return record
+
+    @staticmethod
+    def _heal_with_connection(
+        connection,
+        record: ModelRecord,
+        *,
+        device: int,
+        inode: int,
+        size_bytes: int,
+        mtime_ns: int | None,
+        digest: str | None = None,
+        location: str | None = None,
+        file_status: str = "available",
+    ) -> ModelRecord:
+        if location is not None:
+            record.location = location
+        record.size_bytes = size_bytes
+        if mtime_ns is not None:
+            record.metadata["file_mtime_ns"] = mtime_ns
+        record.metadata["file_status"] = file_status
+        if digest is not None:
+            record.metadata["gguf_digest"] = digest
+        connection.execute(
+            "UPDATE text_models SET location=?,record=?,device=?,inode=? WHERE id=?",
+            (record.location, record.model_dump_json(), device, inode, record.id),
+        )
+        return record
+
+    def heal_model_reference(
+        self,
+        model_id: str,
+        *,
+        device: int,
+        inode: int,
+        size_bytes: int,
+        mtime_ns: int | None,
+        digest: str | None = None,
+        location: str | None = None,
+        file_status: str = "available",
+    ) -> ModelRecord:
+        record = self.model(model_id)
+        with self.db.connect() as connection, connection:
+            return self._heal_with_connection(
+                connection,
+                record,
+                device=device,
+                inode=inode,
+                size_bytes=size_bytes,
+                mtime_ns=mtime_ns,
+                digest=digest,
+                location=location,
+                file_status=file_status,
+            )
 
     def delete_model(self, model_id):
         with self.db.connect() as connection, connection:

@@ -46,7 +46,7 @@ def messages_for_turn(base, rounds, record, parameters):
         else []
     )
     recent = list(rounds[-2:])
-    reserve = parameters.max_tokens
+    reserve = min(parameters.max_tokens, max(128, parameters.context_size // 4))
     while True:
         messages = base + summary + [message for group in recent for message in group]
         used = estimate(messages)

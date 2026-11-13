@@ -268,6 +268,7 @@ class GenerationManager:
                     # The child inherits the validated descriptor, so replacing a pathname cannot
                     # swap in a different model between validation and llama-server opening it.
                     path = self.models.validated_reference(model.id)
+                    model = await asyncio.to_thread(self.store.model, model.id)
                     with self.models.policy.open(path) as stream:
                         info = os.fstat(stream.fileno())
                         if (

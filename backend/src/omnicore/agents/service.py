@@ -261,7 +261,13 @@ class Agents:
             parameters = parameters or GenerationParameters(
                 context_size=context_settings(model)["effective_tokens"]
             )
-            limited = parameters.model_copy(update={"max_tokens": min(parameters.max_tokens, 192)})
+            limited = parameters.model_copy(
+                update={
+                    "max_tokens": min(max(parameters.max_tokens, 64), 192),
+                    "temperature": 0.0,
+                    "thinking": False,
+                }
+            )
             result = {
                 "status": "unverified",
                 "tested": False,
@@ -280,7 +286,8 @@ class Agents:
                                 "role": "system",
                                 "content": 'Call calculate with expression "2+3". '
                                 'If no native tools, return ONLY {"kind":"tool",'
-                                '"name":"calculate","arguments":{"expression":"2+3"}}.',
+                                '"name":"calculate","arguments":{"expression":"2+3"}}. '
+                                "Do not use markdown fences or XML tags.",
                             },
                             {
                                 "role": "user",
@@ -362,6 +369,14 @@ class Agents:
                 update={"max_tokens": min(parameters.max_tokens, remaining)}
             )
             messages = messages_for_turn(base, rounds, record, selected)
+            selected = selected.model_copy(
+                update={
+                    "max_tokens": min(
+                        selected.max_tokens,
+                        max(64, selected.context_size - record["context"]["approx_tokens"]),
+                    )
+                }
+            )
             record["turns"] += 1
             self.save(record)
             async with asyncio.timeout(self.service.config.generation_timeout):
@@ -386,7 +401,8 @@ class Agents:
                             "role": "user",
                             "content": "Protocol error: invalid complete JSON/tool call. "
                             "No operation from that response was executed. "
-                            "Return one valid structured response.",
+                            'Return ONLY {"kind":"tool","name":"TOOL","arguments":{...}} '
+                            'or {"kind":"final","text":"answer"}.',
                         }
                     ]
                 )

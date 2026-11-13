@@ -29,6 +29,7 @@ class AgentModel:
             location = model.location
             if model.backend == "llama.cpp":
                 path = service.models.validated_reference(model.id)
+                model = service.store.model(model.id)
                 with service.models.policy.open(path) as file:
                     info = os.fstat(file.fileno())
                     if (

@@ -192,3 +192,34 @@ def test_in_place_same_size_change_is_not_silently_accepted(catalog):
     with pytest.raises(TextError):
         manager.import_gguf(path, refresh_existing=True)
     assert manager.store.model(record.id).metadata["file_mtime_ns"] == original
+
+
+def test_automatic_recovery_on_device_drift_mtime_touch_and_relocation(catalog):
+    manager, path = catalog
+    record = manager.import_gguf(path)
+    with manager.store.db.connect() as connection, connection:
+        connection.execute("UPDATE text_models SET device=? WHERE id=?", (-99, record.id))
+    assert manager.store.model_identity(record.id)[0] == -99
+    assert manager.validated_reference(record.id) == path
+    stat_info = os.stat(path)
+    assert manager.store.model_identity(record.id) == (stat_info.st_dev, stat_info.st_ino)
+
+    original_mtime = os.stat(path).st_mtime_ns
+    os.utime(path, ns=(original_mtime, original_mtime + 2_000_000))
+    assert manager.validated_reference(record.id) == path
+    assert manager.store.model(record.id).metadata["file_mtime_ns"] == os.stat(path).st_mtime_ns
+
+    second_root = path.parent.parent / "moved"
+    second_root.mkdir()
+    moved = second_root / "relocated.gguf"
+    path.rename(moved)
+    extra = second_root / "extra.gguf"
+    extra.write_bytes(synthetic_gguf().replace(b"Test fixture", b"Extra model!"))
+    manager.policy = FilePolicy((path.parent, second_root, path.parent.parent / "default"))
+
+    records = manager.scan_and_recover(import_all_roots=True)
+    assert len(records) == 2
+    refreshed = manager.store.model(record.id)
+    assert refreshed.location == str(moved.absolute())
+    assert refreshed.metadata["file_status"] == "available"
+    assert any(item.name == "Extra model!" for item in records)

@@ -360,3 +360,33 @@ def test_probe_timeout_does_not_label_model_unsupported(tmp_path):
         await agents.service.generations.close()
 
     asyncio.run(exercise())
+
+
+def test_parse_turn_supports_fenced_json_xml_tool_call_and_think_tags():
+    from omnicore.agents.protocol import Final, ToolCall
+
+    fenced = parse_turn(
+        '<think>Sprawdzam.</think>\n```json\n{"kind": "final", "text": "Gotowe"}\n```',
+        native=False,
+    )
+    assert fenced == Final(kind="final", text="Gotowe")
+
+    xml_call = parse_turn(
+        "<tool_call>\n<function=search_text>\n<parameter=pattern>def main</parameter>\n"
+        "<parameter=path>src</parameter>\n</function>\n</tool_call>",
+        native=False,
+    )
+    assert xml_call == [
+        ToolCall(kind="tool", name="search_text", arguments={"pattern": "def main", "path": "src"})
+    ]
+
+    kindless_tool = parse_turn(
+        '{"name": "read_file", "arguments": {"path": "README.md"}}',
+        native=False,
+    )
+    assert kindless_tool == [
+        ToolCall(kind="tool", name="read_file", arguments={"path": "README.md"})
+    ]
+
+    kindless_final = parse_turn('{"answer": "Wynik"}', native=False)
+    assert kindless_final == Final(kind="final", text="Wynik")

@@ -1,5 +1,6 @@
 """Bounded GGUF v2/v3 reader. Structural validation is not an inference test."""
 
+import hashlib
 import math
 import os
 import struct
@@ -25,6 +26,20 @@ QUANTIZATION = {
     17: "Q5_K_M",
     18: "Q6_K",
 }
+
+
+def gguf_digest(stream) -> str:
+    """Fast deterministic sample digest without reading multi-GB files completely."""
+    size = os.fstat(stream.fileno()).st_size
+    hasher = hashlib.sha256()
+    hasher.update(struct.pack("<Q", size))
+    chunk = 65536
+    offsets = (0, max(0, size // 2 - chunk // 2), max(0, size - chunk))
+    for pos in offsets:
+        stream.seek(pos)
+        hasher.update(stream.read(chunk))
+    stream.seek(0)
+    return hasher.hexdigest()
 
 
 def read_gguf(stream) -> dict:
@@ -155,6 +170,7 @@ def read_gguf(stream) -> dict:
         if any(data_start + offset + length > size for offset, length in offsets):
             raise TextError("invalid_gguf", 422)
         file_type = metadata.get("general.file_type")
+        digest = gguf_digest(stream)
         return {
             "version": version,
             "tensor_count": tensors,
@@ -167,6 +183,7 @@ def read_gguf(stream) -> dict:
             if "general.license" in metadata
             else None,
             "metadata": metadata,
+            "gguf_digest": digest,
         }
     except (struct.error, OverflowError, OSError):
         raise TextError("invalid_gguf", 422) from None
