@@ -1212,3 +1212,8 @@ DPI aplikacji, danych ani inferencji. 8 testów stabilizacji z QT_FONT_DPI=120 P
 11 testów historii/paska/agentów PASS; Ruff, format i kontrakty PASS.
 Zrzut history-font-dpi120.png pochodzi z rzeczywistego Qt offscreen z większym DPR;
 nie jest dowodem działania pulpitu CachyOS. Wymagany ponowny run istniejącego builda.
+
+Run 43402851489 potwierdził naprawę obu testów układu: 321 testów PASS.
+Jedyny błąd dotyczył starej asercji tekstu „New conversation”, po skróceniu
+etykiety do „New chat”. Zaktualizowano oczekiwanie; celowany test języka,
+trwałości ustawień i restartu backendu PASS. Bez dalszej zmiany kodu aplikacji.
