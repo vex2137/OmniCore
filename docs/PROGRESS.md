@@ -1217,3 +1217,40 @@ Run 43402851489 potwierdził naprawę obu testów układu: 321 testów PASS.
 Jedyny błąd dotyczył starej asercji tekstu „New conversation”, po skróceniu
 etykiety do „New chat”. Zaktualizowano oczekiwanie; celowany test języka,
 trwałości ustawień i restartu backendu PASS. Bez dalszej zmiany kodu aplikacji.
+
+### Beta 3 — dostarczony i pobrany AppImage, 2026-11-13
+
+| Etap | Potwierdzony stan |
+| --- | --- |
+| 1: Agent i wersjonowanie | Czat/Agent w frozen GUI i API; 0.2.0-beta.3, SHA/data/kanał spójne. Zadania narzędziowe testowano z kontrolowanym modelem. |
+| 2: czat, metryki, historia | Zaimplementowane; regresja Qt, macierz układu i natywne metryki czcionek PASS. |
+| 3: kontekst i GGUF | Auto/Ręczny, suwak/liczba per model, jawne odświeżenie rejestru i ochrona zmienionych plików PASS. |
+| 4: diagnostyka | Rozszerzony istniejący widok i prywatny eksport schema v2, testy maskowania PASS. |
+| 5: aktualizacje | Ręczne Stable/Beta/RC, asynchroniczne i bez automatycznej instalacji; testy PASS. |
+| 6: KDE | Jawny instalator, PNG z SHA, backup i izolacja bibliotek PASS; panel Plasma wymaga testu lokalnego. |
+| 7: AppImage | Build, dwa rzeczywiste uruchomienia, trwałość, zamknięcie, frozen API agenta, instalator i upload PASS. |
+
+Źródło paczki: **1f12bcfe809e3e450f6a05e9c2576f2999670788**.
+[Workflow 43403397103](https://github.com/vex2137/OmniCore/actions/runs/43403397103):
+**success**, 322 testy backendu/Qt PASS, Ruff/format/kontrakty PASS.
+Backendowe CI 43403389155 z tego samego SHA również success.
+[Pobierz artefakt](https://github.com/vex2137/OmniCore/actions/runs/43403397103/artifacts/14026048630)
+(GitHub Actions, wymaga zalogowania; wygasa 2026-12-13).
+
+- Plik: `OmniCore-0.2.0-beta.3-x86_64.AppImage`.
+- Rozmiar samego AppImage: **98 908 664 bajty** (nie rozmiar ZIP artefaktu).
+- SHA-256: `87a90e430988f0404937f2c4afbfd6c0537dfcda177914331d4657af46e96c0a`.
+- Data builda: `2026-11-13T09:48:18.409544+00:00`, kanał beta.
+- Artefakt rzeczywiście pobrano; ponownie obliczono SHA-256 i porównano plik sum.
+  Sprawdzono ELF x86_64 / AppImage typu 2 oraz prawo wykonania. Manifest, oba raporty
+  GUI i raport agent API mają dokładnie powyższy SHA źródeł oraz właściwą wersję.
+- W ZIP są AppImage, `.sha256`, manifest, raporty i autentyczny screenshot.
+  Kopia screenshotu zamrożonego GUI: docs/screenshots/beta3/verified-appimage.png.
+
+Nie pobierano wag GGUF. Nie wykonano rzeczywistej inferencji tej paczki z GGUF
+ani na RTX4060; CPU silnika sprawdzono przez wersję, checksumę i biblioteki.
+Do właściciela: rzeczywisty Czat/Agent z własnym GGUF, CPU/Auto/CUDA, zachowanie
+własnych danych po aktualizacji oraz panel KDE/Wayland (app ID, ikona, przypięcie)
+zgodnie z docs/APPIMAGE.md. Nie testowano fizycznego CachyOS/Plasma 6.
+Nie publikowano Release/tagu ani nie scalano do main. Późniejszy commit tego raportu
+nie zmienia źródeł ani sumy wyżej wskazanej paczki; kolejny build nie jest potrzebny.

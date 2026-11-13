@@ -372,7 +372,7 @@ CachyOS/RTX4060 i telefonu oraz docelowego podpisywania, zgodnie z RELEASE_GATE.
 - [x] Diagnostyka 2.0, raport bez rozmów, maskowanie sekretów i ścieżek.
 - [x] Ręczne aktualizacje Stable/Beta/RC, bez automatycznej instalacji.
 - [x] Jawny instalator KDE, oryginalna ikona PNG z SHA-256 i backup launchera.
-- [ ] Testowy AppImage z istniejącego Actions i potwierdzenie artefaktu.
+- [x] Testowy AppImage z istniejącego Actions i potwierdzenie pobrania/SHA-256 (run 43403397103).
 - [ ] CachyOS/Plasma 6: faktyczne WM_CLASS/app ID i ikona uruchomionego zadania.
 - [ ] Bieżąca paczka: rzeczywisty GGUF/Agent i CUDA na sprzęcie właściciela.
 
