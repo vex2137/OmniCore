@@ -2,6 +2,7 @@
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -40,9 +41,11 @@ class AgentPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         row = QHBoxLayout()
         self.mode = QComboBox()
+        self.mode.setObjectName("agentMode")
         self.mode.addItem(main.tr("agent_chat"), "chat")
         self.mode.addItem(main.tr("agent_mode"), "agent")
         self.mode.setAccessibleName(main.tr("agent_work_mode"))
+        self.mode.setToolTip(main.tr("agent_work_mode"))
         self.steps = QSpinBox()
         self.steps.setRange(1, 32)
         self.steps.setValue(8)
@@ -50,10 +53,13 @@ class AgentPanel(QWidget):
         self.protocol = QComboBox()
         self.protocol.addItem("Auto", "auto")
         self.protocol.addItem("JSON", "structured")
+        self.web_access = QCheckBox(main.tr("agent_web_access"))
+        self.web_access.setToolTip(main.tr("agent_web_tooltip"))
         self.folder = QPushButton(main.tr("agent_folder"))
         row.addWidget(self.mode)
         row.addWidget(self.steps)
         row.addWidget(self.protocol)
+        row.addWidget(self.web_access)
         row.addWidget(self.folder)
         layout.addLayout(row)
         self.details = QWidget()
@@ -74,6 +80,10 @@ class AgentPanel(QWidget):
         inner.addWidget(self.folders)
         self.revoke = QPushButton(main.tr("agent_revoke"))
         inner.addWidget(self.revoke)
+        self.activity_label = QLabel(main.tr("agent_activity"))
+        self.activity_label.setObjectName("agentActivityTitle")
+        self.inspect_hint = QLabel(main.tr("agent_inspect_hint"))
+        self.inspect_hint.setWordWrap(True)
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels([main.tr("agent_tool"), main.tr("agent_state"), "ms"])
         self.tree.header().setStretchLastSection(False)
@@ -82,7 +92,9 @@ class AgentPanel(QWidget):
         self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.tree.setMaximumHeight(110)
         self.tree.setMinimumHeight(70)
-        inner.insertWidget(0, self.tree)
+        inner.insertWidget(0, self.activity_label)
+        inner.insertWidget(1, self.tree)
+        inner.insertWidget(2, self.inspect_hint)
         self.status = QLabel()
         self.status.setTextFormat(Qt.PlainText)
         self.status.setWordWrap(True)
@@ -103,10 +115,12 @@ class AgentPanel(QWidget):
         self.details.hide()
         self.steps.hide()
         self.protocol.hide()
+        self.web_access.hide()
         self.folder.hide()
         self.mode.currentIndexChanged.connect(self.save_settings)
         self.steps.valueChanged.connect(self.save_settings)
         self.protocol.currentIndexChanged.connect(self.save_settings)
+        self.web_access.clicked.connect(self.toggle_web_access)
         self.folder.clicked.connect(self.grant_folder)
         self.revoke.clicked.connect(self.revoke_folder)
         self.tree.itemDoubleClicked.connect(self.inspect)
@@ -123,7 +137,12 @@ class AgentPanel(QWidget):
         self.mode.setItemText(0, tr("agent_chat"))
         self.mode.setItemText(1, tr("agent_mode"))
         self.mode.setAccessibleName(tr("agent_work_mode"))
+        self.mode.setToolTip(tr("agent_work_mode"))
         self.steps.setToolTip(tr("agent_step_count"))
+        self.web_access.setText(tr("agent_web_access"))
+        self.web_access.setToolTip(tr("agent_web_tooltip"))
+        self.activity_label.setText(tr("agent_activity"))
+        self.inspect_hint.setText(tr("agent_inspect_hint"))
         self.folder.setText(tr("agent_folder"))
         self.compatibility_test.setText(tr("agent_test_model"))
         self.retry_button.setText(tr("agent_retry"))
@@ -140,6 +159,7 @@ class AgentPanel(QWidget):
             self.status,
             self.steps,
             self.protocol,
+            self.web_access,
             self.folder,
         ):
             widget.setVisible(enabled)
@@ -157,31 +177,35 @@ class AgentPanel(QWidget):
         self.settings_loading = bool(conversation)
         self.mode.setEnabled(not self.settings_loading)
         if not conversation:
-            self.mode.blockSignals(True)
+            for widget in (self.mode, self.web_access):
+                widget.blockSignals(True)
             self.mode.setCurrentIndex(self.mode.findData("chat"))
-            self.mode.blockSignals(False)
+            self.web_access.setChecked(False)
+            for widget in (self.mode, self.web_access):
+                widget.blockSignals(False)
             self.visibility()
             return
 
         def loaded(record):
             if self.conversation != conversation:
                 return
-            for widget in (self.mode, self.steps, self.protocol):
+            for widget in (self.mode, self.steps, self.protocol, self.web_access):
                 widget.blockSignals(True)
             self.mode.setCurrentIndex(self.mode.findData(record["mode"]))
             self.steps.setValue(record["max_steps"])
             self.protocol.setCurrentIndex(self.protocol.findData(record["protocol"]))
-            for widget in (self.mode, self.steps, self.protocol):
+            self.web_access.setChecked(bool(record.get("web_access", False)))
+            for widget in (self.mode, self.steps, self.protocol, self.web_access):
                 widget.blockSignals(False)
             self.settings_loading = False
-            for widget in (self.mode, self.steps, self.protocol):
+            for widget in (self.mode, self.steps, self.protocol, self.web_access):
                 widget.setEnabled(not self.active)
             self.visibility()
 
         def load_failed(code):
             if self.conversation == conversation:
                 self.settings_loading = False
-                for widget in (self.mode, self.steps, self.protocol):
+                for widget in (self.mode, self.steps, self.protocol, self.web_access):
                     widget.setEnabled(not self.active)
                 self.main.show_error(code)
 
@@ -209,6 +233,23 @@ class AgentPanel(QWidget):
 
         self.api.request("GET", BASE + f"/conversations/{conversation}/runs", success=history)
 
+    def toggle_web_access(self, checked):
+        if checked and (
+            QMessageBox.question(
+                self,
+                self.main.tr("agent_web_access"),
+                self.main.tr("agent_web_warning"),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            != QMessageBox.Yes
+        ):
+            self.web_access.blockSignals(True)
+            self.web_access.setChecked(False)
+            self.web_access.blockSignals(False)
+            return
+        self.save_settings()
+
     def save_settings(self):
         self.visibility()
         if not self.conversation or self.settings_loading:
@@ -218,15 +259,16 @@ class AgentPanel(QWidget):
             "mode": self.mode.currentData(),
             "max_steps": self.steps.value(),
             "protocol": self.protocol.currentData(),
+            "web_access": self.web_access.isChecked(),
         }
         self.settings_saving = True
-        for widget in (self.mode, self.steps, self.protocol):
+        for widget in (self.mode, self.steps, self.protocol, self.web_access):
             widget.setEnabled(False)
 
         def saved(_):
             self.settings_saving = False
             if self.conversation == conversation:
-                for widget in (self.mode, self.steps, self.protocol):
+                for widget in (self.mode, self.steps, self.protocol, self.web_access):
                     widget.setEnabled(not self.active)
 
         def failed(code):
@@ -396,6 +438,7 @@ class AgentPanel(QWidget):
             self.mode,
             self.steps,
             self.protocol,
+            self.web_access,
             self.folder,
             self.compatibility_test,
             self.retry_button,

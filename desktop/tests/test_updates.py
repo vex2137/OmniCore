@@ -89,7 +89,7 @@ def test_update_panel_runs_off_main_thread_and_persists_channel(qtbot, tmp_path,
 
     main_thread = threading.get_ident()
     worker_threads = []
-    config = DesktopConfig()
+    config = DesktopConfig(update_channel="stable")
     path = tmp_path / "preferences.json"
     monkeypatch.setattr(config, "save", lambda: DesktopConfig.save(config, path))
 
@@ -133,3 +133,10 @@ def test_update_panel_recovers_from_network_error(qtbot, monkeypatch):
     assert "Cannot check" in panel.status.text()
     assert "private" not in panel.status.text()
     assert panel.open.isHidden()
+
+
+def test_beta_build_defaults_to_beta_channel_and_preserves_saved_choice(tmp_path):
+    assert DesktopConfig().update_channel == "beta"
+    path = tmp_path / "desktop.json"
+    DesktopConfig(update_channel="stable").save(path)
+    assert DesktopConfig.load(path).update_channel == "stable"

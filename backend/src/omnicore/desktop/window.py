@@ -10,8 +10,17 @@ from html import escape
 from pathlib import Path
 from urllib.parse import urlencode
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut, QTextDocument
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import (
+    QColor,
+    QIcon,
+    QKeySequence,
+    QPainter,
+    QPen,
+    QPixmap,
+    QShortcut,
+    QTextDocument,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -92,6 +101,69 @@ def sidebar_text(text, metrics, width):
     return "\n".join([*lines, line])
 
 
+def sidebar_icon(kind, color, size=18):
+    """Draw a crisp 2x vector icon for sidebar buttons."""
+    dpr = 2
+    px = max(12, size) * dpr
+    pixmap = QPixmap(px, px)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    pen = QPen(QColor(color), 1.8 * dpr, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    painter.setPen(pen)
+    s = float(px)
+    u = s / 18.0
+    if kind in {"expand", "collapse"}:
+        painter.drawRoundedRect(QRectF(2.5 * u, 3 * u, 13 * u, 12 * u), 2 * u, 2 * u)
+        painter.drawLine(round(6.8 * u), round(3.5 * u), round(6.8 * u), round(14.5 * u))
+        if kind == "expand":
+            painter.drawLine(round(10 * u), round(7 * u), round(12.2 * u), round(9 * u))
+            painter.drawLine(round(10 * u), round(11 * u), round(12.2 * u), round(9 * u))
+        else:
+            painter.drawLine(round(12 * u), round(7 * u), round(9.8 * u), round(9 * u))
+            painter.drawLine(round(12 * u), round(11 * u), round(9.8 * u), round(9 * u))
+    elif kind == "new_chat":
+        painter.drawLine(round(9 * u), round(4 * u), round(9 * u), round(14 * u))
+        painter.drawLine(round(4 * u), round(9 * u), round(14 * u), round(9 * u))
+    elif kind == "conversations_nav":
+        painter.drawRoundedRect(QRectF(2.5 * u, 3 * u, 13 * u, 9.5 * u), 2.5 * u, 2.5 * u)
+        painter.drawLine(round(6 * u), round(12.5 * u), round(5 * u), round(15.2 * u))
+        painter.drawLine(round(5 * u), round(15.2 * u), round(9 * u), round(12.5 * u))
+    elif kind == "models":
+        painter.drawRoundedRect(QRectF(3 * u, 3 * u, 5 * u, 5 * u), 1.2 * u, 1.2 * u)
+        painter.drawRoundedRect(QRectF(10 * u, 3 * u, 5 * u, 5 * u), 1.2 * u, 1.2 * u)
+        painter.drawRoundedRect(QRectF(3 * u, 10 * u, 5 * u, 5 * u), 1.2 * u, 1.2 * u)
+        painter.drawRoundedRect(QRectF(10 * u, 10 * u, 5 * u, 5 * u), 1.2 * u, 1.2 * u)
+    elif kind == "diagnostics":
+        painter.drawLine(round(2.5 * u), round(9.5 * u), round(5.5 * u), round(9.5 * u))
+        painter.drawLine(round(5.5 * u), round(9.5 * u), round(7.5 * u), round(4.5 * u))
+        painter.drawLine(round(7.5 * u), round(4.5 * u), round(10.5 * u), round(13.5 * u))
+        painter.drawLine(round(10.5 * u), round(13.5 * u), round(12.5 * u), round(9.5 * u))
+        painter.drawLine(round(12.5 * u), round(9.5 * u), round(15.5 * u), round(9.5 * u))
+    elif kind == "settings":
+        painter.drawEllipse(QRectF(6.2 * u, 6.2 * u, 5.6 * u, 5.6 * u))
+        spokes = (
+            (0, -6),
+            (0, 6),
+            (-6, 0),
+            (6, 0),
+            (-4.2, -4.2),
+            (4.2, 4.2),
+            (-4.2, 4.2),
+            (4.2, -4.2),
+        )
+        for dx, dy in spokes:
+            painter.drawLine(
+                round((9 + dx * 0.58) * u),
+                round((9 + dy * 0.58) * u),
+                round((9 + dx * 0.92) * u),
+                round((9 + dy * 0.92) * u),
+            )
+    painter.end()
+    pixmap.setDevicePixelRatio(dpr)
+    return QIcon(pixmap)
+
+
 class ModelCardBrowser(QTextBrowser):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -139,6 +211,7 @@ class MainWindow(QMainWindow):
         self._allow_close = False
         self._pending_import = None
         self._health_pending = set()
+        self._theme_colors = ("#ecf1f9", "#8b80f9", "#000000")
         self.setWindowTitle(f"OmniCore · {distribution_version()}")
         self.resize(1280, 820)
         self.setMinimumSize(920, 640)
@@ -779,14 +852,22 @@ class MainWindow(QMainWindow):
         compact = self.config.sidebar_compact
         compact_width = self._scaled(52)
         btn_size = self._scaled(32)
-        glyph_px = self._scaled(18)
+        icon_px = self._scaled(18 if compact else 16)
+        fg, accent, accent_text = self._theme_colors
         margin_h = max(4, (compact_width - 1 - btn_size) // 2) if compact else self._scaled(8)
         margin_v = self._scaled(10 if compact else 12)
         self.side_layout.setContentsMargins(margin_h, margin_v, margin_h, margin_v)
         self.side_layout.setSpacing(self._scaled(6))
-        compact_btn_style = f"padding: 0; text-align: center; font-size: {glyph_px}px;"
+        self.sidebar.setProperty("compact", compact)
+        self.sidebar.style().unpolish(self.sidebar)
+        self.sidebar.style().polish(self.sidebar)
         self.sidebar_toggle.setFixedSize(btn_size, btn_size)
-        self.sidebar_toggle.setStyleSheet(compact_btn_style)
+        self.sidebar_toggle.setStyleSheet("padding: 0;")
+        self.sidebar_toggle.setText("")
+        self.sidebar_toggle.setIcon(
+            sidebar_icon("expand" if compact else "collapse", fg, self._scaled(18))
+        )
+        self.sidebar_toggle.setIconSize(QSize(self._scaled(18), self._scaled(18)))
         self.sidebar.setMinimumWidth(compact_width if compact else 200)
         self.sidebar.setMaximumWidth(compact_width if compact else 360)
         if self.shell.count() > 1:
@@ -794,27 +875,26 @@ class MainWindow(QMainWindow):
             self.shell.setSizes([width, max(1, self.width() - width - 4)])
             self.shell.handle(1).setEnabled(not compact)
         self.brand.setVisible(not compact)
-        self.sidebar_toggle.setText("◈" if compact else "‹")
         self.sidebar_toggle.setToolTip(self.tr("sidebar_expand" if compact else "sidebar_collapse"))
         self.sidebar_width.setToolTip(self.tr("sidebar_width"))
         self.history_refresh.setToolTip(self.tr("refresh"))
         self.history_refresh.setAccessibleName(self.tr("refresh"))
         self.history_panel.setVisible(not compact)
         self.compact_spacer.setVisible(compact)
-        compact_btn_style = f"padding: 0; text-align: center; font-size: {glyph_px}px;"
-        for button, key, symbol in zip(
+        for button, key in zip(
             (self.new_button, *self.nav),
             ("new_chat", "conversations_nav", "models", "settings", "diagnostics"),
-            ("＋", "◉", "▣", "⚙", "◌"),
             strict=True,
         ):
-            label = self.tr(key) if key == "new_chat" else f"{symbol}  {self.tr(key)}"
+            icon_color = accent_text if key == "new_chat" else accent if button.isChecked() else fg
+            button.setIcon(sidebar_icon(key, icon_color, icon_px))
+            button.setIconSize(QSize(icon_px, icon_px))
             button.setToolTip(self.tr(key))
             button.setAccessibleName(self.tr(key))
             if compact:
                 button.setFixedSize(btn_size, btn_size)
-                button.setStyleSheet(compact_btn_style)
-                button.setText(symbol)
+                button.setStyleSheet("padding: 0;")
+                button.setText("")
             else:
                 button.setMinimumSize(0, 0)
                 button.setMaximumSize(16777215, 16777215)
@@ -822,9 +902,9 @@ class MainWindow(QMainWindow):
                 button.ensurePolished()
                 button.setText(
                     sidebar_text(
-                        label,
+                        self.tr(key),
                         button.fontMetrics(),
-                        max(48, self.config.sidebar_width - self._scaled(32)),
+                        max(48, self.config.sidebar_width - self._scaled(48)),
                     )
                 )
 
@@ -833,6 +913,7 @@ class MainWindow(QMainWindow):
         self.page_title.setText(self.tr(("chat", "models", "settings", "diagnostics")[index]))
         for i, button in enumerate(self.nav):
             button.setChecked(i == index)
+        self._apply_sidebar()
         effect = QGraphicsOpacityEffect(self.pages)
         self.pages.setGraphicsEffect(effect)
         self._animation = QPropertyAnimation(effect, b"opacity", self)
@@ -1013,14 +1094,24 @@ class MainWindow(QMainWindow):
                 color: {muted};
                 border-color: {border};
                 }}
-            QFrame#sidebar QPushButton#primary {{ padding: 10px 4px; }}
+            QFrame#sidebar QPushButton#primary {{ padding: 10px 8px; }}
             QPushButton#nav {{ text-align: left;
-                padding: 13px 6px;
-                border: none;
+                padding: 11px 8px;
+                border: 1px solid transparent;
+                border-radius: 9px;
                 background: transparent;
+                }}
+            QPushButton#nav:hover {{ background: {field};
+                border-color: {border};
                 }}
             QPushButton#nav:checked {{ color: {accent};
                 background: {field};
+                border-color: {border};
+                }}
+            QFrame#sidebar[compact="true"] QPushButton#nav:checked {{ border-color: {accent};
+                }}
+            QComboBox#agentMode {{ border-color: {accent};
+                font-weight: 600;
                 }}
             QLineEdit, QPlainTextEdit, QTextBrowser, QListWidget, QTableWidget,
             QComboBox,
@@ -1101,14 +1192,14 @@ class MainWindow(QMainWindow):
         stylesheet = re.sub(
             r"(?P<size>\d+)px",
             lambda m: (
-                m.group(0)
-                if int(m["size"]) <= 3
-                else f"{max(1, round(int(m['size']) * scale))}px"
+                m.group(0) if int(m["size"]) <= 3 else f"{max(1, round(int(m['size']) * scale))}px"
             ),
             stylesheet,
         )
+        self._theme_colors = (fg, accent, accent_text)
         self.setStyleSheet(stylesheet)
         self._apply_scaled_metrics()
+        self._apply_sidebar()
         self.ui_scale.setToolTip(self.tr("ui_scale_hint"))
         for widget, key in (
             (self.ui_scale, "ui_scale"),
@@ -1247,9 +1338,7 @@ class MainWindow(QMainWindow):
                         len(heading.text().splitlines()) * heading.fontMetrics().lineSpacing() + 8
                     )
                     elide_width = max(60, self.config.sidebar_width - self._scaled(48))
-                    label = QLabel(
-                        self.fontMetrics().elidedText(title, Qt.ElideRight, elide_width)
-                    )
+                    label = QLabel(self.fontMetrics().elidedText(title, Qt.ElideRight, elide_width))
                     label.setTextFormat(Qt.PlainText)
                     label.setWordWrap(True)
                     column.addWidget(label)

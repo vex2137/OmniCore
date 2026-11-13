@@ -7,6 +7,13 @@ import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from omnicore.release import release_channel
+
+
+def default_update_channel() -> str:
+    channel = release_channel()
+    return channel if channel in {"stable", "beta", "rc"} else "stable"
+
 
 def config_path() -> Path:
     base = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
@@ -40,7 +47,7 @@ class DesktopConfig:
     sidebar_compact: bool = False
     sidebar_width: int = 232
     accent: str = ""
-    update_channel: str = "stable"
+    update_channel: str = field(default_factory=default_update_channel)
     ui_scale: int = 100
     favorite_models: list[str] = field(default_factory=list)
     collapsed_history: list[str] = field(default_factory=list)
@@ -70,7 +77,7 @@ class DesktopConfig:
         }:
             raise ValueError("Invalid desktop preferences")
         if obj.update_channel not in {"stable", "beta", "rc"}:
-            obj.update_channel = "stable"
+            obj.update_channel = default_update_channel()
         if not isinstance(obj.sidebar_width, int) or isinstance(obj.sidebar_width, bool):
             obj.sidebar_width = 232
         obj.sidebar_width = max(200, min(360, obj.sidebar_width))

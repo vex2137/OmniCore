@@ -3,6 +3,7 @@
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime
 
 import httpx
 from packaging.version import Version
@@ -10,7 +11,7 @@ from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QComboBox, QFormLayout, QLabel, QPlainTextEdit, QPushButton, QWidget
 
-from omnicore.release import distribution_version
+from omnicore.release import distribution_version, release_channel
 
 ENDPOINT = "https://api.github.com/repos/vex2137/OmniCore/releases"
 RELEASE_PREFIX = "https://github.com/vex2137/OmniCore/releases/tag/"
@@ -83,7 +84,7 @@ def fetch_update(current, channel, *, transport=None):
 
 
 class CheckSignals(QObject):
-    finished = Signal(object, bool)
+    finished = Signal(object, bool, str)
 
 
 class CheckWorker(QRunnable):
@@ -95,10 +96,19 @@ class CheckWorker(QRunnable):
     def run(self):
         try:
             update = fetch_update(distribution_version(), self.channel)
-        except (httpx.HTTPError, ValueError):
-            self.signals.finished.emit(None, True)
+        except httpx.HTTPStatusError as exc:
+            detail = (
+                "updates_error_rate"
+                if exc.response.status_code in {403, 429}
+                else "updates_error_network"
+            )
+            self.signals.finished.emit(None, True, detail)
+        except httpx.HTTPError:
+            self.signals.finished.emit(None, True, "updates_error_network")
+        except ValueError:
+            self.signals.finished.emit(None, True, "updates_error_data")
         else:
-            self.signals.finished.emit(update, False)
+            self.signals.finished.emit(update, False, "")
 
 
 class UpdatePanel(QWidget):
@@ -107,6 +117,8 @@ class UpdatePanel(QWidget):
         self.config, self.tr = config, tr
         self.update = None
         self._status_key = "updates_hint"
+        self._error_detail = ""
+        self._checked_at = ""
         self._busy = False
         layout = QFormLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -146,14 +158,21 @@ class UpdatePanel(QWidget):
         self.channel_label.setText(tr("updates_channel"))
         self.check.setText(tr("updates_check"))
         self.open.setText(tr("updates_open"))
-        self.status.setText(
-            tr(self._status_key, version=self.update.version if self.update else "")
-        )
+        status = tr(self._status_key, version=self.update.version if self.update else "")
+        if self._error_detail:
+            status += " " + tr(self._error_detail)
+        elif self._checked_at and not self._busy:
+            status += " (" + tr("updates_checked", time=self._checked_at) + ")"
+        if self.channel.currentData() == "stable" and release_channel() in {"beta", "rc"}:
+            status += "\n" + tr("updates_channel_mismatch", version=distribution_version())
+        self.status.setText(status)
 
     def change_channel(self):
         self.config.update_channel = self.channel.currentData()
         self.config.save()
         self.update = None
+        self._error_detail = ""
+        self._checked_at = ""
         self.notes.hide()
         self.open.hide()
         self._status_key = "updates_hint"
@@ -166,19 +185,24 @@ class UpdatePanel(QWidget):
         self.check.setEnabled(False)
         self.channel.setEnabled(False)
         self.update = None
+        self._error_detail = ""
+        self._checked_at = ""
         self.notes.hide()
         self.open.hide()
         self._status_key = "updates_checking"
+        self._error_detail = ""
         self.retranslate(self.tr)
         self._worker = CheckWorker(self.channel.currentData())
         self._worker.signals.finished.connect(self.received)
         QThreadPool.globalInstance().start(self._worker)
 
-    def received(self, update, failed):
+    def received(self, update, failed, error_detail=""):
         self._busy = False
         self.check.setEnabled(True)
         self.channel.setEnabled(True)
         self.update = update
+        self._error_detail = error_detail if failed else ""
+        self._checked_at = datetime.now().strftime("%H:%M:%S")
         self._status_key = (
             "updates_error" if failed else "updates_available" if update else "updates_none"
         )
