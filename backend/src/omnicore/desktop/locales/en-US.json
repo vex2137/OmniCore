@@ -360,5 +360,8 @@
   "updates_error_network": "Cannot reach GitHub. Check your network.",
   "updates_error_data": "Received invalid release data.",
   "updates_checked": "Last checked: {time}",
-  "updates_channel_mismatch": "Version {version} is installed. The Stable channel will not show further beta or RC releases."
+  "updates_channel_mismatch": "Version {version} is installed. The Stable channel will not show further beta or RC releases.",
+  "agent_steps_label": "Steps:",
+  "agent_protocol_label": "Protocol:",
+  "agent_protocol_tooltip": "Tool-calling mode (Auto or forced JSON)."
 }

@@ -46,25 +46,33 @@ class AgentPanel(QWidget):
         self.mode.addItem(main.tr("agent_mode"), "agent")
         self.mode.setAccessibleName(main.tr("agent_work_mode"))
         self.mode.setToolTip(main.tr("agent_work_mode"))
+        self.steps_label = QLabel(main.tr("agent_steps_label"))
         self.steps = QSpinBox()
         self.steps.setRange(1, 32)
         self.steps.setValue(8)
         self.steps.setToolTip(main.tr("agent_step_count"))
+        self.protocol_label = QLabel(main.tr("agent_protocol_label"))
         self.protocol = QComboBox()
         self.protocol.addItem("Auto", "auto")
         self.protocol.addItem("JSON", "structured")
+        self.protocol.setToolTip(main.tr("agent_protocol_tooltip"))
         self.web_access = QCheckBox(main.tr("agent_web_access"))
         self.web_access.setToolTip(main.tr("agent_web_tooltip"))
         self.folder = QPushButton(main.tr("agent_folder"))
         row.addWidget(self.mode)
+        row.addWidget(self.steps_label)
         row.addWidget(self.steps)
+        row.addWidget(self.protocol_label)
         row.addWidget(self.protocol)
         row.addWidget(self.web_access)
         row.addWidget(self.folder)
+        row.addStretch()
         layout.addLayout(row)
-        self.details = QWidget()
+        self.details = QFrame()
+        self.details.setObjectName("agentCard")
         inner = QVBoxLayout(self.details)
-        inner.setContentsMargins(0, 0, 0, 0)
+        inner.setContentsMargins(10, 8, 10, 8)
+        inner.setSpacing(6)
         self.hint = QLabel(main.tr("agent_hint"))
         self.hint.setWordWrap(True)
         self.compatibility_label = QLabel()
@@ -72,14 +80,19 @@ class AgentPanel(QWidget):
         self.compatibility_label.setWordWrap(True)
         self.compatibility_test = QPushButton(main.tr("agent_test_model"))
         self.compatibility_test.clicked.connect(self.test_model)
-        inner.addWidget(self.compatibility_label)
-        inner.addWidget(self.compatibility_test)
+        cap_row = QHBoxLayout()
+        cap_row.setSpacing(8)
+        cap_row.addWidget(self.compatibility_label, 1)
+        cap_row.addWidget(self.compatibility_test)
+        inner.addLayout(cap_row)
         inner.addWidget(self.hint)
         self.folders = QListWidget()
-        self.folders.setMaximumHeight(58)
+        self.folders.setMaximumHeight(52)
+        self.folders.hide()
         inner.addWidget(self.folders)
         self.revoke = QPushButton(main.tr("agent_revoke"))
-        inner.addWidget(self.revoke)
+        self.revoke.hide()
+        inner.addWidget(self.revoke, alignment=Qt.AlignLeft)
         self.activity_label = QLabel(main.tr("agent_activity"))
         self.activity_label.setObjectName("agentActivityTitle")
         self.inspect_hint = QLabel(main.tr("agent_inspect_hint"))
@@ -91,7 +104,10 @@ class AgentPanel(QWidget):
         self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.tree.setMaximumHeight(110)
-        self.tree.setMinimumHeight(70)
+        self.tree.setMinimumHeight(64)
+        self.activity_label.hide()
+        self.tree.hide()
+        self.inspect_hint.hide()
         inner.insertWidget(0, self.activity_label)
         inner.insertWidget(1, self.tree)
         inner.insertWidget(2, self.inspect_hint)
@@ -102,8 +118,8 @@ class AgentPanel(QWidget):
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setWidget(self.details)
-        self.scroll.setMaximumHeight(150)
-        self.scroll.setMinimumHeight(90)
+        self.scroll.setMaximumHeight(90)
+        self.scroll.setMinimumHeight(44)
         layout.addWidget(self.scroll)
         layout.addWidget(self.status)
         self.retry_button = QPushButton(main.tr("agent_retry"))
@@ -113,7 +129,9 @@ class AgentPanel(QWidget):
         self.scroll.hide()
         self.status.hide()
         self.details.hide()
+        self.steps_label.hide()
         self.steps.hide()
+        self.protocol_label.hide()
         self.protocol.hide()
         self.web_access.hide()
         self.folder.hide()
@@ -138,7 +156,10 @@ class AgentPanel(QWidget):
         self.mode.setItemText(1, tr("agent_mode"))
         self.mode.setAccessibleName(tr("agent_work_mode"))
         self.mode.setToolTip(tr("agent_work_mode"))
+        self.steps_label.setText(tr("agent_steps_label"))
         self.steps.setToolTip(tr("agent_step_count"))
+        self.protocol_label.setText(tr("agent_protocol_label"))
+        self.protocol.setToolTip(tr("agent_protocol_tooltip"))
         self.web_access.setText(tr("agent_web_access"))
         self.web_access.setToolTip(tr("agent_web_tooltip"))
         self.activity_label.setText(tr("agent_activity"))
@@ -157,7 +178,9 @@ class AgentPanel(QWidget):
             self.details,
             self.scroll,
             self.status,
+            self.steps_label,
             self.steps,
+            self.protocol_label,
             self.protocol,
             self.web_access,
             self.folder,
@@ -172,7 +195,12 @@ class AgentPanel(QWidget):
         self.retry_id = None
         self.retry_button.hide()
         self.tree.clear()
+        self.activity_label.hide()
+        self.tree.hide()
+        self.inspect_hint.hide()
         self.folders.clear()
+        self.folders.hide()
+        self.revoke.hide()
         self.pending_poll = False
         self.settings_loading = bool(conversation)
         self.mode.setEnabled(not self.settings_loading)
@@ -391,6 +419,9 @@ class AgentPanel(QWidget):
             for record in records:
                 self.folders.addItem(record["path"])
                 self.folders.item(self.folders.count() - 1).setData(Qt.UserRole, record["id"])
+            has_folders = bool(records)
+            self.folders.setVisible(has_folders)
+            self.revoke.setVisible(has_folders)
 
         self.api.request("GET", BASE + f"/conversations/{conversation}/folders", success=received)
 
@@ -557,6 +588,11 @@ class AgentPanel(QWidget):
             self.status.setText(
                 self.main.tr(record.get("error_code") or "agent_" + record["state"]) + " · " + extra
             )
+        has_activity = self.tree.topLevelItemCount() > 0
+        self.activity_label.setVisible(has_activity)
+        self.tree.setVisible(has_activity)
+        self.inspect_hint.setVisible(has_activity)
+        self.scroll.setMaximumHeight(185 if has_activity else 90)
         if self.active:
             self.busy(True)
 

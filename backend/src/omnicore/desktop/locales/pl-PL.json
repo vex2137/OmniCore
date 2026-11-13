@@ -360,5 +360,8 @@
   "updates_error_network": "Brak połączenia z GitHubem. Sprawdź sieć.",
   "updates_error_data": "Otrzymano nieprawidłowe dane wydań.",
   "updates_checked": "Ostatnie sprawdzenie: {time}",
-  "updates_channel_mismatch": "Zainstalowano wersję {version}. Kanał Stable nie pokaże kolejnych wydań beta ani RC."
+  "updates_channel_mismatch": "Zainstalowano wersję {version}. Kanał Stable nie pokaże kolejnych wydań beta ani RC.",
+  "agent_steps_label": "Kroki:",
+  "agent_protocol_label": "Protokół:",
+  "agent_protocol_tooltip": "Tryb wywoływania narzędzi (Auto lub wymuszony JSON)."
 }
