@@ -4,6 +4,7 @@ import math
 import os
 import platform
 import re
+import tempfile
 import uuid
 from datetime import datetime
 from html import escape
@@ -164,6 +165,31 @@ def sidebar_icon(kind, color, size=18):
     return QIcon(pixmap)
 
 
+def ensure_arrow_icon(direction: str, color: str) -> str:
+    """Return path to a crisp 2x antialiased chevron PNG for QSS subcontrols."""
+    safe_color = re.sub(r"[^a-zA-Z0-9]", "", color.lower()) or "fg"
+    cache_dir = Path(tempfile.gettempdir()) / "omnicore-ui-icons"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    target = cache_dir / f"chevron-{direction}-{safe_color}.png"
+    if not target.exists():
+        size = 24
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        pen = QPen(QColor(color), 3.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        painter.setPen(pen)
+        if direction == "up":
+            painter.drawLine(6, 15, 12, 9)
+            painter.drawLine(12, 9, 18, 15)
+        else:
+            painter.drawLine(6, 9, 12, 15)
+            painter.drawLine(12, 15, 18, 9)
+        painter.end()
+        pixmap.save(str(target), "PNG")
+    return target.as_posix()
+
+
 class ModelCardBrowser(QTextBrowser):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -291,12 +317,14 @@ class MainWindow(QMainWindow):
         self.brand = QLabel("◈  OmniCore")
         self.brand.setObjectName("brand")
         self.sidebar_header = QHBoxLayout()
+        self.sidebar_header.setContentsMargins(0, 0, 0, 0)
         self.sidebar_header.addWidget(self.brand, 1)
         self.side_layout.addLayout(self.sidebar_header)
         self.sidebar_toggle = QPushButton()
+        self.sidebar_toggle.setObjectName("sidebarToggle")
+        self.sidebar_toggle.setCursor(Qt.PointingHandCursor)
         self.sidebar_toggle.clicked.connect(self.toggle_sidebar)
-        self.sidebar_toggle.setFixedSize(28, 32)
-        self.sidebar_toggle.setStyleSheet("padding: 0;")
+        self.sidebar_toggle.setFixedSize(32, 32)
         self.sidebar_header.addWidget(self.sidebar_toggle)
         self.nav = []
         for index, key in enumerate(("chat", "models", "settings", "diagnostics")):
@@ -699,17 +727,45 @@ class MainWindow(QMainWindow):
     def _build_settings(self):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        page = QWidget()
-        form = QFormLayout(page)
-        form.setContentsMargins(12, 22, 24, 24)
-        form.setVerticalSpacing(16)
-        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        outer = QWidget()
+        outer_layout = QHBoxLayout(outer)
+        outer_layout.setContentsMargins(0, 8, 0, 24)
+        outer_layout.addStretch(1)
+        self.settings_container = QWidget()
+        self.settings_container.setMaximumWidth(850)
+        outer_layout.addWidget(self.settings_container, 10)
+        outer_layout.addStretch(1)
+        container_layout = QVBoxLayout(self.settings_container)
+        container_layout.setContentsMargins(0, 8, 0, 8)
+        container_layout.setSpacing(14)
+
+        def make_card():
+            card = QFrame()
+            card.setObjectName("settingsCard")
+            card_form = QFormLayout(card)
+            card_form.setContentsMargins(20, 18, 20, 18)
+            card_form.setHorizontalSpacing(18)
+            card_form.setVerticalSpacing(14)
+            card_form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
+            container_layout.addWidget(card)
+            return card_form
+
+        def compact_row(*widgets):
+            box = QHBoxLayout()
+            box.setContentsMargins(0, 0, 0, 0)
+            box.setSpacing(10)
+            for w in widgets:
+                box.addWidget(w)
+            box.addStretch(1)
+            return box
+
+        appearance_form = make_card()
         self.language = QComboBox()
         self.language.addItem("Polski", "pl-PL")
         self.language.addItem("English", "en-US")
         self.language.setCurrentIndex(self.language.findData(self.config.locale))
         self.language.currentIndexChanged.connect(self.preview_language)
-        form.addRow(self.label("language"), self.language)
+        appearance_form.addRow(self.label("language"), self.language)
         self.theme = QComboBox()
         for key in ("system", "light", "midnight", "graphite", "oled", "ocean", "forest"):
             self.theme.addItem(self.tr(key), key)
@@ -728,17 +784,21 @@ class MainWindow(QMainWindow):
             painter.fillRect(30, 15, 32, 5, QColor(token[2]))
             painter.end()
             self.theme.setItemIcon(index, QIcon(preview))
-        form.addRow(self.label("theme"), self.theme)
+        appearance_form.addRow(self.label("theme"), self.theme)
         self.ui_scale = QSpinBox()
         self.ui_scale.setRange(80, 150)
         self.ui_scale.setSingleStep(10)
         self.ui_scale.setSuffix(" %")
         self.ui_scale.setValue(self.config.ui_scale)
         self.ui_scale.valueChanged.connect(self.change_ui_scale)
-        form.addRow(self.label("ui_scale"), self.ui_scale)
-        form.addRow(self.label("sidebar_width"), self.sidebar_width)
+        appearance_form.addRow(self.label("ui_scale"), self.ui_scale)
+        appearance_form.addRow(self.label("sidebar_width"), self.sidebar_width)
         self.accent_button = self.button("accent", self.choose_accent)
-        form.addRow(self.accent_button, self.button("accent_default", self.reset_accent))
+        appearance_form.addRow(
+            compact_row(self.accent_button, self.button("accent_default", self.reset_accent))
+        )
+
+        engine_form = make_card()
         self.device = QComboBox()
         for key in ("auto", "cpu", "cuda"):
             self.device.addItem(self.tr("mode_" + key), key)
@@ -746,25 +806,34 @@ class MainWindow(QMainWindow):
         if selected not in {"auto", "cpu", "cuda"}:
             self.device.addItem(selected, selected)
         self.device.setCurrentIndex(self.device.findData(selected))
-        form.addRow(self.label("execution_mode"), self.device)
+        engine_form.addRow(self.label("execution_mode"), self.device)
         self.engine_summary = self.label("detecting_engines")
-        form.addRow(self.engine_summary)
-        form.addRow(self.button("detect_engines", self.refresh_diagnostics))
-        basic = form
-        self.advanced_settings = QWidget()
+        engine_form.addRow(self.engine_summary)
         self.advanced_toggle = self.button("advanced_settings", lambda: None)
         self.advanced_toggle.setCheckable(True)
+        engine_form.addRow(
+            compact_row(
+                self.button("detect_engines", self.refresh_diagnostics),
+                self.advanced_toggle,
+            )
+        )
+
+        self.advanced_settings = QFrame()
+        self.advanced_settings.setObjectName("settingsCard")
         self.advanced_toggle.toggled.connect(self.advanced_settings.setVisible)
-        basic.addRow(self.advanced_toggle)
-        basic.addRow(self.advanced_settings)
+        container_layout.addWidget(self.advanced_settings)
         self.advanced_settings.hide()
         form = QFormLayout(self.advanced_settings)
+        form.setContentsMargins(20, 18, 20, 18)
+        form.setHorizontalSpacing(18)
+        form.setVerticalSpacing(14)
+        form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         self.roots = QListWidget()
         self.roots.setMaximumHeight(100)
         self.roots.addItems(self.config.model_roots)
         form.addRow(self.label("model_roots"), self.roots)
         form.addRow(
-            self.row(
+            compact_row(
                 self.button("add_directory", self.add_directory),
                 self.button("remove_directory", self.remove_directory),
             )
@@ -773,9 +842,13 @@ class MainWindow(QMainWindow):
         form.addRow(self.label("llama_server"), self.llama_path)
         self.llama_cuda_path = QLineEdit(self.config.llama_cuda_server)
         form.addRow(self.label("llama_cuda_server"), self.llama_cuda_path)
-        form.addRow(self.button("choose_cuda", self.choose_llama_cuda))
+        form.addRow(
+            compact_row(
+                self.button("choose_cuda", self.choose_llama_cuda),
+                self.button("browse", self.choose_llama),
+            )
+        )
         form.addRow(self.label("cuda_hint"))
-        form.addRow(self.button("browse", self.choose_llama))
         self.ollama_url = QLineEdit(self.config.ollama_url)
         form.addRow(self.label("ollama_url"), self.ollama_url)
         self.ollama_enabled = QCheckBox()
@@ -808,6 +881,7 @@ class MainWindow(QMainWindow):
             if isinstance(default, float):
                 box.setSingleStep(0.05)
             box.setValue(self.config.parameters.get(key, default))
+            box.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
             form.addRow(self.label(key), box)
             self.parameter_inputs[key] = box
         self.device.currentIndexChanged.connect(self.execution_mode_changed)
@@ -818,15 +892,19 @@ class MainWindow(QMainWindow):
         self.system_prompt = QPlainTextEdit(self.config.parameters.get("system_prompt", ""))
         self.system_prompt.setMaximumHeight(100)
         form.addRow(self.label("system_prompt"), self.system_prompt)
-        basic.addRow(self.label("settings_hint"))
-        basic.addRow(self.button("save", self.save_settings, primary=True))
+
+        footer_form = make_card()
+        footer_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        footer_form.addRow(self.label("settings_hint"))
+        footer_form.addRow(compact_row(self.button("save", self.save_settings, primary=True)))
         self.about = QLabel()
         self.about.setWordWrap(True)
         self.about.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        basic.addRow(self.about)
+        footer_form.addRow(self.about)
         self.updates = UpdatePanel(self.config, self.tr, self)
-        basic.addRow(self.updates)
-        scroll.setWidget(page)
+        footer_form.addRow(self.updates)
+        container_layout.addStretch(1)
+        scroll.setWidget(outer)
         self.pages.addWidget(scroll)
 
     def _build_diagnostics(self):
@@ -885,6 +963,7 @@ class MainWindow(QMainWindow):
         self.model_combo.setMinimumWidth(self._scaled(150))
         self.model_combo.setMaximumWidth(self._scaled(280))
         self.composer_wrap.setMaximumWidth(self._scaled(840))
+        self.settings_container.setMaximumWidth(self._scaled(850))
         self.context_meter.setMaximumWidth(self._scaled(90))
         self.body_layout.setContentsMargins(
             self._scaled(24), self._scaled(16), self._scaled(24), self._scaled(16)
@@ -893,7 +972,7 @@ class MainWindow(QMainWindow):
     def _apply_sidebar(self):
         compact = self.config.sidebar_compact
         compact_width = self._scaled(52)
-        btn_size = self._scaled(32)
+        btn_size = self._scaled(34)
         icon_px = self._scaled(18 if compact else 14)
         fg, accent, accent_text = self._theme_colors
         margin_h = max(4, (compact_width - 1 - btn_size) // 2) if compact else self._scaled(8)
@@ -903,18 +982,29 @@ class MainWindow(QMainWindow):
         self.sidebar.setProperty("compact", compact)
         self.sidebar.style().unpolish(self.sidebar)
         self.sidebar.style().polish(self.sidebar)
-        self.sidebar_toggle.setFixedSize(btn_size, btn_size)
-        self.sidebar_toggle.setStyleSheet("padding: 0;")
+        self.sidebar_header.setSpacing(0 if compact else self._scaled(6))
+        self.side_layout.setAlignment(
+            self.sidebar_header, Qt.AlignHCenter if compact else Qt.Alignment()
+        )
+        toggle_size = btn_size if compact else self._scaled(32)
+        toggle_icon = self._scaled(18 if compact else 16)
+        self.sidebar_toggle.setFixedSize(toggle_size, toggle_size)
+        self.sidebar_toggle.setStyleSheet("")
         self.sidebar_toggle.setText("")
         self.sidebar_toggle.setIcon(
-            sidebar_icon("expand" if compact else "collapse", fg, self._scaled(18))
+            sidebar_icon("expand" if compact else "collapse", fg, toggle_icon)
         )
-        self.sidebar_toggle.setIconSize(QSize(self._scaled(18), self._scaled(18)))
+        self.sidebar_toggle.setIconSize(QSize(toggle_icon, toggle_icon))
+        self.sidebar.setSizePolicy(
+            QSizePolicy.Fixed if compact else QSizePolicy.Preferred, QSizePolicy.Expanding
+        )
         self.sidebar.setMinimumWidth(compact_width if compact else 200)
         self.sidebar.setMaximumWidth(compact_width if compact else 360)
         if self.shell.count() > 1:
-            width = compact_width if compact else self.config.sidebar_width
-            self.shell.setSizes([width, max(1, self.width() - width - 4)])
+            handle_w = 1 if compact else 4
+            self.shell.setHandleWidth(handle_w)
+            width = compact_width if compact else max(200, min(360, self.config.sidebar_width))
+            self.shell.setSizes([width, max(1, self.width() - width - handle_w)])
             self.shell.handle(1).setEnabled(not compact)
         self.brand.setVisible(not compact)
         self.sidebar_toggle.setToolTip(self.tr("sidebar_expand" if compact else "sidebar_collapse"))
@@ -935,12 +1025,14 @@ class MainWindow(QMainWindow):
             button.setAccessibleName(self.tr(key))
             if compact:
                 button.setFixedSize(btn_size, btn_size)
-                button.setStyleSheet("padding: 0;")
+                button.setStyleSheet("")
                 button.setText("")
+                self.side_layout.setAlignment(button, Qt.AlignHCenter)
             else:
                 button.setMinimumSize(0, 0)
                 button.setMaximumSize(16777215, 16777215)
                 button.setStyleSheet("")
+                self.side_layout.setAlignment(button, Qt.Alignment())
                 button.ensurePolished()
                 button.setText(
                     sidebar_text(
@@ -1077,6 +1169,10 @@ class MainWindow(QMainWindow):
         button_accent = accent
         accent_text = max(("#000000", "#ffffff"), key=lambda color: contrast_ratio(color, accent))
         accent = readable_accent(accent, fg, (bg, panel, field))
+        down_icon = ensure_arrow_icon("down", fg)
+        down_muted = ensure_arrow_icon("down", muted)
+        up_icon = ensure_arrow_icon("up", fg)
+        up_muted = ensure_arrow_icon("up", muted)
         stylesheet = f"""
             QMainWindow,
     QMenu, QWidget {{ background: {bg};
@@ -1104,7 +1200,7 @@ class MainWindow(QMainWindow):
             QLabel#mutedMeta {{ color: {muted};
                 font-size: 12px;
                 }}
-            QFrame#contextCard, QFrame#agentCard {{ background: {panel};
+            QFrame#contextCard, QFrame#agentCard, QFrame#settingsCard {{ background: {panel};
                 border: 1px solid {border};
                 border-radius: 12px;
                 }}
@@ -1167,6 +1263,14 @@ class MainWindow(QMainWindow):
                 border-color: {border};
                 }}
             QFrame#sidebar QPushButton#primary {{ padding: 9px 6px; }}
+            QPushButton#sidebarToggle {{ background: transparent;
+                border: 1px solid transparent;
+                border-radius: 9px;
+                padding: 0;
+                }}
+            QPushButton#sidebarToggle:hover {{ background: {field};
+                border-color: {border};
+                }}
             QPushButton#nav {{ text-align: left;
                 padding: 10px 6px;
                 border: 1px solid transparent;
@@ -1180,19 +1284,106 @@ class MainWindow(QMainWindow):
                 background: {field};
                 border-color: {border};
                 }}
+            QFrame#sidebar[compact="true"] QPushButton#nav,
+            QFrame#sidebar[compact="true"] QPushButton#primary,
+            QFrame#sidebar[compact="true"] QPushButton#sidebarToggle {{ padding: 0;
+                border-radius: 9px;
+                }}
             QFrame#sidebar[compact="true"] QPushButton#nav:checked {{ border-color: {accent};
                 }}
             QComboBox#agentMode {{ border-color: {accent};
                 font-weight: 600;
                 }}
             QLineEdit, QPlainTextEdit, QTextBrowser, QListWidget, QTableWidget,
-            QComboBox,
-    QColorDialog, QSpinBox, QDoubleSpinBox {{
+            QColorDialog {{
                 background: {panel};
                 border: 1px solid {border};
                 border-radius: 9px;
                 padding: 8px;
                 selection-background-color: {accent};
+                }}
+            QComboBox, QSpinBox, QDoubleSpinBox {{
+                background: {panel};
+                border: 1px solid {border};
+                border-radius: 9px;
+                min-height: 20px;
+                selection-background-color: {accent};
+                }}
+            QComboBox {{
+                padding: 6px 32px 6px 10px;
+                }}
+            QComboBox::drop-down {{
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 26px;
+                border: none;
+                border-left: 1px solid {border};
+                border-top-right-radius: 8px;
+                border-bottom-right-radius: 8px;
+                background: transparent;
+                }}
+            QComboBox::drop-down:hover {{
+                background: {field};
+                }}
+            QComboBox::down-arrow {{
+                image: url("{down_icon}");
+                width: 12px;
+                height: 12px;
+                }}
+            QComboBox::down-arrow:disabled {{
+                image: url("{down_muted}");
+                }}
+            QComboBox QAbstractItemView {{
+                background: {panel};
+                color: {fg};
+                border: 1px solid {border};
+                border-radius: 8px;
+                padding: 4px;
+                selection-background-color: {field};
+                selection-color: {accent};
+                outline: none;
+                }}
+            QSpinBox, QDoubleSpinBox {{
+                padding: 6px 28px 6px 10px;
+                }}
+            QSpinBox::up-button, QDoubleSpinBox::up-button {{
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 22px;
+                border: none;
+                border-left: 1px solid {border};
+                border-bottom: 1px solid {border};
+                border-top-right-radius: 8px;
+                background: transparent;
+                }}
+            QSpinBox::down-button, QDoubleSpinBox::down-button {{
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 22px;
+                border: none;
+                border-left: 1px solid {border};
+                border-bottom-right-radius: 8px;
+                background: transparent;
+                }}
+            QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+            QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+                background: {field};
+                }}
+            QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+                image: url("{up_icon}");
+                width: 10px;
+                height: 10px;
+                }}
+            QSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:disabled {{
+                image: url("{up_muted}");
+                }}
+            QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+                image: url("{down_icon}");
+                width: 10px;
+                height: 10px;
+                }}
+            QSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:disabled {{
+                image: url("{down_muted}");
                 }}
             QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QPushButton:focus,
             QSpinBox:focus, QDoubleSpinBox:focus, QCheckBox:focus,

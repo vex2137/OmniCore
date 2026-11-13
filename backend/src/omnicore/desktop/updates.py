@@ -9,7 +9,15 @@ import httpx
 from packaging.version import Version
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QComboBox, QFormLayout, QLabel, QPlainTextEdit, QPushButton, QWidget
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QPlainTextEdit,
+    QPushButton,
+    QWidget,
+)
 
 from omnicore.release import distribution_version, release_channel
 
@@ -143,12 +151,18 @@ class UpdatePanel(QWidget):
         self.open = QPushButton()
         self.open.clicked.connect(self.open_release)
         self.open.hide()
+        actions = QHBoxLayout()
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.setSpacing(10)
+        actions.addWidget(self.check)
+        actions.addWidget(self.open)
+        actions.addStretch(1)
         layout.addRow(self.title)
         layout.addRow(self.current)
         layout.addRow(self.channel_label, self.channel)
         layout.addRow(self.status)
         layout.addRow(self.notes)
-        layout.addRow(self.check, self.open)
+        layout.addRow(actions)
         self.retranslate(tr)
 
     def retranslate(self, tr):

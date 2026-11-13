@@ -285,20 +285,57 @@ def test_beta3_all_history_headers_fit_at_narrow_widths(desktop, qtbot):
 def test_beta3_compact_sidebar_scales_proportionally(desktop, qtbot):
     w = desktop
     w.resize(1280, 760)
+    w.sidebar_width.setValue(320)
     w.toggle_sidebar()
     assert w.config.sidebar_compact
     for scale in (80, 90, 100, 125, 150):
         w.ui_scale.setValue(scale)
         qtbot.wait(30)
         expected_sidebar = max(1, round(52 * scale / 100))
-        expected_btn = max(1, round(32 * scale / 100))
+        expected_btn = max(1, round(34 * scale / 100))
         assert w.sidebar.width() == expected_sidebar
         if scale == 100:
-            assert 52 <= w.sidebar.width() <= 60
+            assert w.sidebar.width() == 52
             assert 32 <= w.sidebar_toggle.width() <= 36
+        centers = []
         for btn in (w.sidebar_toggle, w.new_button, *w.nav):
             assert btn.isVisible()
-            assert btn.width() == expected_btn and btn.height() == expected_btn
+            assert btn.width() == expected_btn
+            assert btn.height() == expected_btn
             assert btn.width() < w.sidebar.width()
             assert btn.width() >= btn.minimumSizeHint().width()
             assert btn.height() >= btn.minimumSizeHint().height()
+            centers.append(btn.geometry().center().x())
+        assert max(centers) - min(centers) <= 1
+
+
+def test_beta3_qss_arrow_icons_for_all_themes(desktop, qtbot):
+    import re
+
+    w = desktop
+    for theme in ("system", "light", "midnight", "graphite", "oled", "ocean", "forest"):
+        w.theme.setCurrentIndex(w.theme.findData(theme))
+        qtbot.wait(10)
+        qss = w.styleSheet()
+        assert "QComboBox::down-arrow" in qss
+        assert "QSpinBox::up-arrow" in qss
+        assert "QSpinBox::down-arrow" in qss
+        urls = re.findall(r'image:\s*url\("([^"]+)"\)', qss)
+        assert len(urls) >= 6
+        for path_str in urls:
+            p = Path(path_str)
+            assert p.is_file() and p.stat().st_size > 0
+
+
+def test_beta3_settings_form_bounded_and_compact(desktop, qtbot):
+    w = desktop
+    w.resize(1440, 900)
+    w.navigate(2)
+    qtbot.wait(40)
+    assert w.settings_container.maximumWidth() == 850
+    assert w.settings_container.width() <= 850
+    assert w.accent_button.width() < 300
+    assert w.updates.check.width() < 300
+    w.ui_scale.setValue(125)
+    qtbot.wait(30)
+    assert w.settings_container.maximumWidth() == round(850 * 1.25)
