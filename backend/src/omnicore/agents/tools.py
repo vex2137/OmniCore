@@ -18,6 +18,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from omnicore.agents.web import FetchArgs, SearchArgs
 from omnicore.schemas import WireModel
 from omnicore.text.types import TextError
 
@@ -46,6 +47,10 @@ TOOLS = {
     "list_files": (FileArgs, "List up to 200 entries in a granted directory."),
     "read_text": (FileArgs, "Read a UTF-8 regular file, at most 64 KiB."),
     "find_files": (FindArgs, "Search filenames below a granted directory, bounded traversal."),
+    "search_text": (
+        FindArgs,
+        "Search UTF-8 file contents below a granted directory; returns matching lines.",
+    ),
     "file_info": (
         FileArgs,
         "Get name, extension, size and modification time without file contents.",
@@ -58,10 +63,26 @@ TOOLS = {
         CalculateArgs,
         "Basic arithmetic: + - * / // % ** and parentheses; no code execution.",
     ),
+    "web_search": (
+        SearchArgs,
+        "Search the public web (only when the user enabled internet access); returns links.",
+    ),
+    "web_fetch": (
+        FetchArgs,
+        "Read text of a public http(s) page in 3500-character chunks; use next_start to continue.",
+    ),
 }
+# Extension point: a tool is (arguments model, description) plus a branch in Agents.execute.
+# Tools in a permission group are hidden from the model and rejected unless granted.
+PERMISSIONS = {"web_search": "web_access", "web_fetch": "web_access"}
 
 
-def schemas():
+def allowed(name, settings):
+    permission = PERMISSIONS.get(name)
+    return permission is None or bool(getattr(settings, permission, False))
+
+
+def schemas(settings=None):
     return [
         {
             "type": "function",
@@ -72,6 +93,7 @@ def schemas():
             },
         }
         for name, (model, description) in TOOLS.items()
+        if allowed(name, settings)
     ]
 
 
@@ -280,7 +302,13 @@ class FileTools:
                         if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
                             continue
                         relative = "/".join([*current, entry.name])
-                        if tool == "list_files" or args.query.casefold() in entry.name.casefold():
+                        if tool == "search_text":
+                            if stat.S_ISREG(info.st_mode) and 0 < info.st_size <= LIMIT:
+                                self.match_lines(folder, entry.name, relative, args.query, result)
+                                if len(result["entries"]) >= 50:
+                                    result["limited"] = True
+                                    return result
+                        elif tool == "list_files" or args.query.casefold() in entry.name.casefold():
                             result["entries"].append(
                                 {
                                     "path": relative,
@@ -291,10 +319,26 @@ class FileTools:
                             if len(result["entries"]) >= 200:
                                 result["limited"] = True
                                 break
-                        if tool == "find_files" and stat.S_ISDIR(info.st_mode) and depth < 12:
+                        if (
+                            tool in {"find_files", "search_text"}
+                            and stat.S_ISDIR(info.st_mode)
+                            and depth < 12
+                        ):
                             queue.append(([*current, entry.name], depth + 1))
         self.check(grant, cancelled)
         return result
+
+    def match_lines(self, folder, name, relative, query, result):
+        try:
+            text = self.read_at(folder, name)[0].decode("utf-8")
+        except (OSError, UnicodeDecodeError, TextError):
+            return  # Binary, changing or oversized files are skipped, not reported as text.
+        needle = query.casefold()
+        for number, line in enumerate(text.splitlines(), 1):
+            if needle in line.casefold():
+                result["entries"].append({"path": relative, "line": number, "text": line[:200]})
+                if len(result["entries"]) >= 50:
+                    return
 
     def propose(self, args, conversation_id, cancelled):
         grant = self.get(args.grant_id, conversation_id)

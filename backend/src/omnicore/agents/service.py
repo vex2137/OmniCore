@@ -15,7 +15,8 @@ from omnicore.agents.context import bounded_result, estimate, messages_for_turn
 from omnicore.agents.model import AgentModel
 from omnicore.agents.protocol import Final, PlanUpdate, parse_turn
 from omnicore.agents.protocol import ToolCall as ToolCall
-from omnicore.agents.tools import TOOLS, FileTools, calculate, schemas
+from omnicore.agents.tools import TOOLS, FileTools, allowed, calculate, schemas
+from omnicore.agents.web import WebTools
 from omnicore.schemas import WireModel
 from omnicore.text.context import context_settings
 from omnicore.text.store import timestamp
@@ -28,6 +29,8 @@ class AgentSettings(WireModel):
     mode: Literal["chat", "agent"] = "chat"
     max_steps: int = Field(default=8, ge=1, le=32)
     protocol: Literal["auto", "structured"] = "auto"
+    # Explicit per-conversation consent; web tools are hidden and refused without it.
+    web_access: bool = False
 
 
 class AgentRequest(WireModel):
@@ -41,6 +44,8 @@ class Agents:
     def __init__(self, service):
         self.service, self.store = service, service.store
         self.files = FileTools()
+        self.web = WebTools()
+        self.web_timeout = 20
         self.model = AgentModel(service)
         self.tasks, self.tokens, self.live, self.approvals = {}, {}, {}, {}
         self.tool_timeout = 5
@@ -140,6 +145,7 @@ class Agents:
                 retry_of=request.retry_of,
                 token_estimate=0,
                 step_limit=settings.max_steps,
+                web_access=settings.web_access,
             )
             record["family"] = parent.get("family", parent["id"]) if parent else record["id"]
             if parent:
@@ -169,8 +175,14 @@ class Agents:
             'be inside its optional "text" JSON field, never prose outside JSON. '
             "Native models can use set_plan. Truncated tool results are not complete files. "
             "Previous writes in retry checkpoints must not be repeated. "
-            "A write always requires separate human approval. Available tools: "
-            + json.dumps(schemas(), ensure_ascii=False)
+            "A write always requires separate human approval. "
+            + (
+                "Internet access: enabled (web_search, web_fetch; cite source URLs). "
+                if settings.web_access
+                else "Internet access: disabled by the user. "
+            )
+            + "Available tools: "
+            + json.dumps(schemas(settings), ensure_ascii=False)
         )
         if parameters.system_prompt:
             instruction = parameters.system_prompt + "\n" + instruction
@@ -354,7 +366,7 @@ class Agents:
             self.save(record)
             async with asyncio.timeout(self.service.config.generation_timeout):
                 response, native = await self.model.turn(
-                    model, messages, selected, settings.protocol
+                    model, messages, selected, settings.protocol, tools=schemas(settings)
                 )
             record["tool_mode"] = "native" if native else "json"
             record["token_estimate"] += max(estimate(response), self.model.output_tokens.get())
@@ -502,8 +514,15 @@ class Agents:
         try:
             if call.name not in TOOLS:
                 raise TextError("agent_unknown_tool", 422)
+            if not allowed(call.name, AgentSettings(web_access=record.get("web_access", False))):
+                raise TextError("agent_web_disabled", 403)
             args = TOOLS[call.name][0].model_validate(call.arguments, strict=True)
-            step["summary"] = getattr(args, "path", call.name)
+            step["summary"] = (
+                getattr(args, "path", None)
+                or getattr(args, "url", None)
+                or getattr(args, "query", None)
+                or call.name
+            )[:300]
             if call.name == "write_text":
                 target, fingerprint = self.write_identity(args, record["conversation_id"])
                 receipts = record.setdefault("write_receipts", {})
@@ -556,6 +575,10 @@ class Agents:
                     self.live.pop(key, None)
             elif call.name == "calculate":
                 result = calculate(args.expression)
+            elif call.name in {"web_search", "web_fetch"}:
+                handler = self.web.search if call.name == "web_search" else self.web.fetch
+                async with asyncio.timeout(self.web_timeout):
+                    result = await asyncio.to_thread(handler, args, cancelled)
             else:
                 async with asyncio.timeout(self.tool_timeout):
                     result = await asyncio.to_thread(
@@ -574,6 +597,8 @@ class Agents:
                 if "text" in result
                 else {"entries": len(result["entries"]), "limited": result.get("limited", False)}
                 if "entries" in result
+                else {"results": len(result["results"])}
+                if "results" in result
                 else result
             )
             return result

@@ -92,5 +92,13 @@
   "error.agent_invalid_plan_step": "Unknown plan step.",
   "error.agent_turn_limit": "Model turn limit reached.",
   "error.agent_token_limit": "Task output token budget exhausted (approximate).",
-  "error.agent_call_conflict": "Repeated tool call ID has conflicting arguments. Nothing was executed."
+  "error.agent_call_conflict": "Repeated tool call ID has conflicting arguments. Nothing was executed.",
+  "error.agent_web_disabled": "Internet access is disabled for this conversation.",
+  "error.agent_web_blocked": "Address blocked: only public http(s) pages are allowed.",
+  "error.agent_web_unreachable": "Cannot connect to the page.",
+  "error.agent_web_refused": "The server refused access or rate-limited the request.",
+  "error.agent_web_http_error": "The server returned an HTTP error.",
+  "error.agent_web_unsupported_content": "Unsupported content type (text and HTML only).",
+  "error.agent_web_redirect_limit": "Too many redirects.",
+  "error.agent_web_search_unavailable": "Web search is temporarily unavailable or requires browser verification."
 }

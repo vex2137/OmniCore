@@ -17,7 +17,7 @@ class AgentModel:
         self.output_tokens = ContextVar("agent_output_tokens", default=0)
         self.backend_version = ContextVar("agent_backend_version", default=None)
 
-    async def turn(self, model, messages, parameters, protocol):
+    async def turn(self, model, messages, parameters, protocol, tools=None):
         service = self.service
         async with service.generations.semaphore:
             engine = service.engines.get(model.backend)
@@ -48,7 +48,7 @@ class AgentModel:
                 and capability(service, model)["status"] != "json"
             )
             if native:
-                return await self.ollama(engine, location, messages, parameters)
+                return await self.ollama(engine, location, messages, parameters, tools)
             # File/tool results are data in user messages, never system instructions.
             converted = [
                 TextMessage(role=m["role"] if m["role"] != "tool" else "user", content=m["content"])
@@ -67,7 +67,7 @@ class AgentModel:
                 raise TextError("agent_incomplete_response", 422)
             return content, False
 
-    async def ollama(self, engine, model, messages, parameters):
+    async def ollama(self, engine, model, messages, parameters, tools=None):
         if parameters.gpu_layers or parameters.device != "cpu":
             raise TextError("unsupported_parameter", 422)
         options = {
@@ -89,7 +89,7 @@ class AgentModel:
                 "stream": False,
                 "think": parameters.thinking,
                 "tools": [
-                    *schemas(),
+                    *(schemas() if tools is None else tools),
                     {
                         "type": "function",
                         "function": {

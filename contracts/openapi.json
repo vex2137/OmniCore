@@ -77,6 +77,11 @@
             ],
             "title": "Protocol",
             "type": "string"
+          },
+          "web_access": {
+            "default": false,
+            "title": "Web Access",
+            "type": "boolean"
           }
         },
         "title": "AgentSettings",

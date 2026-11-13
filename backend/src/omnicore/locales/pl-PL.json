@@ -92,5 +92,13 @@
   "error.agent_invalid_plan_step": "Nieznany krok planu.",
   "error.agent_turn_limit": "Osiągnięto limit wywołań modelu.",
   "error.agent_token_limit": "Wyczerpano przybliżony budżet tokenów odpowiedzi zadania.",
-  "error.agent_call_conflict": "Powtórzone ID narzędzia ma inne argumenty. Niczego nie wykonano."
+  "error.agent_call_conflict": "Powtórzone ID narzędzia ma inne argumenty. Niczego nie wykonano.",
+  "error.agent_web_disabled": "Dostęp do internetu jest wyłączony dla tej rozmowy.",
+  "error.agent_web_blocked": "Adres zablokowany: dozwolone są tylko publiczne strony http(s).",
+  "error.agent_web_unreachable": "Nie można połączyć się ze stroną.",
+  "error.agent_web_refused": "Serwer odmówił dostępu lub ograniczył liczbę zapytań.",
+  "error.agent_web_http_error": "Serwer zwrócił błąd HTTP.",
+  "error.agent_web_unsupported_content": "Nieobsługiwany typ treści (tylko tekst i HTML).",
+  "error.agent_web_redirect_limit": "Zbyt wiele przekierowań.",
+  "error.agent_web_search_unavailable": "Wyszukiwarka jest chwilowo niedostępna lub wymaga weryfikacji w przeglądarce."
 }
