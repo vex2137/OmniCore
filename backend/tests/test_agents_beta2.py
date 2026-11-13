@@ -390,3 +390,15 @@ def test_parse_turn_supports_fenced_json_xml_tool_call_and_think_tags():
 
     kindless_final = parse_turn('{"answer": "Wynik"}', native=False)
     assert kindless_final == Final(kind="final", text="Wynik")
+
+    tool_in_kind = parse_turn(
+        '{"kind": "read_text", "arguments": {"grant_id": "g1", "path": "hello.txt"}}',
+        native=False,
+    )
+    assert tool_in_kind == [
+        ToolCall(
+            kind="tool",
+            name="read_text",
+            arguments={"grant_id": "g1", "path": "hello.txt"},
+        )
+    ]

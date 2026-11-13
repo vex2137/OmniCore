@@ -75,7 +75,8 @@ def openai_chunk(item):
     for choice in choices:
         if choice.get("index", 0) != 0:
             continue
-        delta = choice.get("delta") or choice.get("message") or {}
+        delta = choice["delta"] if "delta" in choice else choice.get("message")
+        delta = delta if isinstance(delta, dict) else {}
         text += _text(delta.get("content"))
         reasoning += _text(delta.get("reasoning_content") or delta.get("reasoning"))
         finish = choice.get("finish_reason") or finish

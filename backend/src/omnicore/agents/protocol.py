@@ -80,6 +80,18 @@ def _parse_non_native(response: str) -> dict:
             val = next((v for v in data.values() if isinstance(v, str) and v.strip()), None)
             if val is not None:
                 data = {"kind": "final", "text": val}
+    elif (
+        data.get("kind") not in {"tool", "final", "plan"}
+        and "name" not in data
+        and isinstance(data.get("kind"), str)
+        and isinstance(data.get("arguments"), dict)
+    ):
+        data = {
+            "kind": "tool",
+            "name": data["kind"],
+            "arguments": data["arguments"],
+            **{k: data[k] for k in ("call_id", "step_id", "text") if k in data},
+        }
     return data
 
 

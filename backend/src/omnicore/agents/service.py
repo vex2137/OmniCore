@@ -369,13 +369,11 @@ class Agents:
                 update={"max_tokens": min(parameters.max_tokens, remaining)}
             )
             messages = messages_for_turn(base, rounds, record, selected)
+            ctx_headroom = max(64, selected.context_size - record["context"]["approx_tokens"])
+            turn_budget = min(remaining, ctx_headroom)
+            target_tokens = max(selected.max_tokens, min(768, turn_budget))
             selected = selected.model_copy(
-                update={
-                    "max_tokens": min(
-                        selected.max_tokens,
-                        max(64, selected.context_size - record["context"]["approx_tokens"]),
-                    )
-                }
+                update={"max_tokens": min(turn_budget, target_tokens)}
             )
             record["turns"] += 1
             self.save(record)
