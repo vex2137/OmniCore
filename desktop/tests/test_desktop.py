@@ -400,11 +400,12 @@ def test_native_markdown_code_model_identity_statistics_and_safe_resources(qtbot
     assert any(
         "Strong" in b.toPlainText() and "**Strong**" not in b.toPlainText() for b in browsers
     )
+    stat_labels = card.findChildren(QLabel)
     assert any(
-        "2 tok." in label.text()
-        and "0.10 s TTFT" in label.text()
-        and "token limit" in label.toolTip()
-        for label in card.findChildren(QLabel)
+        "2 tok." in label.text() and "token limit" in label.toolTip() for label in stat_labels
+    )
+    assert any(
+        "0.10 s TTFT" in label.text() and "token limit" in label.toolTip() for label in stat_labels
     )
     assert card.findChild(QPlainTextEdit).toPlainText() == 'print("hello")'
     copy = next(button for button in card.findChildren(QPushButton) if button.text() == "Copy code")
@@ -494,7 +495,7 @@ def test_sidebar_compact_preserves_history_and_setting(desktop, qtbot, tmp_path)
     w = desktop
     assert w.sidebar.width() == 232
     qtbot.mouseClick(w.sidebar_toggle, Qt.LeftButton)
-    assert w.sidebar.width() == 52
+    assert w.sidebar.width() == 60
     assert w.history_panel.isHidden()
     path = tmp_path / "desktop.json"
     w.config.save(path)
@@ -509,7 +510,7 @@ def test_sidebar_width_is_persistent_and_restored_after_compacting(desktop, tmp_
     window.sidebar_width.setValue(280)
     assert window.sidebar.width() == 280
     window.toggle_sidebar()
-    assert window.sidebar.width() == 52
+    assert window.sidebar.width() == 60
     window.toggle_sidebar()
     assert window.sidebar.width() == 280
     path = tmp_path / "prefs.json"

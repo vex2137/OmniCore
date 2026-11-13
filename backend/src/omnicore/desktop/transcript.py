@@ -3,8 +3,8 @@
 import math
 import re
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QIcon, QTextDocument
+from PySide6.QtCore import QPointF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF, QTextDocument
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -22,35 +22,82 @@ from PySide6.QtWidgets import (
 )
 
 
+def _stat_pixmap(kind, color, size=14):
+    """Draw a crisp 2x vector icon for response statistics."""
+    pixmap = QPixmap(size * 2, size * 2)
+    pixmap.fill(Qt.transparent)
+    pixmap.setDevicePixelRatio(2)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    pen = QPen(QColor(color), 1.4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    painter.setPen(pen)
+    if kind == "ttft":
+        painter.drawEllipse(2, 2, size - 4, size - 4)
+        painter.drawLine(QPointF(size / 2, size / 2), QPointF(size / 2, 4.2))
+        painter.drawLine(QPointF(size / 2, size / 2), QPointF(size - 4.5, size / 2))
+    elif kind == "speed":
+        bolt = QPolygonF([
+            QPointF(size * 0.58, 1.8),
+            QPointF(size * 0.28, size * 0.54),
+            QPointF(size * 0.52, size * 0.54),
+            QPointF(size * 0.42, size - 1.8),
+            QPointF(size * 0.74, size * 0.44),
+            QPointF(size * 0.50, size * 0.44),
+        ])
+        painter.drawPolyline(bolt)
+    elif kind == "tokens":
+        diamond = QPolygonF([
+            QPointF(size / 2, 2.0),
+            QPointF(size - 2.0, size / 2),
+            QPointF(size / 2, size - 2.0),
+            QPointF(2.0, size / 2),
+        ])
+        painter.drawPolygon(diamond)
+    elif kind == "duration":
+        painter.drawEllipse(2.5, 3.0, size - 5.0, size - 5.0)
+        painter.drawLine(QPointF(size / 2 - 2.0, 1.5), QPointF(size / 2 + 2.0, 1.5))
+        painter.drawLine(QPointF(size / 2, size / 2 + 0.5), QPointF(size / 2 + 2.2, size / 2 - 1.8))
+    painter.end()
+    return pixmap
+
+
 def statistics_text(stats, tr):
     if not stats:
         return ""
+    sep = tr("decimal_separator")
+    unavailable = tr("unavailable")
     parts = []
     for key, label, unit in (
+        ("ttft_seconds", "ttft", "s"),
         ("tokens_per_second", "speed", "tok/s"),
         ("input_tokens", "input_tokens", ""),
-        ("gpu_offloaded_layers", "offloaded_layers", ""),
         ("output_tokens", "output_tokens", ""),
-        ("ttft_seconds", "ttft", "s"),
-        ("first_answer_seconds", "first_answer", "s"),
         ("generation_seconds", "duration", "s"),
         ("model_load_seconds", "load_time", "s"),
+        ("execution_device", "execution_device", ""),
+        ("gpu_offloaded_layers", "offloaded_layers", ""),
     ):
         value = stats.get(key)
-        if value is not None:
-            number = f"{value:.2f}" if isinstance(value, float) else str(value)
-            parts.append(f"{tr(label)}: {number} {unit}".rstrip())
+        if value is None:
+            rendered = unavailable
+        elif isinstance(value, float):
+            rendered = f"{value:.2f}".replace(".", sep) + (f" {unit}" if unit else "")
+        else:
+            rendered = f"{value} {unit}".rstrip()
+        parts.append(f"{tr(label)}: {rendered}")
     used, limit = stats.get("context_used_tokens"), stats.get("context_limit_tokens")
     if used is not None and limit:
         parts.append(f"{tr('context_usage')}: {used}/{limit} ({used / limit:.0%})")
-    if stats.get("finish_reason"):
-        reason = stats["finish_reason"]
+    else:
+        parts.append(f"{tr('context_usage')}: {unavailable}")
+    reason = stats.get("finish_reason")
+    if reason:
         reason = (
             tr("finish_" + reason) if reason in {"stop", "length", "cancelled", "error"} else reason
         )
         parts.append(f"{tr('finish_reason')}: {reason}")
-    if stats.get("execution_device"):
-        parts.append(f"{tr('execution_device')}: {stats['execution_device']}")
+    else:
+        parts.append(f"{tr('finish_reason')}: {unavailable}")
     if stats.get("fallback_reason"):
         parts.append(tr("cpu_fallback"))
     return " · ".join(parts)
@@ -127,25 +174,40 @@ class MessageCard(QFrame):
         details = statistics_text(message.get("statistics"), tr)
         if details:
             stats = message.get("statistics") or {}
-            summary = []
-            for key, prefix, suffix in (
-                ("ttft_seconds", "⏱ ", "s TTFT"),
-                ("tokens_per_second", "", "tok/s"),
-                ("output_tokens", "", tr("tokens_short")),
-                ("generation_seconds", "", "s"),
+            stats_row = QHBoxLayout()
+            stats_row.setContentsMargins(0, 2, 0, 0)
+            stats_row.setSpacing(6)
+            stat_color = self.palette().color(self.palette().ColorRole.PlaceholderText).name()
+            first = True
+            for icon_kind, key, label_key, suffix in (
+                ("ttft", "ttft_seconds", "ttft", "s TTFT"),
+                ("speed", "tokens_per_second", "speed", "tok/s"),
+                ("tokens", "output_tokens", "output_tokens", tr("tokens_short")),
+                ("duration", "generation_seconds", "duration", "s"),
             ):
                 value = stats.get(key)
-                if value is not None:
-                    number = f"{value:.2f}" if isinstance(value, float) else str(value)
-                    number = number.replace(".", tr("decimal_separator"))
-                    summary.append(f"{prefix}{number} {suffix}")
-            label = QLabel(" · ".join(summary))
-            label.setToolTip(details)
-            label.setObjectName("messageStats")
-            label.setTextFormat(Qt.PlainText)
-            label.setWordWrap(True)
-            label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            self.layout_.addWidget(label)
+                if value is None:
+                    continue
+                if not first:
+                    sep_lbl = QLabel("·")
+                    sep_lbl.setObjectName("messageStats")
+                    stats_row.addWidget(sep_lbl)
+                first = False
+                icon_lbl = QLabel()
+                icon_lbl.setPixmap(_stat_pixmap(icon_kind, stat_color, 14))
+                icon_lbl.setFixedSize(14, 14)
+                icon_lbl.setToolTip(tr(label_key))
+                number = f"{value:.2f}" if isinstance(value, float) else str(value)
+                number = number.replace(".", tr("decimal_separator"))
+                val_lbl = QLabel(f"{number} {suffix}")
+                val_lbl.setToolTip(f"{tr(label_key)}\n{details}")
+                val_lbl.setObjectName("messageStats")
+                val_lbl.setTextFormat(Qt.PlainText)
+                val_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                stats_row.addWidget(icon_lbl)
+                stats_row.addWidget(val_lbl)
+            stats_row.addStretch()
+            self.layout_.addLayout(stats_row)
 
         if message["role"] == "assistant":
             actions = QHBoxLayout()

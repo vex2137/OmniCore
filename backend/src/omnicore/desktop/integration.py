@@ -62,11 +62,21 @@ def install(image, data_home, *, png=None):
     checksum = hashlib.sha256(png).hexdigest()
     applications = data_home / "applications"
     icons = data_home / "icons/hicolor/256x256/apps"
-    for directory in (applications, data_home / "icons", icons.parent.parent, icons.parent, icons):
+    scalable = data_home / "icons/hicolor/scalable/apps"
+    for directory in (
+        applications,
+        data_home / "icons",
+        icons.parent.parent,
+        icons.parent,
+        icons,
+        scalable.parent,
+        scalable,
+    ):
         if directory.is_symlink():
             raise ValueError("Refusing symbolic-link integration directories")
     applications.mkdir(parents=True, exist_ok=True)
     icons.mkdir(parents=True, exist_ok=True)
+    scalable.mkdir(parents=True, exist_ok=True)
     desktop = applications / (APP_ID + ".desktop")
     if desktop.is_symlink():
         raise ValueError("Refusing a symbolic-link desktop entry")
@@ -102,6 +112,10 @@ def install(image, data_home, *, png=None):
     if desktop.exists() and desktop.read_bytes() != content:
         backup = desktop.with_name(desktop.name + ".bak-" + str(time.time_ns()))
         _atomic(backup, desktop.read_bytes(), 0o600)
+    svg = files("omnicore.desktop").joinpath("icon.svg").read_bytes()
+    svg_target = scalable / (APP_ID + ".svg")
+    if svg_target.is_symlink() or not svg_target.exists() or svg_target.read_bytes() != svg:
+        _atomic(svg_target, svg)
     for target in (icon, icons / (APP_ID + ".png")):
         if target.is_symlink() or not target.exists() or target.read_bytes() != png:
             _atomic(target, png)
@@ -129,6 +143,7 @@ def refresh_caches(data_home):
         ):
             environment.pop(key, None)
     for tool, args in (
+        ("gtk-update-icon-cache", ["-f", "-t", str(data_home / "icons/hicolor")]),
         ("update-desktop-database", [str(data_home / "applications")]),
         ("kbuildsycoca6", ["--noincremental"]),
     ):
@@ -148,6 +163,26 @@ def refresh_caches(data_home):
         else:
             result[tool] = "not installed"
     return result
+
+
+def ensure_appimage_integration(image, data_home=None):
+    resolved = _path(_path(image).resolve(strict=True))
+    if not resolved.is_file() or resolved.suffix != ".AppImage":
+        return None
+    target_home = _path(data_home or os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
+    desktop = target_home / "applications" / f"{APP_ID}.desktop"
+    svg_icon = target_home / "icons/hicolor/scalable/apps" / f"{APP_ID}.svg"
+    png_icon = target_home / "icons/hicolor/256x256/apps" / f"{APP_ID}.png"
+    expected_exec = f"Exec={desktop_exec(resolved)}"
+    if desktop.is_file() and svg_icon.is_file() and png_icon.is_file():
+        try:
+            if expected_exec in desktop.read_text(encoding="utf-8", errors="ignore"):
+                return None
+        except OSError:
+            pass
+    info = install(resolved, target_home)
+    refresh_caches(target_home)
+    return info
 
 
 def main(arguments):

@@ -415,8 +415,7 @@ class MainWindow(QMainWindow):
         self.search_timer.timeout.connect(self.refresh_conversations)
         self.history_search.textChanged.connect(lambda _: self.search_timer.start())
         self.history_refresh = QPushButton("↻")
-        self.history_refresh.setFixedWidth(32)
-        self.history_refresh.setStyleSheet("padding: 6px 0; font-size: 18px;")
+        self.history_refresh.setFixedSize(34, 34)
         self.history_refresh.clicked.connect(self.refresh_shared_history)
         left.addLayout(self.row(self.history_search, self.history_refresh))
         self.conversation_list = QListWidget()
@@ -493,6 +492,7 @@ class MainWindow(QMainWindow):
         self.agent_panel = AgentPanel(self)
         self.agent_panel.setMaximumWidth(840)
         self.chat_header.insertWidget(2, self.agent_panel.mode)
+        self.chat_header.insertWidget(3, self.agent_panel.settings_toggle)
         agent_row = QHBoxLayout()
         agent_row.setContentsMargins(0, 0, 0, 0)
         agent_row.addStretch(1)
@@ -981,9 +981,9 @@ class MainWindow(QMainWindow):
 
     def _apply_sidebar(self):
         compact = self.config.sidebar_compact
-        compact_width = self._scaled(52)
-        btn_size = self._scaled(34)
-        icon_px = self._scaled(18 if compact else 14)
+        compact_width = self._scaled(60)
+        btn_size = self._scaled(38)
+        icon_px = self._scaled(19 if compact else 14)
         fg, accent, accent_text = self._theme_colors
         margin_h = max(4, (compact_width - 1 - btn_size) // 2) if compact else self._scaled(8)
         margin_v = self._scaled(10 if compact else 12)
@@ -997,7 +997,8 @@ class MainWindow(QMainWindow):
             self.sidebar_header, Qt.AlignHCenter if compact else Qt.Alignment()
         )
         toggle_size = btn_size if compact else self._scaled(32)
-        toggle_icon = self._scaled(18 if compact else 16)
+        toggle_icon = self._scaled(19 if compact else 16)
+        self.history_refresh.setFixedSize(self._scaled(34), self._scaled(34))
         self.sidebar_toggle.setFixedSize(toggle_size, toggle_size)
         self.sidebar_toggle.setStyleSheet("")
         self.sidebar_toggle.setText("")
@@ -1183,9 +1184,30 @@ class MainWindow(QMainWindow):
         down_muted = ensure_arrow_icon("down", muted)
         up_icon = ensure_arrow_icon("up", fg)
         up_muted = ensure_arrow_icon("up", muted)
+        from PySide6.QtGui import QPalette
+
+        qt_palette = QPalette()
+        for role, hex_color in (
+            (QPalette.Window, bg),
+            (QPalette.WindowText, fg),
+            (QPalette.Base, panel),
+            (QPalette.AlternateBase, field),
+            (QPalette.Text, fg),
+            (QPalette.Button, field),
+            (QPalette.ButtonText, fg),
+            (QPalette.Highlight, field),
+            (QPalette.HighlightedText, accent),
+            (QPalette.ToolTipBase, panel),
+            (QPalette.ToolTipText, fg),
+            (QPalette.PlaceholderText, muted),
+        ):
+            qt_palette.setColor(role, QColor(hex_color))
+        for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText):
+            qt_palette.setColor(QPalette.Disabled, role, QColor(muted))
+        QApplication.instance().setPalette(qt_palette)
         stylesheet = f"""
             QMainWindow,
-    QMenu, QWidget {{ background: {bg};
+            QDialog, QMessageBox, QMenu, QWidget {{ background: {bg};
                 color: {fg};
                 font: 14px 'Sans Serif';
                 }}
@@ -1249,10 +1271,14 @@ class MainWindow(QMainWindow):
                 padding: 10px 14px;
                 font-weight: 550;
                 }}
-            QWidget#historyGroupRow {{ background: {panel}; }}
+            QWidget#historyGroupRow {{ background: transparent; border-radius: 6px; }}
             QWidget#historyGroupRow[selected="true"] {{ background: {field}; }}
+            QLabel#historyItemTitle {{ background: transparent; color: {fg}; }}
+            QLabel#historyItemTitle[selected="true"] {{ color: {accent}; }}
             QPushButton#historyHeading {{ background: transparent; border: 1px solid transparent;
-                padding: 2px 0; text-align: left; font-size: 12px; }}
+                border-radius: 5px; padding: 3px 4px; text-align: left; font-size: 11px;
+                font-weight: 600; color: {muted}; }}
+            QPushButton#historyHeading:hover {{ color: {fg}; }}
             QPushButton#historyHeading:focus {{ border: 2px solid {accent}; }}
             QToolButton {{ background: {field}; border: 1px solid {border}; border-radius: 6px; }}
             QToolButton:hover {{ border-color: {accent}; }}
@@ -1315,10 +1341,16 @@ class MainWindow(QMainWindow):
                 }}
             QComboBox, QSpinBox, QDoubleSpinBox {{
                 background: {panel};
+                color: {fg};
                 border: 1px solid {border};
                 border-radius: 9px;
                 min-height: 20px;
                 selection-background-color: {accent};
+                selection-color: {accent_text};
+                }}
+            QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {{
+                background: {field};
+                color: {muted};
                 }}
             QComboBox {{
                 padding: 6px 32px 6px 10px;
@@ -1344,7 +1376,12 @@ class MainWindow(QMainWindow):
             QComboBox::down-arrow:disabled {{
                 image: url("{down_muted}");
                 }}
-            QComboBox QAbstractItemView {{
+            QComboBoxPrivateContainer {{
+                background: {panel};
+                border: 1px solid {border};
+                border-radius: 8px;
+                }}
+            QComboBox QAbstractItemView, QListView {{
                 background: {panel};
                 color: {fg};
                 border: 1px solid {border};
@@ -1353,6 +1390,20 @@ class MainWindow(QMainWindow):
                 selection-background-color: {field};
                 selection-color: {accent};
                 outline: none;
+                }}
+            QComboBox QAbstractItemView::item, QListView::item {{
+                padding: 6px 10px;
+                min-height: 22px;
+                background: transparent;
+                color: {fg};
+                border-radius: 5px;
+                }}
+            QComboBox QAbstractItemView::item:hover,
+            QComboBox QAbstractItemView::item:selected,
+            QListView::item:hover,
+            QListView::item:selected {{
+                background: {field};
+                color: {accent};
                 }}
             QSpinBox, QDoubleSpinBox {{
                 padding: 6px 28px 6px 10px;
@@ -1411,7 +1462,15 @@ class MainWindow(QMainWindow):
             QListWidget::item {{ padding: 12px 8px;
                 border-radius: 6px;
                 }}
-            QListWidget#conversations::item {{ padding: 6px 2px; }}
+            QListWidget#conversations {{ background: transparent;
+                border: none;
+                padding: 0;
+                outline: none;
+                }}
+            QListWidget#conversations::item {{ padding: 6px 8px;
+                border-radius: 6px;
+                margin: 1px 0;
+                }}
             QListWidget::item:selected, QTableWidget::item:selected {{ background: {field};
                 color: {accent};
                 }}
@@ -1441,6 +1500,15 @@ class MainWindow(QMainWindow):
                 }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0;
                 }}
+            QScrollBar:horizontal {{ height: 10px;
+                background: {bg};
+                }}
+            QScrollBar::handle:horizontal {{ background: {border};
+                border-radius: 5px;
+                min-width: 32px;
+                }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0;
+                }}
             QProgressBar {{ border: 1px solid {border};
                 border-radius: 7px;
                 text-align: center;
@@ -1469,6 +1537,8 @@ class MainWindow(QMainWindow):
                 }}
             QMenu::item {{ padding: 6px 14px;
                 border-radius: 6px;
+                }}
+            QMenu::item:disabled {{ color: {muted};
                 }}
             QMenu::item:selected {{ background: {field};
                 color: {accent};
@@ -1602,7 +1672,8 @@ class MainWindow(QMainWindow):
                     row.setObjectName("historyGroupRow")
                     row.setProperty("selected", record["id"] == current)
                     column = QVBoxLayout(row)
-                    column.setContentsMargins(2, 8, 2, 4)
+                    column.setContentsMargins(0, 4, 0, 2)
+                    column.setSpacing(2)
                     collapsed = group in self.config.collapsed_history
                     heading = QPushButton(
                         ("▸ " if collapsed else "▾ ") + self.tr("history_" + group)
@@ -1623,10 +1694,13 @@ class MainWindow(QMainWindow):
                         )
                     )
                     heading.setMinimumHeight(
-                        len(heading.text().splitlines()) * heading.fontMetrics().lineSpacing() + 8
+                        len(heading.text().splitlines()) * heading.fontMetrics().lineSpacing() + 6
                     )
                     elide_width = max(60, self.config.sidebar_width - self._scaled(48))
                     label = QLabel(self.fontMetrics().elidedText(title, Qt.ElideRight, elide_width))
+                    label.setObjectName("historyItemTitle")
+                    label.setProperty("selected", record["id"] == current)
+                    label.setContentsMargins(6, 4, 6, 4)
                     label.setTextFormat(Qt.PlainText)
                     label.setWordWrap(True)
                     column.addWidget(label)
@@ -1634,9 +1708,9 @@ class MainWindow(QMainWindow):
                     item.setSizeHint(
                         QSize(
                             0,
-                            max(48, heading.sizeHint().height() + 24)
+                            max(28, heading.sizeHint().height() + 8)
                             if collapsed
-                            else max(80, row.sizeHint().height() + 24),
+                            else max(52, row.sizeHint().height() + 6),
                         )
                     )
                     self.conversation_list.setItemWidget(item, row)
@@ -1662,9 +1736,15 @@ class MainWindow(QMainWindow):
         for candidate in (previous, item):
             widget = self.conversation_list.itemWidget(candidate) if candidate else None
             if widget:
-                widget.setProperty("selected", candidate is item)
+                selected = candidate is item
+                widget.setProperty("selected", selected)
                 widget.style().unpolish(widget)
                 widget.style().polish(widget)
+                title = widget.findChild(QLabel, "historyItemTitle")
+                if title:
+                    title.setProperty("selected", selected)
+                    title.style().unpolish(title)
+                    title.style().polish(title)
                 widget.update()
 
     def toggle_history_group(self, group):

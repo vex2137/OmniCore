@@ -291,12 +291,12 @@ def test_beta3_compact_sidebar_scales_proportionally(desktop, qtbot):
     for scale in (80, 90, 100, 125, 150):
         w.ui_scale.setValue(scale)
         qtbot.wait(30)
-        expected_sidebar = max(1, round(52 * scale / 100))
-        expected_btn = max(1, round(34 * scale / 100))
+        expected_sidebar = max(1, round(60 * scale / 100))
+        expected_btn = max(1, round(38 * scale / 100))
         assert w.sidebar.width() == expected_sidebar
         if scale == 100:
-            assert w.sidebar.width() == 52
-            assert 32 <= w.sidebar_toggle.width() <= 36
+            assert w.sidebar.width() == 60
+            assert 36 <= w.sidebar_toggle.width() <= 40
         centers = []
         for btn in (w.sidebar_toggle, w.new_button, *w.nav):
             assert btn.isVisible()

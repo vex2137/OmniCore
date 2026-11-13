@@ -134,6 +134,9 @@ def test_agent_gui_read_review_write_and_durable_mode(agent_window, qtbot, monke
     qtbot.waitUntil(lambda: not panel.settings_loading)
     panel.mode.setCurrentIndex(panel.mode.findData("agent"))
     qtbot.waitUntil(lambda: not panel.settings_saving)
+    assert not panel.details.isVisible()
+    assert panel.settings_toggle.isVisible()
+    qtbot.mouseClick(panel.settings_toggle, Qt.LeftButton)
     assert panel.details.isVisible()
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a: str(folder))
     answers = iter([QMessageBox.Yes, QMessageBox.No])
@@ -305,10 +308,9 @@ def test_beta3_statistics_are_measured_compact_and_localized(qtbot):
     )
     qtbot.addWidget(card)
     labels = [label.text() for label in card.findChildren(QLabel)]
-    assert any(
-        "0,87 s TTFT" in t and "100,30 tok/s" in t and "17 tok." in t and "1,04 s" in t
-        for t in labels
-    )
+    joined = " ".join(labels)
+    assert all(part in joined for part in ("0,87 s TTFT", "100,30 tok/s", "17 tok.", "1,04 s"))
+    assert sum(1 for label in card.findChildren(QLabel) if not label.pixmap().isNull()) == 4
 
 
 def test_context_log_slider_keeps_exact_manual_input(desktop):

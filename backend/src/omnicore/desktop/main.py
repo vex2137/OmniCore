@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -153,8 +154,19 @@ def main():
     app.setStyle("Fusion")
     from importlib.resources import files
 
-    icon_path = files("omnicore.desktop").joinpath("icon.svg")
-    app.setWindowIcon(QIcon(str(icon_path)))
+    png_path = files("omnicore.desktop").joinpath("icon.png")
+    svg_path = files("omnicore.desktop").joinpath("icon.svg")
+    app_icon = QIcon(str(png_path))
+    app_icon.addFile(str(svg_path))
+    app.setWindowIcon(app_icon)
+    appimage_path = os.environ.get("APPIMAGE")
+    if appimage_path and Path(appimage_path).is_file():
+        try:
+            from omnicore.desktop.integration import ensure_appimage_integration
+
+            ensure_appimage_integration(Path(appimage_path))
+        except OSError:
+            pass
     try:
         config = DesktopConfig.load()
     except (OSError, ValueError, TypeError):
@@ -172,6 +184,7 @@ def main():
     api = ApiClient()
     session = BackendSession(api, config)
     window = MainWindow(api, session, config)
+    window.setWindowIcon(app_icon)
     smoke = (
         SmokeRun(app, window, args.smoke_output, args.screenshot, args.smoke_gguf)
         if args.smoke_output

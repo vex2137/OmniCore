@@ -118,9 +118,13 @@ def test_frozen_cache_tools_use_host_libraries_without_mutating_environment(tmp_
 
     monkeypatch.setattr(integration.subprocess, "run", run)
     assert set(integration.refresh_caches(tmp_path).values()) == {"ok"}
-    assert len(calls) == 2
+    assert len(calls) == 3
     for command, kwargs in calls:
-        assert command[0] in {"/usr/bin/kbuildsycoca6", "/usr/bin/update-desktop-database"}
+        assert command[0] in {
+            "/usr/bin/gtk-update-icon-cache",
+            "/usr/bin/kbuildsycoca6",
+            "/usr/bin/update-desktop-database",
+        }
         assert kwargs["env"]["LD_LIBRARY_PATH"] == "/opt/native-libraries"
         assert "QT_PLUGIN_PATH" not in kwargs["env"]
         assert "shell" not in kwargs

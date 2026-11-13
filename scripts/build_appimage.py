@@ -182,9 +182,22 @@ def main():
     shutil.copy2(ROOT / "packaging/linux/AppRun", appdir / "AppRun")
     (appdir / "AppRun").chmod(0o755)
     shutil.copy2(ROOT / "packaging/linux/io.github.vex2137.OmniCore.desktop", appdir)
+    apps_dir = appdir / "usr/share/applications"
+    apps_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / "packaging/linux/io.github.vex2137.OmniCore.desktop", apps_dir)
     icon = ROOT / "backend/src/omnicore/desktop/icon.svg"
     shutil.copy2(icon, appdir / "io.github.vex2137.OmniCore.svg")
     shutil.copy2(icon.with_suffix(".png"), appdir / "io.github.vex2137.OmniCore.png")
+    for rel, src in (
+        (
+            "usr/share/icons/hicolor/256x256/apps/io.github.vex2137.OmniCore.png",
+            icon.with_suffix(".png"),
+        ),
+        ("usr/share/icons/hicolor/scalable/apps/io.github.vex2137.OmniCore.svg", icon),
+    ):
+        dest = appdir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
     (appdir / ".DirIcon").symlink_to("io.github.vex2137.OmniCore.png")
     licenses = appdir / "usr/share/licenses/OmniCore"
     copy_licenses(licenses)
