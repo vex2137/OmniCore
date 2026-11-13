@@ -11,7 +11,16 @@ from html import escape
 from pathlib import Path
 from urllib.parse import urlencode
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QPropertyAnimation,
+    QRectF,
+    QSize,
+    Qt,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import (
     QColor,
     QIcon,
@@ -160,6 +169,9 @@ def sidebar_icon(kind, color, size=18):
                 round((9 + dx * 0.92) * u),
                 round((9 + dy * 0.92) * u),
             )
+    elif kind == "search":
+        painter.drawEllipse(QRectF(3 * u, 3 * u, 8.5 * u, 8.5 * u))
+        painter.drawLine(round(10.3 * u), round(10.3 * u), round(15 * u), round(15 * u))
     painter.end()
     pixmap.setDevicePixelRatio(dpr)
     return QIcon(pixmap)
@@ -332,7 +344,36 @@ class MainWindow(QMainWindow):
             button.setCheckable(True)
             button.setObjectName("nav")
             self.nav.append(button)
-        self.side_layout.addWidget(self.nav[0])
+        self._history_search_open = False
+        self.conversations_row = QHBoxLayout()
+        self.conversations_row.setContentsMargins(0, 0, 0, 0)
+        self.conversations_row.setSpacing(2)
+        self.conversations_row.addWidget(self.nav[0], 1)
+        self.history_search_toggle = QPushButton()
+        self.history_search_toggle.setObjectName("historyHeaderButton")
+        self.history_search_toggle.clicked.connect(self.open_history_search)
+        self.history_refresh = QPushButton("↻")
+        self.history_refresh.setObjectName("historyHeaderButton")
+        self.history_refresh.clicked.connect(self.refresh_shared_history)
+        self.conversations_row.addWidget(self.history_search_toggle)
+        self.conversations_row.addWidget(self.history_refresh)
+        self.history_search = QLineEdit()
+        self.history_search.setMaxLength(256)
+        self.history_search.setClearButtonEnabled(True)
+        self.history_search.installEventFilter(self)
+        self.history_search.hide()
+        self.search_timer = QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(250)
+        self.search_timer.timeout.connect(self.refresh_conversations)
+        self.history_search.textChanged.connect(lambda _: self.search_timer.start())
+        self.history_search_close = QPushButton("✕")
+        self.history_search_close.setObjectName("historyHeaderButton")
+        self.history_search_close.clicked.connect(self.close_history_search)
+        self.history_search_close.hide()
+        self.conversations_row.addWidget(self.history_search, 1)
+        self.conversations_row.addWidget(self.history_search_close)
+        self.side_layout.addLayout(self.conversations_row)
         self.side_layout.addWidget(self.nav[1])
         self.shell.addWidget(self.sidebar)
         main = QWidget()
@@ -407,17 +448,6 @@ class MainWindow(QMainWindow):
         self.sidebar_width.valueChanged.connect(self.resize_sidebar)
         self.new_button = self.button("new_chat", self.new_conversation, primary=True)
         left.addWidget(self.new_button)
-        self.history_search = QLineEdit()
-        self.history_search.setMaxLength(256)
-        self.search_timer = QTimer(self)
-        self.search_timer.setSingleShot(True)
-        self.search_timer.setInterval(250)
-        self.search_timer.timeout.connect(self.refresh_conversations)
-        self.history_search.textChanged.connect(lambda _: self.search_timer.start())
-        self.history_refresh = QPushButton("↻")
-        self.history_refresh.setFixedSize(34, 34)
-        self.history_refresh.clicked.connect(self.refresh_shared_history)
-        left.addLayout(self.row(self.history_search, self.history_refresh))
         self.conversation_list = QListWidget()
         self.conversation_list.setObjectName("conversations")
         self.conversation_list.setLayoutMode(QListWidget.Batched)
@@ -464,7 +494,7 @@ class MainWindow(QMainWindow):
         context_layout.setContentsMargins(12, 10, 12, 10)
         context_layout.setSpacing(6)
         self.context_controls.hide()
-        self.context_button.toggled.connect(self.context_controls.setVisible)
+        self.context_button.toggled.connect(lambda _checked=False: self._sync_mode_settings())
         chat.addWidget(self.context_controls)
         self.context_mode = QComboBox()
         self.context_mode.addItem(self.tr("context_auto"), "auto")
@@ -492,7 +522,9 @@ class MainWindow(QMainWindow):
         self.agent_panel = AgentPanel(self)
         self.agent_panel.setMaximumWidth(840)
         self.chat_header.insertWidget(2, self.agent_panel.mode)
-        self.chat_header.insertWidget(3, self.agent_panel.settings_toggle)
+        self.agent_panel.mode.currentIndexChanged.connect(
+            lambda _index=0: self._sync_mode_settings()
+        )
         agent_row = QHBoxLayout()
         agent_row.setContentsMargins(0, 0, 0, 0)
         agent_row.addStretch(1)
@@ -935,7 +967,54 @@ class MainWindow(QMainWindow):
     def focus_history_search(self):
         if self.config.sidebar_compact:
             self.toggle_sidebar()
+        self.open_history_search()
+
+    def open_history_search(self):
+        if self.config.sidebar_compact:
+            self.toggle_sidebar()
+        self._history_search_open = True
+        self._apply_sidebar()
         self.history_search.setFocus()
+        self.history_search.selectAll()
+
+    def close_history_search(self):
+        self._history_search_open = False
+        self._apply_sidebar()
+        if self.history_search.text():
+            self.history_search.blockSignals(True)
+            self.history_search.clear()
+            self.history_search.blockSignals(False)
+            self.search_timer.stop()
+            self.refresh_conversations()
+
+    def eventFilter(self, watched, event):
+        if (
+            watched is getattr(self, "history_search", None)
+            and event.type() in (QEvent.ShortcutOverride, QEvent.KeyPress)
+            and event.key() == Qt.Key_Escape
+        ):
+            if event.type() == QEvent.ShortcutOverride:
+                event.accept()
+                return True
+            self.close_history_search()
+            return True
+        return super().eventFilter(watched, event)
+
+    def _sync_mode_settings(self):
+        agent_mode = self.agent_panel.mode.currentData() == "agent"
+        open_settings = self.context_button.isChecked()
+        self.context_controls.setVisible(open_settings and not agent_mode)
+        self.agent_panel.settings_toggle.blockSignals(True)
+        self.agent_panel.settings_toggle.setChecked(open_settings and agent_mode)
+        self.agent_panel.settings_toggle.blockSignals(False)
+        self.agent_panel.visibility()
+        tip = (
+            self.agent_panel.settings_toggle.text()
+            if agent_mode
+            else self.tr("context_configure")
+        )
+        self.context_button.setToolTip(tip)
+        self.context_button.setAccessibleName(tip)
 
     def sidebar_dragged(self, position, index):
         if self.config.sidebar_compact:
@@ -965,9 +1044,16 @@ class MainWindow(QMainWindow):
         icon_btn = self._scaled(34)
         icon_font = self._scaled(16)
         icon_style = f"padding: 0; text-align: center; font-size: {icon_font}px;"
-        for widget in (self.history_refresh, self.context_button, self.chat_refresh):
+        for widget in (
+            self.history_search_toggle,
+            self.history_refresh,
+            self.history_search_close,
+            self.context_button,
+            self.chat_refresh,
+        ):
             widget.setFixedSize(icon_btn, icon_btn)
             widget.setStyleSheet(icon_style)
+        self.agent_panel.mode.setFixedWidth(self._scaled(108))
         self.model_actions.setFixedSize(self._scaled(32), self._scaled(32))
         self.model_combo.setMinimumWidth(self._scaled(150))
         self.model_combo.setMaximumWidth(self._scaled(280))
@@ -998,7 +1084,21 @@ class MainWindow(QMainWindow):
         )
         toggle_size = btn_size if compact else self._scaled(32)
         toggle_icon = self._scaled(19 if compact else 16)
-        self.history_refresh.setFixedSize(self._scaled(34), self._scaled(34))
+        header_btn = self._scaled(26)
+        header_icon = self._scaled(13)
+        self.history_search_toggle.setFixedSize(header_btn, header_btn)
+        self.history_search_toggle.setIcon(sidebar_icon("search", fg, header_icon))
+        self.history_search_toggle.setIconSize(QSize(header_icon, header_icon))
+        self.history_refresh.setFixedSize(header_btn, header_btn)
+        self.history_search_close.setFixedSize(header_btn, header_btn)
+        search_open = not compact and self._history_search_open
+        self.nav[0].setVisible(compact or not search_open)
+        self.history_search_toggle.setVisible(not compact and not search_open)
+        self.history_refresh.setVisible(not compact and not search_open)
+        self.history_search.setVisible(search_open)
+        self.history_search_close.setVisible(search_open)
+        self.conversations_row.setSpacing(0 if compact else self._scaled(2))
+        self.conversations_row.setAlignment(Qt.AlignHCenter if compact else Qt.Alignment())
         self.sidebar_toggle.setFixedSize(toggle_size, toggle_size)
         self.sidebar_toggle.setStyleSheet("")
         self.sidebar_toggle.setText("")
@@ -1020,6 +1120,10 @@ class MainWindow(QMainWindow):
         self.brand.setVisible(not compact)
         self.sidebar_toggle.setToolTip(self.tr("sidebar_expand" if compact else "sidebar_collapse"))
         self.sidebar_width.setToolTip(self.tr("sidebar_width"))
+        self.history_search_toggle.setToolTip(self.tr("search_history"))
+        self.history_search_toggle.setAccessibleName(self.tr("search_history"))
+        self.history_search_close.setToolTip(self.tr("cancel"))
+        self.history_search_close.setAccessibleName(self.tr("cancel"))
         self.history_refresh.setToolTip(self.tr("refresh"))
         self.history_refresh.setAccessibleName(self.tr("refresh"))
         self.history_panel.setVisible(not compact)
@@ -1038,20 +1142,44 @@ class MainWindow(QMainWindow):
                 button.setFixedSize(btn_size, btn_size)
                 button.setStyleSheet("")
                 button.setText("")
-                self.side_layout.setAlignment(button, Qt.AlignHCenter)
+                if button is not self.nav[0]:
+                    self.side_layout.setAlignment(button, Qt.AlignHCenter)
             else:
                 button.setMinimumSize(0, 0)
                 button.setMaximumSize(16777215, 16777215)
                 button.setStyleSheet("")
-                self.side_layout.setAlignment(button, Qt.Alignment())
+                if button is not self.nav[0]:
+                    self.side_layout.setAlignment(button, Qt.Alignment())
                 button.ensurePolished()
-                button.setText(
-                    sidebar_text(
-                        self.tr(key),
-                        button.fontMetrics(),
-                        max(48, self.config.sidebar_width - self._scaled(48)),
+                if button is self.nav[0]:
+                    button.setStyleSheet(
+                        f"padding: {self._scaled(6)}px {self._scaled(8)}px;"
                     )
-                )
+                    button.ensurePolished()
+                    max_label_w = max(
+                        24,
+                        self.config.sidebar_width - self._scaled(118),
+                    )
+                    label_text = self.tr(key)
+                    if (
+                        len(label_text.split()) == 1
+                        and button.fontMetrics().horizontalAdvance(label_text) > max_label_w
+                    ):
+                        button.setText(
+                            button.fontMetrics().elidedText(
+                                label_text, Qt.ElideRight, max_label_w
+                            )
+                        )
+                    else:
+                        button.setText(sidebar_text(label_text, button.fontMetrics(), max_label_w))
+                else:
+                    button.setText(
+                        sidebar_text(
+                            self.tr(key),
+                            button.fontMetrics(),
+                            max(48, self.config.sidebar_width - self._scaled(48)),
+                        )
+                    )
 
     def navigate(self, index):
         self.pages.setCurrentIndex(index)
@@ -1090,6 +1218,7 @@ class MainWindow(QMainWindow):
         self.model_remove_action.setText(self.tr("remove_entry"))
         self.context_button.setToolTip(self.tr("context_configure"))
         self.context_button.setAccessibleName(self.tr("context_configure"))
+        self._sync_mode_settings()
         self.chat_refresh.setToolTip(self.tr("refresh"))
         self.chat_refresh.setAccessibleName(self.tr("refresh"))
         self.model_search.setPlaceholderText(self.tr("model_search"))
@@ -1271,8 +1400,13 @@ class MainWindow(QMainWindow):
                 padding: 10px 14px;
                 font-weight: 550;
                 }}
-            QWidget#historyGroupRow {{ background: transparent; border-radius: 6px; }}
+            QWidget#historyGroupRow {{ background: {panel}; border-radius: 6px; }}
             QWidget#historyGroupRow[selected="true"] {{ background: {field}; }}
+            QPushButton#historyHeaderButton {{
+                background: transparent; border: 1px solid transparent;
+                border-radius: 7px; padding: 0; color: {muted}; }}
+            QPushButton#historyHeaderButton:hover {{ background: {field}; border-color: {border};
+                color: {fg}; }}
             QLabel#historyItemTitle {{ background: transparent; color: {fg}; }}
             QLabel#historyItemTitle[selected="true"] {{ color: {accent}; }}
             QPushButton#historyHeading {{ background: transparent; border: 1px solid transparent;
@@ -1558,6 +1692,8 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(stylesheet)
         self._apply_scaled_metrics()
         self._apply_sidebar()
+        if self.conversations:
+            self._fill_conversations()
         self.ui_scale.setToolTip(self.tr("ui_scale_hint"))
         for widget, key in (
             (self.ui_scale, "ui_scale"),
@@ -1702,17 +1838,19 @@ class MainWindow(QMainWindow):
                     label.setProperty("selected", record["id"] == current)
                     label.setContentsMargins(6, 4, 6, 4)
                     label.setTextFormat(Qt.PlainText)
-                    label.setWordWrap(True)
+                    label.setWordWrap(False)
                     column.addWidget(label)
                     label.setVisible(not collapsed)
-                    item.setSizeHint(
-                        QSize(
-                            0,
-                            max(28, heading.sizeHint().height() + 8)
-                            if collapsed
-                            else max(52, row.sizeHint().height() + 6),
-                        )
+                    row.ensurePolished()
+                    row.adjustSize()
+                    heading_h = max(heading.minimumHeight(), heading.sizeHint().height())
+                    label_h = 0 if collapsed else max(label.sizeHint().height(), self._scaled(24))
+                    item_h = (
+                        max(self._scaled(28), heading_h + self._scaled(8))
+                        if collapsed
+                        else max(row.sizeHint().height(), heading_h + label_h + self._scaled(12))
                     )
+                    item.setSizeHint(QSize(0, item_h))
                     self.conversation_list.setItemWidget(item, row)
                 if index > 0 and group in self.config.collapsed_history:
                     item.setHidden(True)

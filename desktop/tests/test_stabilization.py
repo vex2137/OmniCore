@@ -235,8 +235,8 @@ def test_keyboard_search_from_compact_mode(desktop, qtbot):
     qtbot.waitUntil(lambda: w.history_search.hasFocus())
     assert not w.config.sidebar_compact
     qtbot.keyClick(w.history_search, Qt.Key_Tab)
-    assert w.history_refresh.hasFocus()
-    assert w.history_refresh.accessibleName()
+    assert w.history_search_close.hasFocus()
+    assert w.history_search_close.accessibleName()
 
 
 def test_beta3_all_history_headers_fit_at_narrow_widths(desktop, qtbot):

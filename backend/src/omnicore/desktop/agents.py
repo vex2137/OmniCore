@@ -44,6 +44,7 @@ class AgentPanel(QWidget):
         self.settings_toggle.setObjectName("compactToggle")
         self.settings_toggle.setCheckable(True)
         self.settings_toggle.setChecked(False)
+        self.settings_toggle.hide()
         self.settings_toggle.toggled.connect(lambda _: self.visibility())
         self.settings_box = QWidget()
         settings_layout = QVBoxLayout(self.settings_box)
@@ -193,7 +194,6 @@ class AgentPanel(QWidget):
 
     def visibility(self):
         enabled = self.mode.currentData() == "agent"
-        self.settings_toggle.setVisible(enabled)
         settings_open = enabled and self.settings_toggle.isChecked()
         self.settings_box.setVisible(settings_open)
         has_activity = self.tree.topLevelItemCount() > 0

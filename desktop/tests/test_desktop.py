@@ -5,7 +5,14 @@ from importlib.resources import files
 
 import httpx
 from PySide6.QtCore import QProcess, Qt
-from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QInputDialog,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+)
 
 from omnicore.desktop.config import DesktopConfig, config_path, data_path
 
@@ -807,3 +814,100 @@ def test_capture_new_rc8_views_if_requested(desktop, qtbot):
     w.context_toggle.setChecked(True)
     qtbot.wait(100)
     assert w.grab().save(str(destination / "context-details-unavailable.png"))
+
+
+def test_chat_header_stays_aligned_across_modes_and_scales(desktop, qtbot):
+    w = desktop
+    w.resize(1100, 760)
+    w.show()
+    qtbot.waitExposed(w)
+    for scale in (80, 100, 150):
+        w.ui_scale.setValue(scale)
+        qtbot.wait(50)
+        w.agent_panel.mode.setCurrentIndex(w.agent_panel.mode.findData("chat"))
+        qtbot.wait(30)
+        chat_geometries = (
+            w.model_combo.geometry(),
+            w.agent_panel.mode.geometry(),
+            w.context_button.geometry(),
+            w.chat_refresh.geometry(),
+        )
+        w.agent_panel.mode.setCurrentIndex(w.agent_panel.mode.findData("agent"))
+        qtbot.wait(30)
+        agent_geometries = (
+            w.model_combo.geometry(),
+            w.agent_panel.mode.geometry(),
+            w.context_button.geometry(),
+            w.chat_refresh.geometry(),
+        )
+        assert chat_geometries == agent_geometries
+        assert not w.agent_panel.settings_toggle.isVisible()
+
+    w.agent_panel.mode.setCurrentIndex(w.agent_panel.mode.findData("chat"))
+    w.context_button.setChecked(True)
+    qtbot.wait(20)
+    assert w.context_controls.isVisible()
+    assert not w.agent_panel.details.isVisible()
+
+    w.agent_panel.mode.setCurrentIndex(w.agent_panel.mode.findData("agent"))
+    qtbot.wait(20)
+    assert not w.context_controls.isVisible()
+    assert w.agent_panel.details.isVisible()
+
+
+def test_history_header_search_toggles_focuses_and_filters(desktop, qtbot):
+    w = desktop
+    w.resize(1100, 760)
+    w.show()
+    qtbot.waitExposed(w)
+    first = request(w, "POST", "/api/v1/text/conversations", {"title": "Alpha Topic"})
+    second = request(w, "POST", "/api/v1/text/conversations", {"title": "Beta Topic"})
+    request(
+        w,
+        "POST",
+        f"/api/v1/text/conversations/{second['id']}/messages",
+        {"role": "user", "content": "needle_in_message_body"},
+    )
+    w.refresh_conversations()
+    qtbot.waitUntil(lambda: len(w.conversations) == 2)
+    assert w.nav[0].isVisible()
+    assert not w.history_search.isVisible()
+
+    qtbot.mouseClick(w.history_search_toggle, Qt.LeftButton)
+    qtbot.wait(20)
+    assert not w.nav[0].isVisible()
+    assert w.history_search.isVisible()
+    assert w.history_search.hasFocus()
+
+    w.history_search.setText("needle_in_message_body")
+    qtbot.waitUntil(lambda: [c["id"] for c in w.conversations] == [second["id"]])
+
+    qtbot.keyClick(w.history_search, Qt.Key_Escape)
+    qtbot.waitUntil(lambda: len(w.conversations) == 2)
+    assert w.nav[0].isVisible()
+    assert not w.history_search.isVisible()
+    assert w.history_search.text() == ""
+    assert first["id"] in {c["id"] for c in w.conversations}
+
+
+def test_history_group_rows_do_not_overlap_headings_or_titles(desktop, qtbot):
+    w = desktop
+    w.resize(1100, 760)
+    w.show()
+    qtbot.waitExposed(w)
+    request(w, "POST", "/api/v1/text/conversations", {"title": "Very Long Conversation Title"})
+    w.refresh_conversations()
+    qtbot.waitUntil(lambda: w.conversation_list.count() == 1)
+    for scale in (100, 150):
+        w.ui_scale.setValue(scale)
+        qtbot.wait(50)
+        item = w.conversation_list.item(0)
+        row = w.conversation_list.itemWidget(item)
+        assert row is not None
+        row.adjustSize()
+        row.layout().activate()
+        heading = row.findChild(QPushButton, "historyHeading")
+        title = row.findChild(QLabel, "historyItemTitle")
+        assert heading is not None and title is not None
+        assert heading.geometry().bottom() < title.geometry().top()
+        assert item.sizeHint().height() >= title.geometry().bottom()
