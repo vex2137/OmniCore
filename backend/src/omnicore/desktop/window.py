@@ -409,25 +409,33 @@ class MainWindow(QMainWindow):
         pane = QWidget()
         chat = QVBoxLayout(pane)
         chat.setContentsMargins(0, 0, 0, 0)
+        chat.setSpacing(10)
+        self.chat_title = QLabel(self.tr("new_chat"))
+        self.chat_title.setObjectName("chatTitle")
+        self.chat_title.setTextFormat(Qt.PlainText)
+        self.chat_title.setMinimumWidth(80)
+        self.chat_title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.model_combo = QComboBox()
-        self.model_combo.setMinimumWidth(180)
-        self.model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.model_combo.setMinimumWidth(150)
+        self.model_combo.setMaximumWidth(280)
+        self.model_combo.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.model_combo.currentIndexChanged.connect(self.model_selected)
-        self.chat_header = self.row(self.model_combo)
+        self.chat_header = self.row(self.chat_title, self.model_combo)
+        self.chat_header.setStretch(0, 1)
         self.context_button = QPushButton("⚙")
-        self.context_button.setFixedWidth(36)
-        self.context_button.setStyleSheet("padding: 0; font-size: 16px;")
+        self.context_button.setFixedWidth(34)
         self.context_button.setCheckable(True)
         self.chat_refresh = QPushButton("↻")
-        self.chat_refresh.setFixedWidth(36)
-        self.chat_refresh.setStyleSheet("padding: 0; font-size: 16px;")
+        self.chat_refresh.setFixedWidth(34)
         self.chat_refresh.clicked.connect(self.refresh_models)
         self.chat_header.addWidget(self.context_button)
         self.chat_header.addWidget(self.chat_refresh)
         chat.addLayout(self.chat_header)
-        self.context_controls = QWidget()
+        self.context_controls = QFrame()
+        self.context_controls.setObjectName("contextCard")
         context_layout = QVBoxLayout(self.context_controls)
-        context_layout.setContentsMargins(0, 0, 0, 0)
+        context_layout.setContentsMargins(12, 10, 12, 10)
+        context_layout.setSpacing(6)
         self.context_controls.hide()
         self.context_button.toggled.connect(self.context_controls.setVisible)
         chat.addWidget(self.context_controls)
@@ -455,45 +463,75 @@ class MainWindow(QMainWindow):
         context_layout.addWidget(self.context_slider)
         context_layout.addWidget(self.context_status)
         self.agent_panel = AgentPanel(self)
-        self.chat_header.insertWidget(1, self.agent_panel.mode)
+        self.chat_header.insertWidget(2, self.agent_panel.mode)
         chat.addWidget(self.agent_panel)
         self.transcript = ChatTranscript()
         self.transcript.regenerate_requested.connect(self.regenerate_answer)
         chat.addWidget(self.transcript, 1)
-        self.generation_status = self.label("ready")
-        chat.addWidget(self.generation_status)
+        self.composer_wrap = QWidget()
+        self.composer_wrap.setMaximumWidth(840)
+        wrap_layout = QVBoxLayout(self.composer_wrap)
+        wrap_layout.setContentsMargins(0, 0, 0, 0)
+        wrap_layout.setSpacing(6)
+        self.composer_box = QFrame()
+        self.composer_box.setObjectName("composerBox")
+        box_layout = QVBoxLayout(self.composer_box)
+        box_layout.setContentsMargins(10, 8, 10, 8)
+        box_layout.setSpacing(6)
         self.composer = Composer()
         self.composer.submitted.connect(self.send_message)
         self.composer.setObjectName("composer")
-        chat.addWidget(self.composer)
+        box_layout.addWidget(self.composer)
+        self.generation_status = self.label("ready")
+        self.generation_status.setObjectName("mutedMeta")
+        self.generation_status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.context_usage = QLabel()
+        self.context_usage.setObjectName("mutedMeta")
         self.context_usage.setWordWrap(True)
-        chat.addWidget(self.context_usage)
+        self.context_usage.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.context_meter = QProgressBar()
         self.context_meter.setRange(0, 100)
-        self.context_meter.setMaximumHeight(8)
+        self.context_meter.setMaximumHeight(6)
+        self.context_meter.setMaximumWidth(84)
         self.context_meter.setObjectName("contextMeter")
         self.context_meter.setTextVisible(False)
-        chat.addWidget(self.context_meter)
         self.context_toggle = self.button("context_details", lambda: None)
+        self.context_toggle.setObjectName("compactToggle")
         self.context_toggle.setCheckable(True)
+        self.context_toggle.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         self.context_details = QLabel()
+        self.context_details.setObjectName("mutedMeta")
         self.context_details.setTextFormat(Qt.PlainText)
         self.context_details.setWordWrap(True)
         self.context_details.hide()
         self.context_toggle.toggled.connect(self.context_details.setVisible)
-        chat.addWidget(self.context_toggle)
-        chat.addWidget(self.context_details)
         self.send_button = self.button("send", self.send_message, primary=True)
         self.stop_button = self.button("stop", self.stop_generation)
         self.stop_button.setEnabled(False)
-        actions = QHBoxLayout()
-        actions.addStretch()
         self.stop_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         self.send_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        meta_row = QHBoxLayout()
+        meta_row.setContentsMargins(4, 0, 4, 0)
+        meta_row.setSpacing(8)
+        meta_row.addWidget(self.context_usage, 1)
+        meta_row.addWidget(self.context_meter)
+        meta_row.addWidget(self.context_toggle)
+        actions = QHBoxLayout()
+        actions.setContentsMargins(4, 0, 0, 0)
+        actions.setSpacing(8)
+        actions.addWidget(self.generation_status, 1)
         actions.addWidget(self.stop_button)
         actions.addWidget(self.send_button)
-        chat.addLayout(actions)
+        box_layout.addLayout(actions)
+        wrap_layout.addWidget(self.composer_box)
+        wrap_layout.addLayout(meta_row)
+        wrap_layout.addWidget(self.context_details)
+        composer_row = QHBoxLayout()
+        composer_row.setContentsMargins(0, 0, 0, 0)
+        composer_row.addStretch(1)
+        composer_row.addWidget(self.composer_wrap, 100)
+        composer_row.addStretch(1)
+        chat.addLayout(composer_row)
         outer.addWidget(pane, 1)
         self.pages.addWidget(page)
 
@@ -844,15 +882,19 @@ class MainWindow(QMainWindow):
             widget.setFixedSize(icon_btn, icon_btn)
             widget.setStyleSheet(icon_style)
         self.model_actions.setFixedSize(self._scaled(32), self._scaled(32))
+        self.model_combo.setMinimumWidth(self._scaled(150))
+        self.model_combo.setMaximumWidth(self._scaled(280))
+        self.composer_wrap.setMaximumWidth(self._scaled(840))
+        self.context_meter.setMaximumWidth(self._scaled(90))
         self.body_layout.setContentsMargins(
-            self._scaled(24), self._scaled(18), self._scaled(24), self._scaled(18)
+            self._scaled(24), self._scaled(16), self._scaled(24), self._scaled(16)
         )
 
     def _apply_sidebar(self):
         compact = self.config.sidebar_compact
         compact_width = self._scaled(52)
         btn_size = self._scaled(32)
-        icon_px = self._scaled(18 if compact else 16)
+        icon_px = self._scaled(18 if compact else 14)
         fg, accent, accent_text = self._theme_colors
         margin_h = max(4, (compact_width - 1 - btn_size) // 2) if compact else self._scaled(8)
         margin_v = self._scaled(10 if compact else 12)
@@ -933,6 +975,7 @@ class MainWindow(QMainWindow):
             self.tr(("chat", "models", "settings", "diagnostics")[self.pages.currentIndex()])
         )
         self._apply_sidebar()
+        self._update_chat_title()
         self.composer.setPlaceholderText(self.tr("composer"))
         self.history_search.setPlaceholderText(self.tr("search_history"))
         self.context_mode.setItemText(0, self.tr("context_auto"))
@@ -1051,9 +1094,38 @@ class MainWindow(QMainWindow):
                 }}
             QWidget#compactSpacer {{ background: transparent;
                 }}
-            QLabel#title {{ font-size: 26px;
+            QLabel#title {{ font-size: 24px;
                 font-weight: 650;
-                padding: 4px 0;
+                padding: 2px 0;
+                }}
+            QLabel#chatTitle {{ font-size: 16px;
+                font-weight: 600;
+                }}
+            QLabel#mutedMeta {{ color: {muted};
+                font-size: 12px;
+                }}
+            QFrame#contextCard, QFrame#agentCard {{ background: {panel};
+                border: 1px solid {border};
+                border-radius: 12px;
+                }}
+            QFrame#composerBox {{ background: {panel};
+                border: 1px solid {border};
+                border-radius: 14px;
+                }}
+            QFrame#composerBox QPlainTextEdit#composer {{ background: transparent;
+                border: none;
+                padding: 2px 4px;
+                }}
+            QPushButton#compactToggle {{ background: transparent;
+                border: 1px solid {border};
+                border-radius: 7px;
+                padding: 4px 10px;
+                font-size: 12px;
+                color: {muted};
+                }}
+            QPushButton#compactToggle:hover, QPushButton#compactToggle:checked {{
+                color: {accent};
+                border-color: {accent};
                 }}
             QLabel#badge {{ color: {accent};
                 padding: 8px 12px;
@@ -1094,9 +1166,9 @@ class MainWindow(QMainWindow):
                 color: {muted};
                 border-color: {border};
                 }}
-            QFrame#sidebar QPushButton#primary {{ padding: 10px 8px; }}
+            QFrame#sidebar QPushButton#primary {{ padding: 9px 6px; }}
             QPushButton#nav {{ text-align: left;
-                padding: 11px 8px;
+                padding: 10px 6px;
                 border: 1px solid transparent;
                 border-radius: 9px;
                 background: transparent;
@@ -1184,6 +1256,20 @@ class MainWindow(QMainWindow):
             QToolTip {{ background: {panel};
                 color: {fg};
                 border: 1px solid {border};
+                border-radius: 6px;
+                padding: 4px 8px;
+                }}
+            QMenu {{ background: {panel};
+                color: {fg};
+                border: 1px solid {border};
+                border-radius: 8px;
+                padding: 4px;
+                }}
+            QMenu::item {{ padding: 6px 14px;
+                border-radius: 6px;
+                }}
+            QMenu::item:selected {{ background: {field};
+                color: {accent};
                 }}
         """
         # Only logical font/control sizes: Qt applies the screen DPR once. Never multiply by
@@ -1443,6 +1529,17 @@ class MainWindow(QMainWindow):
         if item:
             self.open_conversation(item.data(Qt.UserRole))
 
+    def _update_chat_title(self):
+        if not hasattr(self, "chat_title"):
+            return
+        record = next((r for r in self.conversations if r["id"] == self.current_id), None)
+        title = (record.get("title") or "").strip() if record else ""
+        if not title or title == self.tr("untitled"):
+            title = self.tr("new_chat")
+        elided = self.chat_title.fontMetrics().elidedText(title, Qt.ElideRight, self._scaled(280))
+        self.chat_title.setText(elided)
+        self.chat_title.setToolTip(title)
+
     def open_conversation(self, conversation_id):
         if self.agent_panel.active and conversation_id != self.current_id:
             self.show_error("conversation_busy")
@@ -1450,6 +1547,7 @@ class MainWindow(QMainWindow):
         self.current_id = conversation_id
         self.agent_panel.load(conversation_id)
         self.last_job = None
+        self._update_chat_title()
         record = next((r for r in self.conversations if r["id"] == conversation_id), None)
         if record and record["model_id"]:
             index = self.model_combo.findData(record["model_id"])

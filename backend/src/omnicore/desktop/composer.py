@@ -14,7 +14,7 @@ class Composer(QPlainTextEdit):
 
     def fit(self):
         lines = max(1, self.document().documentLayout().documentSize().height())
-        self.setFixedHeight(min(160, max(72, round(lines * self.fontMetrics().lineSpacing() + 30))))
+        self.setFixedHeight(min(150, max(44, round(lines * self.fontMetrics().lineSpacing() + 18))))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

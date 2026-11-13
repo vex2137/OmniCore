@@ -128,17 +128,17 @@ class MessageCard(QFrame):
         if details:
             stats = message.get("statistics") or {}
             summary = []
-            for key, suffix in (
-                ("ttft_seconds", "s TTFT"),
-                ("tokens_per_second", "tok/s"),
-                ("output_tokens", tr("tokens_short")),
-                ("generation_seconds", "s"),
+            for key, prefix, suffix in (
+                ("tokens_per_second", "", "tok/s"),
+                ("ttft_seconds", "⏱ ", "s TTFT"),
+                ("output_tokens", "", tr("tokens_short")),
+                ("generation_seconds", "", "s"),
             ):
                 value = stats.get(key)
                 if value is not None:
                     number = f"{value:.2f}" if isinstance(value, float) else str(value)
                     number = number.replace(".", tr("decimal_separator"))
-                    summary.append(f"{number} {suffix}")
+                    summary.append(f"{prefix}{number} {suffix}")
             label = QLabel(" · ".join(summary))
             label.setToolTip(details)
             label.setObjectName("messageStats")
@@ -238,10 +238,13 @@ class ChatTranscript(QScrollArea):
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
         self.setObjectName("transcript")
+        self.setAlignment(Qt.AlignHCenter)
         container = QWidget()
+        container.setObjectName("transcriptColumn")
+        container.setMaximumWidth(840)
         self.column = QVBoxLayout(container)
-        self.column.setContentsMargins(6, 10, 6, 10)
-        self.column.setSpacing(16)
+        self.column.setContentsMargins(12, 12, 12, 12)
+        self.column.setSpacing(14)
         self.limit = 60
         self.more = QPushButton()
         self.more.clicked.connect(self.expand_history)
