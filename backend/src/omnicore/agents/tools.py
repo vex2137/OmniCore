@@ -83,18 +83,27 @@ def allowed(name, settings):
 
 
 def schemas(settings=None):
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": name,
-                "description": description,
-                "parameters": model.model_json_schema(),
-            },
-        }
-        for name, (model, description) in TOOLS.items()
-        if allowed(name, settings)
-    ]
+    items = []
+    for name, (model, description) in TOOLS.items():
+        if not allowed(name, settings):
+            continue
+        params = model.model_json_schema()
+        if name in {"read_text", "file_info"}:
+            req = list(params.get("required", []))
+            if "path" not in req:
+                req.append("path")
+            params["required"] = req
+        items.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": description,
+                    "parameters": params,
+                },
+            }
+        )
+    return items
 
 
 def calculate(expression):

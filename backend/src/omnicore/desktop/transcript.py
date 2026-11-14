@@ -1,5 +1,6 @@
 """Native message cards. Model output is untrusted, including Markdown resources."""
 
+import json
 import math
 import re
 
@@ -36,22 +37,26 @@ def _stat_pixmap(kind, color, size=14):
         painter.drawLine(QPointF(size / 2, size / 2), QPointF(size / 2, 4.2))
         painter.drawLine(QPointF(size / 2, size / 2), QPointF(size - 4.5, size / 2))
     elif kind == "speed":
-        bolt = QPolygonF([
-            QPointF(size * 0.58, 1.8),
-            QPointF(size * 0.28, size * 0.54),
-            QPointF(size * 0.52, size * 0.54),
-            QPointF(size * 0.42, size - 1.8),
-            QPointF(size * 0.74, size * 0.44),
-            QPointF(size * 0.50, size * 0.44),
-        ])
+        bolt = QPolygonF(
+            [
+                QPointF(size * 0.58, 1.8),
+                QPointF(size * 0.28, size * 0.54),
+                QPointF(size * 0.52, size * 0.54),
+                QPointF(size * 0.42, size - 1.8),
+                QPointF(size * 0.74, size * 0.44),
+                QPointF(size * 0.50, size * 0.44),
+            ]
+        )
         painter.drawPolyline(bolt)
     elif kind == "tokens":
-        diamond = QPolygonF([
-            QPointF(size / 2, 2.0),
-            QPointF(size - 2.0, size / 2),
-            QPointF(size / 2, size - 2.0),
-            QPointF(2.0, size / 2),
-        ])
+        diamond = QPolygonF(
+            [
+                QPointF(size / 2, 2.0),
+                QPointF(size - 2.0, size / 2),
+                QPointF(size / 2, size - 2.0),
+                QPointF(2.0, size / 2),
+            ]
+        )
         painter.drawPolygon(diamond)
     elif kind == "duration":
         painter.drawEllipse(2.5, 3.0, size - 5.0, size - 5.0)
@@ -170,7 +175,14 @@ class MessageCard(QFrame):
             toggle.toggled.connect(reasoning.setVisible)
             self.layout_.addWidget(toggle)
             self.layout_.addWidget(reasoning)
+        self.agent_step_buttons = []
+        self.agent_step_details = []
+        self.agent_error_label = None
+        if message["role"] == "assistant" and message.get("agent_run"):
+            self._render_agent_activity(message["agent_run"], tr)
         self._body(message["content"], tr)
+        if message["role"] == "user" and message.get("agent_run"):
+            self._render_agent_activity(message["agent_run"], tr)
         details = statistics_text(message.get("statistics"), tr)
         if details:
             stats = message.get("statistics") or {}
@@ -246,6 +258,73 @@ class MessageCard(QFrame):
         button.setFixedSize(32, 32)
         button.setToolTip(label)
         button.setAccessibleName(label)
+
+    def _render_agent_activity(self, run, tr):
+        if not isinstance(run, dict):
+            return
+        steps = run.get("steps") or []
+        limit = run.get("step_limit") or max(len(steps), 8)
+        is_pl = tr("you") == "Ty"
+        step_word = "Krok" if is_pl else "Step"
+        for idx, step in enumerate(steps, 1):
+            state = step.get("state", "completed")
+            state_label = tr("agent_" + state)
+            duration = step.get("duration_ms", 0)
+            tool_name = step.get("tool", "")
+            pill = QPushButton(
+                f"{step_word} {idx}/{limit} · {tool_name} · {state_label} · {duration} ms"
+            )
+            pill.setObjectName("agentStepPill")
+            pill.setCheckable(True)
+            pill.setChecked(False)
+            details_frame = QFrame()
+            details_frame.setObjectName("agentStepDetails")
+            d_layout = QVBoxLayout(details_frame)
+            d_layout.setContentsMargins(10, 6, 10, 6)
+            d_layout.setSpacing(2)
+            lines = [
+                f"{tr('agent_tool')}: {tool_name}",
+                f"{tr('agent_state')}: {state_label} · {duration} ms",
+            ]
+            summary = step.get("summary")
+            if summary and summary != tool_name:
+                lines.append(f"{'Cel' if is_pl else 'Target'}: {summary}")
+            res_summary = step.get("result_summary")
+            if res_summary:
+                preview = json.dumps(res_summary, ensure_ascii=False)
+                if len(preview) > 240:
+                    preview = preview[:237] + "..."
+                lines.append(f"{'Wynik' if is_pl else 'Result'}: {preview}")
+            err_code = step.get("error_code")
+            if err_code:
+                lines.append(f"{'Błąd' if is_pl else 'Error'}: {tr(err_code)} ({err_code})")
+            if tool_name == "write_text" or step.get("proposal_id"):
+                if state == "completed":
+                    approval_txt = "Zatwierdzono zapis" if is_pl else "Write approved"
+                elif state == "cancelled":
+                    approval_txt = "Odrzucono zapis" if is_pl else "Write rejected"
+                else:
+                    approval_txt = "Oczekuje na zatwierdzenie" if is_pl else "Awaiting approval"
+                lines.append(approval_txt)
+            info_lbl = QLabel("\n".join(lines))
+            info_lbl.setTextFormat(Qt.PlainText)
+            info_lbl.setWordWrap(True)
+            info_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            d_layout.addWidget(info_lbl)
+            details_frame.hide()
+            pill.toggled.connect(details_frame.setVisible)
+            self.layout_.addWidget(pill)
+            self.layout_.addWidget(details_frame)
+            self.agent_step_buttons.append(pill)
+            self.agent_step_details.append(details_frame)
+        if run.get("state") in {"failed", "cancelled", "interrupted"}:
+            err_code = run.get("error_code") or ("agent_" + run["state"])
+            err_lbl = QLabel(tr(err_code))
+            err_lbl.setObjectName("agentRunError")
+            err_lbl.setTextFormat(Qt.PlainText)
+            err_lbl.setWordWrap(True)
+            self.layout_.addWidget(err_lbl)
+            self.agent_error_label = err_lbl
 
     def _body(self, content, tr):
         # Treat fenced code as plain text, with a separate native clipboard action.

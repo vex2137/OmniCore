@@ -21,11 +21,18 @@ class AgentModel:
         service = self.service
         async with service.generations.semaphore:
             engine = service.engines.get(model.backend)
-            info = await engine.probe() if engine else None
-            if info is None or not info.available:
+            if engine is None:
                 raise TextError("engine_unavailable", 503)
+            proc = getattr(engine, "process", None)
+            if proc is not None and proc.returncode is None and getattr(engine, "version", None):
+                version = engine.version
+            else:
+                info = await engine.probe()
+                if info is None or not info.available:
+                    raise TextError("engine_unavailable", 503)
+                version = info.version
             self.output_tokens.set(0)
-            self.backend_version.set(info.version)
+            self.backend_version.set(version)
             location = model.location
             if model.backend == "llama.cpp":
                 path = service.models.validated_reference(model.id)

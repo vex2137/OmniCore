@@ -36,6 +36,7 @@ class AgentPanel(QWidget):
         self.dialog = None
         self.seen = set()
         self.retry_id = None
+        self.runs = []
         self.compatibility_busy = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -199,7 +200,7 @@ class AgentPanel(QWidget):
         has_activity = self.tree.topLevelItemCount() > 0
         has_status = bool(self.status.text())
         has_retry = bool(self.retry_id) and not self.active
-        show_details = settings_open or has_activity
+        show_details = settings_open or (bool(self.active) and has_activity)
         self.details.setVisible(enabled and show_details)
         self.scroll.setVisible(enabled and show_details)
         if enabled and show_details:
@@ -216,6 +217,7 @@ class AgentPanel(QWidget):
         self.timer.stop()
         self.active = None
         self.retry_id = None
+        self.runs = []
         self.retry_button.hide()
         self.status.clear()
         self.status.hide()
@@ -548,7 +550,6 @@ class AgentPanel(QWidget):
             self.pending_poll = False
             if self.active != run_id:
                 return
-            self.render([record])
             if record["state"] in TERMINAL:
                 self.active = None
                 self.timer.stop()
@@ -560,8 +561,10 @@ class AgentPanel(QWidget):
                     if record["state"] in {"failed", "cancelled", "interrupted"}
                     else None
                 )
-                self.visibility()
+                self.render([record])
                 self.main.refresh_messages()
+            else:
+                self.render([record])
 
         def failed(code):
             self.pending_poll = False
@@ -578,7 +581,19 @@ class AgentPanel(QWidget):
     def render(self, records):
         self.tree.clear()
         if not records:
+            self.runs = []
             self.status.setText("")
+        elif len(records) == 1 and self.runs:
+            updated = False
+            for idx, existing in enumerate(self.runs):
+                if existing.get("id") == records[0].get("id"):
+                    self.runs[idx] = records[0]
+                    updated = True
+                    break
+            if not updated:
+                self.runs.insert(0, records[0])
+        else:
+            self.runs = list(records)
         for record in records[:1]:
             plan = record.get("plan", [])
             if plan:
@@ -602,19 +617,32 @@ class AgentPanel(QWidget):
             attempts = len(record["steps"])
             limit = record.get("step_limit", self.steps.value())
             context = record.get("context", {})
-            extra = self.main.tr("agent_progress", done=count, remaining=max(0, limit - attempts))
-            if context:
-                extra += self.main.tr(
-                    "agent_context_usage", used=context["approx_tokens"], limit=context["limit"]
+            if record["state"] == "completed" and not self.active:
+                self.status.setText("")
+            elif record["state"] in {"failed", "cancelled", "interrupted"} and not record["steps"]:
+                self.status.setText(
+                    self.main.tr(record.get("error_code") or "agent_" + record["state"])
                 )
-            if record["steps"]:
-                current = record["steps"][-1]
-                extra += " · " + current["tool"] + ": " + self.main.tr("agent_" + current["state"])
-            if record.get("tool_mode"):
-                extra += " · " + self.main.tr("agent_cap_" + record["tool_mode"])
-            self.status.setText(
-                self.main.tr(record.get("error_code") or "agent_" + record["state"]) + " · " + extra
-            )
+            else:
+                extra = self.main.tr(
+                    "agent_progress", done=count, remaining=max(0, limit - attempts)
+                )
+                if context:
+                    extra += self.main.tr(
+                        "agent_context_usage", used=context["approx_tokens"], limit=context["limit"]
+                    )
+                if record["steps"]:
+                    current = record["steps"][-1]
+                    extra += (
+                        " · " + current["tool"] + ": " + self.main.tr("agent_" + current["state"])
+                    )
+                if record.get("tool_mode"):
+                    extra += " · " + self.main.tr("agent_cap_" + record["tool_mode"])
+                self.status.setText(
+                    self.main.tr(record.get("error_code") or "agent_" + record["state"])
+                    + " · "
+                    + extra
+                )
         has_activity = self.tree.topLevelItemCount() > 0
         self.activity_label.setVisible(has_activity)
         self.tree.setVisible(has_activity)
@@ -624,6 +652,8 @@ class AgentPanel(QWidget):
         self.visibility()
         if self.active:
             self.busy(True)
+        if not self.active and getattr(self.main, "messages", None):
+            self.main.render_messages()
 
     def approval(self, run_id, step):
         self.seen.add(step["proposal_id"])

@@ -1011,9 +1011,7 @@ class MainWindow(QMainWindow):
         self.agent_panel.settings_toggle.blockSignals(False)
         self.agent_panel.visibility()
         tip = (
-            self.agent_panel.settings_toggle.text()
-            if agent_mode
-            else self.tr("context_configure")
+            self.agent_panel.settings_toggle.text() if agent_mode else self.tr("context_configure")
         )
         self.context_button.setToolTip(tip)
         self.context_button.setAccessibleName(tip)
@@ -1154,9 +1152,7 @@ class MainWindow(QMainWindow):
                     self.side_layout.setAlignment(button, Qt.Alignment())
                 button.ensurePolished()
                 if button is self.nav[0]:
-                    button.setStyleSheet(
-                        f"padding: {self._scaled(6)}px {self._scaled(8)}px;"
-                    )
+                    button.setStyleSheet(f"padding: {self._scaled(6)}px {self._scaled(8)}px;")
                     button.ensurePolished()
                     max_label_w = max(
                         24,
@@ -1168,9 +1164,7 @@ class MainWindow(QMainWindow):
                         and button.fontMetrics().horizontalAdvance(label_text) > max_label_w
                     ):
                         button.setText(
-                            button.fontMetrics().elidedText(
-                                label_text, Qt.ElideRight, max_label_w
-                            )
+                            button.fontMetrics().elidedText(label_text, Qt.ElideRight, max_label_w)
                         )
                     else:
                         button.setText(sidebar_text(label_text, button.fontMetrics(), max_label_w))
@@ -1834,9 +1828,7 @@ class MainWindow(QMainWindow):
         self.conversation_list.clear()
         viewport_w = self.conversation_list.viewport().width()
         avail_w = (
-            viewport_w
-            if viewport_w > 60
-            else max(60, self.config.sidebar_width - self._scaled(24))
+            viewport_w if viewport_w > 60 else max(60, self.config.sidebar_width - self._scaled(24))
         )
         elide_width = max(60, avail_w - self._scaled(24))
         heading_width = max(48, avail_w - self._scaled(20))
@@ -2369,6 +2361,34 @@ class MainWindow(QMainWindow):
                 messages[index] = replacement
             elif job.get("content") or job.get("reasoning_content"):
                 messages.append(replacement)
+        runs = getattr(getattr(self, "agent_panel", None), "runs", None) or []
+        if runs:
+            by_response = {}
+            by_request = {}
+            for run in runs:
+                resp_id = run.get("response_message_id")
+                if resp_id and resp_id not in by_response:
+                    by_response[resp_id] = run
+                req_id = run.get("request_message_id")
+                if req_id and req_id not in by_request:
+                    by_request[req_id] = run
+            for idx, msg in enumerate(messages):
+                msg_id = msg.get("id")
+                if msg.get("role") == "assistant":
+                    if msg_id and msg_id in by_response:
+                        msg["agent_run"] = by_response[msg_id]
+                    elif idx > 0 and messages[idx - 1].get("role") == "user":
+                        prev_id = messages[idx - 1].get("id")
+                        prev_run = by_request.get(prev_id) if prev_id else None
+                        if prev_run and prev_run.get("state") == "completed":
+                            msg["agent_run"] = prev_run
+                elif msg.get("role") == "user" and msg_id in by_request:
+                    req_run = by_request[msg_id]
+                    next_is_assistant = (
+                        idx + 1 < len(messages) and messages[idx + 1].get("role") == "assistant"
+                    )
+                    if not next_is_assistant or req_run.get("state") != "completed":
+                        msg["agent_run"] = req_run
         self.transcript.can_regenerate = bool(
             self.is_connected
             and self.model_combo.currentData()

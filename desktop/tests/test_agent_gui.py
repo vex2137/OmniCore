@@ -354,3 +354,96 @@ def test_diagnostics_beta3_redacts_models_and_excludes_prompts(desktop):
     assert report["models"][0]["size_bytes"] == 123
     assert report["last_generation"]["error_code"] == "engine_timeout"
     assert report["build"]["channel"] == "beta"
+
+
+def test_agent_gui_plain_text_no_banner_and_persisted_step_cards(
+    agent_window, qtbot, monkeypatch, tmp_path
+):
+    from omnicore.desktop.transcript import MessageCard
+
+    w, service = agent_window
+    folder = tmp_path / "shared_persisted"
+    folder.mkdir()
+    (folder / "input.txt").write_text("sample text")
+    w.model_combo.setCurrentIndex(1)
+    qtbot.mouseClick(w.new_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: bool(w.current_id))
+    first_conv = w.current_id
+    panel = w.agent_panel
+    qtbot.waitUntil(lambda: not panel.settings_loading)
+    header_pos_before = panel.mode.geometry()
+    panel.mode.setCurrentIndex(panel.mode.findData("agent"))
+    qtbot.waitUntil(lambda: not panel.settings_saving)
+    assert panel.mode.geometry() == header_pos_before
+    assert not panel.isVisible()
+
+    # 1. Plain text response in Agent mode: 0 steps, no error banner, no retry button
+    orig_engine = service.engines["llama.cpp"]
+
+    class PlainTextEngine(ToolEngine):
+        async def stream(self, model, messages, parameters):
+            yield TextChunk(
+                content="Tak, mogę działać jako agent i odpowiadać bezpośrednio.",
+                finish_reason="stop",
+            )
+
+    service.engines["llama.cpp"] = PlainTextEngine()
+    w.composer.setPlainText("czy możesz działać jako agent?")
+    qtbot.mouseClick(w.send_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: "odpowiadać bezpośrednio" in w.transcript.toPlainText(), timeout=10000)
+    qtbot.waitUntil(lambda: panel.active is None, timeout=5000)
+    assert not panel.retry_button.isVisible()
+    assert panel.status.text() == ""
+    assert not panel.isVisible()
+    cards = w.transcript.findChildren(MessageCard)
+    assert cards and cards[-1].agent_step_buttons == []
+
+    # 2. Tool run creates expandable step pills on MessageCard and persists across reload
+    service.engines["llama.cpp"] = orig_engine
+    qtbot.mouseClick(w.new_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: bool(w.current_id) and w.current_id != first_conv)
+    tool_conv = w.current_id
+    qtbot.waitUntil(lambda: not panel.settings_loading)
+    panel.mode.setCurrentIndex(panel.mode.findData("agent"))
+    qtbot.waitUntil(lambda: not panel.settings_saving)
+    qtbot.mouseClick(w.context_button, Qt.LeftButton)
+    assert panel.details.isVisible()
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a: str(folder))
+    answers = iter([QMessageBox.Yes, QMessageBox.No])
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: next(answers))
+    qtbot.mouseClick(panel.folder, Qt.LeftButton)
+    qtbot.waitUntil(lambda: panel.folders.count() == 1)
+    qtbot.mouseClick(w.context_button, Qt.LeftButton)
+    assert not panel.details.isVisible()
+
+    w.composer.setPlainText("Read input.txt and create output.txt")
+    qtbot.mouseClick(w.send_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: panel.dialog is not None, timeout=10000)
+    buttons = panel.dialog.findChild(QDialogButtonBox)
+    qtbot.mouseClick(buttons.button(QDialogButtonBox.Yes), Qt.LeftButton)
+    qtbot.waitUntil(lambda: panel.active is None, timeout=10000)
+    qtbot.waitUntil(lambda: "Saved approved output." in w.transcript.toPlainText(), timeout=10000)
+
+    cards = [c for c in w.transcript.findChildren(MessageCard) if c.agent_step_buttons]
+    assert len(cards) == 1
+    step_btns = cards[0].agent_step_buttons
+    step_details = cards[0].agent_step_details
+    assert len(step_btns) == 2
+    assert "read_text" in step_btns[0].text()
+    assert "write_text" in step_btns[1].text()
+    assert not step_details[0].isVisible()
+    qtbot.mouseClick(step_btns[0], Qt.LeftButton)
+    assert step_details[0].isVisible()
+
+    # Switch to first_conv and then reopen tool_conv from history
+    w.open_conversation(first_conv)
+    qtbot.waitUntil(lambda: w.current_id == first_conv)
+    w.open_conversation(tool_conv)
+    qtbot.waitUntil(lambda: w.current_id == tool_conv)
+    qtbot.waitUntil(
+        lambda: any(c.agent_step_buttons for c in w.transcript.findChildren(MessageCard)),
+        timeout=5000,
+    )
+    restored_cards = [c for c in w.transcript.findChildren(MessageCard) if c.agent_step_buttons]
+    assert len(restored_cards) == 1
+    assert len(restored_cards[0].agent_step_buttons) == 2

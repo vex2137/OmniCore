@@ -402,3 +402,120 @@ def test_parse_turn_supports_fenced_json_xml_tool_call_and_think_tags():
             arguments={"grant_id": "g1", "path": "hello.txt"},
         )
     ]
+
+
+@pytest.mark.parametrize(
+    "raw_response",
+    [
+        "Tak, mogę działać jako agent i korzystać z udostępnionych narzędzi.",
+        "<think>Użytkownik pyta o możliwości.</think>\n"
+        "Cześć! Mogę przeszukiwać i czytać pliki w udostępnionym katalogu.",
+        '{"kind": "final", "text": "Mogę działać jako agent."}',
+        '{"kind": "tool", "name": "final_answer", '
+        '"arguments": {"text": "Gotowa odpowiedź końcowa."}}',
+        "<tool_call>\n<function=final_answer>\n<parameter=text>\n"
+        "Odpowiedź przez final_answer.\n</parameter>\n</function>\n</tool_call>",
+    ],
+)
+def test_plain_text_and_final_answer_complete_with_zero_steps(tmp_path, raw_response):
+    async def exercise():
+        agents, conv, _ = setup(tmp_path, [raw_response])
+        record = await agents.submit(
+            conv.id, AgentRequest(content="czy możesz działać jako agent?")
+        )
+        await agents.tasks[record["id"]]
+        result = agents.record(record["id"])
+        assert result["state"] == "completed"
+        assert result["error_code"] is None
+        assert result["steps"] == []
+        assert result["protocol_retries"] == 0
+        assert result.get("response_message_id") is not None
+        msgs = agents.service.history.messages(conv.id)
+        assert msgs[-1].role == "assistant"
+        assert msgs[-1].id == result["response_message_id"]
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_multistep_search_text_then_read_text_and_arg_normalization(tmp_path):
+    async def exercise():
+        agents, conv, engine = setup(tmp_path, [])
+        folder = tmp_path / "workspace"
+        folder.mkdir()
+        (folder / "alpha.txt").write_text("Tutaj jest OmniCore Beta 3.\n", encoding="utf-8")
+        (folder / "other.txt").write_text("Brak słowa kluczowego.\n", encoding="utf-8")
+        agents.files.grant(conv.id, folder)
+        engine.responses = iter(
+            [
+                "<think>Szukam plików.</think>\n<tool_call>\n<function=search_text>\n"
+                "<parameter=pattern>OmniCore</parameter>\n<parameter=max_results>5</parameter>\n"
+                "</function>\n</tool_call>",
+                '{"name": "read_text", "file": "alpha.txt"}',
+                "Plik alpha.txt zawiera informację o OmniCore Beta 3.",
+            ]
+        )
+        record = await agents.submit(
+            conv.id,
+            AgentRequest(
+                content="Znajdź pliki zawierające słowo OmniCore i podsumuj ich zawartość"
+            ),
+        )
+        await agents.tasks[record["id"]]
+        result = agents.record(record["id"])
+        assert result["state"] == "completed"
+        assert [s["tool"] for s in result["steps"]] == ["search_text", "read_text"]
+        assert [s["state"] for s in result["steps"]] == ["completed", "completed"]
+        assert "alpha.txt" in engine.messages[1][-1].content
+        assert "OmniCore Beta 3" in engine.messages[2][-1].content
+        assert (
+            agents.service.history.messages(conv.id)[-1].content
+            == "Plik alpha.txt zawiera informację o OmniCore Beta 3."
+        )
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_incomplete_json_never_executes_tool_and_uses_bounded_repair(tmp_path):
+    async def exercise():
+        truncated_tool = '{"kind": "tool", "name": "calculate", "arguments": {"expression": "2+2"'
+        agents, conv, engine = setup(
+            tmp_path,
+            [
+                truncated_tool,
+                '{"kind": "final", "text": "Naprawiona odpowiedź po uciętym JSON."}',
+            ],
+        )
+        result = await finish(agents, conv)
+        assert result["state"] == "completed"
+        assert result["steps"] == []
+        assert result["protocol_retries"] == 1
+        assert result.get("last_protocol_issue") == "incomplete_output"
+        assert "Incomplete protocol output" in engine.messages[1][-1].content
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_missing_folder_permission_reports_permission_denied(tmp_path):
+    async def exercise():
+        agents, conv, _ = setup(
+            tmp_path,
+            [
+                '{"kind": "tool", "name": "read_text", "arguments": {"path": "test.txt"}}',
+                "Brak dostępu do katalogu.",
+            ],
+        )
+        result = await finish(agents, conv)
+        assert result["state"] == "completed"
+        assert len(result["steps"]) == 1
+        assert result["steps"][0]["state"] == "failed"
+        assert result["steps"][0]["error_code"] == "agent_permission_denied"
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
