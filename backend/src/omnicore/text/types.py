@@ -45,6 +45,8 @@ class GenerationStatistics(WireModel):
     output_tokens: int | None = Field(default=None, ge=0)
     total_tokens: int | None = Field(default=None, ge=0)
     tokens_per_second: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    prompt_processing_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    prompt_tokens_per_second: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     ttft_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     first_answer_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     generation_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)

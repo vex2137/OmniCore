@@ -189,6 +189,10 @@ def sidebar_icon(kind, color, size=18):
     elif kind == "search":
         painter.drawEllipse(QRectF(3 * u, 3 * u, 8.5 * u, 8.5 * u))
         painter.drawLine(round(10.3 * u), round(10.3 * u), round(15 * u), round(15 * u))
+    elif kind == "refresh":
+        painter.drawArc(QRectF(3.2 * u, 3.2 * u, 11.6 * u, 11.6 * u), 35 * 16, 285 * 16)
+        painter.drawLine(round(12.2 * u), round(3.0 * u), round(14.8 * u), round(5.2 * u))
+        painter.drawLine(round(14.8 * u), round(5.2 * u), round(11.6 * u), round(6.6 * u))
     painter.end()
     pixmap.setDevicePixelRatio(dpr)
     return QIcon(pixmap)
@@ -408,20 +412,8 @@ class MainWindow(QMainWindow):
         self._history_search_open = False
         self.conversations_row = QHBoxLayout()
         self.conversations_row.setContentsMargins(0, 0, 0, 0)
-        self.conversations_row.setSpacing(2)
+        self.conversations_row.setSpacing(4)
         self.conversations_row.addWidget(self.nav[0], 1)
-        self.history_search_toggle = QPushButton()
-        self.history_search_toggle.setObjectName("historyHeaderButton")
-        self.history_search_toggle.clicked.connect(self.open_history_search)
-        self.history_refresh = QPushButton("↻")
-        self.history_refresh.setObjectName("historyHeaderButton")
-        self.history_refresh.clicked.connect(self.refresh_shared_history)
-        self.history_menu_btn = QPushButton("⋯")
-        self.history_menu_btn.setObjectName("historyHeaderButton")
-        self.history_menu_btn.clicked.connect(self.open_history_menu)
-        self.conversations_row.addWidget(self.history_search_toggle)
-        self.conversations_row.addWidget(self.history_refresh)
-        self.conversations_row.addWidget(self.history_menu_btn)
         self.history_search = QLineEdit()
         self.history_search.setMaxLength(256)
         self.history_search.setClearButtonEnabled(True)
@@ -573,6 +565,26 @@ class MainWindow(QMainWindow):
         self.history_panel = QWidget()
         left = QVBoxLayout(self.history_panel)
         left.setContentsMargins(0, 0, 0, 0)
+        left.setSpacing(6)
+        self.history_toolbar = QHBoxLayout()
+        self.history_toolbar.setContentsMargins(0, 0, 0, 2)
+        self.history_toolbar.setSpacing(6)
+        self.history_search_toggle = QPushButton()
+        self.history_search_toggle.setObjectName("historySearchTrigger")
+        self.history_search_toggle.setCursor(Qt.PointingHandCursor)
+        self.history_search_toggle.clicked.connect(self.open_history_search)
+        self.history_refresh = QPushButton()
+        self.history_refresh.setObjectName("historyHeaderButton")
+        self.history_refresh.setCursor(Qt.PointingHandCursor)
+        self.history_refresh.clicked.connect(self.refresh_shared_history)
+        self.history_menu_btn = QPushButton("⋯")
+        self.history_menu_btn.setObjectName("historyHeaderButton")
+        self.history_menu_btn.setCursor(Qt.PointingHandCursor)
+        self.history_menu_btn.clicked.connect(self.open_history_menu)
+        self.history_toolbar.addWidget(self.history_search_toggle, 1)
+        self.history_toolbar.addWidget(self.history_refresh)
+        self.history_toolbar.addWidget(self.history_menu_btn)
+        left.addLayout(self.history_toolbar)
         self.sidebar_width = QSpinBox()
         self.sidebar_width.setRange(200, 360)
         self.sidebar_width.setValue(self.config.sidebar_width)
@@ -1331,24 +1343,42 @@ class MainWindow(QMainWindow):
         )
         toggle_size = btn_size if compact else self._scaled(32)
         toggle_icon = self._scaled(19 if compact else 16)
-        header_btn = self._scaled(24)
-        header_icon = self._scaled(14)
-        row_gap = self._scaled(2)
+        header_btn = self._scaled(30)
+        header_icon = self._scaled(15)
+        row_gap = self._scaled(6)
         sidebar_w = compact_width if compact else max(200, min(360, self.config.sidebar_width))
-        self.history_search_toggle.setFixedSize(header_btn, header_btn)
+        self.history_toolbar.setSpacing(row_gap)
+        self.history_toolbar.setContentsMargins(0, 0, 0, self._scaled(4))
         self.history_search_toggle.setIcon(sidebar_icon("search", fg, header_icon))
         self.history_search_toggle.setIconSize(QSize(header_icon, header_icon))
         self.history_refresh.setFixedSize(header_btn, header_btn)
+        self.history_refresh.setText("")
+        self.history_refresh.setIcon(sidebar_icon("refresh", fg, header_icon))
+        self.history_refresh.setIconSize(QSize(header_icon, header_icon))
         self.history_menu_btn.setFixedSize(header_btn, header_btn)
         self.history_search_close.setFixedSize(header_btn, header_btn)
+        if not compact:
+            toolbar_avail = max(
+                header_btn, sidebar_w - 2 * margin_h - 2 * header_btn - 2 * row_gap - 2
+            )
+            self.history_search_toggle.setMinimumSize(0, 0)
+            self.history_search_toggle.setMaximumSize(16777215, header_btn)
+            self.history_search_toggle.setFixedHeight(header_btn)
+            self.history_search_toggle.setText(self.tr("search_short"))
+            self.history_search_toggle.ensurePolished()
+            if self.history_search_toggle.minimumSizeHint().width() > toolbar_avail:
+                self.history_search_toggle.setText("")
+                self.history_search_toggle.setFixedSize(header_btn, header_btn)
+            else:
+                self.history_search_toggle.setMinimumWidth(header_btn)
         search_open = not compact and self._history_search_open
         self.nav[0].setVisible(compact or not search_open)
         self.history_search_toggle.setVisible(not compact and not search_open)
-        self.history_refresh.setVisible(not compact and not search_open)
-        self.history_menu_btn.setVisible(not compact and not search_open)
+        self.history_refresh.setVisible(not compact)
+        self.history_menu_btn.setVisible(not compact)
         self.history_search.setVisible(search_open)
         self.history_search_close.setVisible(search_open)
-        self.conversations_row.setSpacing(0 if compact else row_gap)
+        self.conversations_row.setSpacing(0 if compact else self._scaled(4))
         self.conversations_row.setAlignment(Qt.AlignHCenter if compact else Qt.Alignment())
         self.sidebar_toggle.setFixedSize(toggle_size, toggle_size)
         self.sidebar_toggle.setStyleSheet("")
@@ -1406,11 +1436,7 @@ class MainWindow(QMainWindow):
                     self.side_layout.setAlignment(button, Qt.Alignment())
                 button.ensurePolished()
                 if button is self.nav[0]:
-                    button.setStyleSheet(f"padding: {self._scaled(6)}px {self._scaled(6)}px;")
-                    button.ensurePolished()
-                    avail_nav0 = max(
-                        48, sidebar_w - 2 * margin_h - 3 * header_btn - 3 * row_gap - 4
-                    )
+                    avail_nav0 = max(48, sidebar_w - 2 * margin_h - 4)
                     label_text = self.tr(key)
                     button.setText(label_text)
                     hint_w = button.minimumSizeHint().width()
@@ -1724,10 +1750,14 @@ class MainWindow(QMainWindow):
             QWidget#historyTitleRow {{ background: {panel}; border-radius: 6px; }}
             QWidget#historyTitleRow[selected="true"] {{ background: {field}; }}
             QPushButton#historyHeaderButton {{
-                background: transparent; border: 1px solid transparent;
-                border-radius: 7px; padding: 0; color: {muted}; }}
-            QPushButton#historyHeaderButton:hover {{ background: {field}; border-color: {border};
+                background: transparent; border: 1px solid {border};
+                border-radius: 8px; padding: 0; color: {muted}; }}
+            QPushButton#historyHeaderButton:hover {{ background: {field}; border-color: {accent};
                 color: {fg}; }}
+            QPushButton#historySearchTrigger {{
+                background: {field}; border: 1px solid {border}; border-radius: 8px;
+                padding: 4px 10px; color: {muted}; text-align: left; font-weight: 450; }}
+            QPushButton#historySearchTrigger:hover {{ border-color: {accent}; color: {fg}; }}
             QLabel#historyItemTitle {{ background: transparent; color: {fg}; }}
             QLabel#historyItemTitle[selected="true"] {{ color: {accent}; }}
             QPushButton#historyHeading {{ background: transparent; border: none;
@@ -2299,6 +2329,8 @@ class MainWindow(QMainWindow):
     def _build_history_menu(self) -> QMenu:
         menu = QMenu(self)
         busy = bool(self.active_job or self._submitting)
+        menu.addAction(self.tr("refresh"), self.refresh_shared_history)
+        menu.addSeparator()
         delete_one = menu.addAction(
             self.tr("delete_selected_conversation"), self.delete_conversation
         )
@@ -2583,6 +2615,13 @@ class MainWindow(QMainWindow):
             and not self._context_saving
         )
 
+    def _context_params_kwargs(self):
+        params = self.config.parameters if isinstance(self.config.parameters, dict) else {}
+        return {
+            "device": params.get("device"),
+            "gpu_offload_mode": params.get("gpu_offload_mode"),
+        }
+
     def _render_model_context(self):
         if not hasattr(self, "context_mode"):
             return
@@ -2599,7 +2638,9 @@ class MainWindow(QMainWindow):
         if self._context_dirty:
             self._context_mode_changed()
             return
-        saved = self.model_contexts.get(model["id"]) or context_settings(model)
+        saved = self.model_contexts.get(model["id"]) or context_settings(
+            model, **self._context_params_kwargs()
+        )
         self._populate_context_presets(saved["maximum"])
         self.context_mode.blockSignals(True)
         self.context_mode.setCurrentIndex(self.context_mode.findData(saved["mode"]))
@@ -2639,7 +2680,11 @@ class MainWindow(QMainWindow):
             if self.model_combo.currentData() == model_id and not self._context_dirty:
                 self._render_model_context()
 
-        self.api.request("GET", TEXT + f"/models/{model_id}/context", success=received)
+        query = urlencode(
+            {k: v for k, v in self._context_params_kwargs().items() if isinstance(v, str) and v}
+        )
+        suffix = f"?{query}" if query else ""
+        self.api.request("GET", TEXT + f"/models/{model_id}/context{suffix}", success=received)
 
     def save_model_context(self):
         if self.agent_panel.active:
@@ -2662,7 +2707,9 @@ class MainWindow(QMainWindow):
             self._context_saving = False
             self._context_dirty = False
             self.models = [record if item["id"] == model_id else item for item in self.models]
-            self.model_contexts[model_id] = context_settings(record)
+            self.model_contexts[model_id] = context_settings(
+                record, **self._context_params_kwargs()
+            )
             self._refresh_model_context()
             self._render_model_context()
             self.notify(self.tr("context_saved"))
@@ -2679,7 +2726,9 @@ class MainWindow(QMainWindow):
     def _parameters_for_model(self, model):
         parameters = dict(self.config.parameters)
         if model:
-            saved = self.model_contexts.get(model["id"]) or context_settings(model)
+            saved = self.model_contexts.get(model["id"]) or context_settings(
+                model, **self._context_params_kwargs()
+            )
             if (
                 self._context_dirty
                 and self.model_combo.currentData() == model["id"]
@@ -2689,7 +2738,10 @@ class MainWindow(QMainWindow):
                     parameters["context_size"] = self.context_tokens.value()
                 else:
                     parameters["context_size"] = saved.get(
-                        "automatic_tokens", context_settings(model)["effective_tokens"]
+                        "automatic_tokens",
+                        context_settings(model, **self._context_params_kwargs())[
+                            "effective_tokens"
+                        ],
                     )
             else:
                 parameters["context_size"] = saved["effective_tokens"]
@@ -3730,6 +3782,7 @@ class MainWindow(QMainWindow):
             self.session.restart(self.config)
         else:
             self.api.request("GET", "/api/v1/settings", success=self._preferences)
+            self._refresh_model_context()
 
     def refresh_diagnostics(self):
         if not self.is_connected:

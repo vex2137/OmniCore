@@ -55,6 +55,56 @@ def _meta_int(inner: dict, architecture: str | None, suffix: str) -> int | None:
     return None
 
 
+def _kv_layer_counts(layout: dict) -> tuple[int, int]:
+    """Return (attention_kv_layers, recurrent_ssm_layers) for standard or hybrid models."""
+    block_count = layout.get("block_count") or 32
+    interval = layout.get("full_attention_interval")
+    if isinstance(interval, int) and not isinstance(interval, bool) and interval >= 2:
+        kv_layers = max(1, block_count // interval)
+    else:
+        kv_layers = block_count
+    ssm_layers = max(0, block_count - kv_layers)
+    return kv_layers, ssm_layers
+
+
+def estimate_kv_bytes_per_token(layout: dict) -> int:
+    """Estimate FP16 KV cache bytes per context token across attention layers."""
+    head_kv = layout.get("head_count_kv")
+    if head_kv:
+        kv_layers, _ = _kv_layer_counts(layout)
+        key_len = layout.get("key_length") or 128
+        val_len = layout.get("value_length") or key_len
+        bytes_per_token_per_layer = head_kv * (key_len + val_len) * 2
+        return max(1024, kv_layers * bytes_per_token_per_layer)
+    size_bytes = layout.get("file_size_bytes") or 0
+    return max(64 * 1024, int(size_bytes / 16384))
+
+
+def estimate_ssm_state_bytes(layout: dict) -> int:
+    """Estimate fixed recurrent state VRAM for hybrid SSM/DeltaNet layers."""
+    if not layout.get("head_count_kv"):
+        return 0
+    _, ssm_layers = _kv_layer_counts(layout)
+    return ssm_layers * 4 * 1024**2
+
+
+def layout_from_metadata(meta: dict, arch: str | None, size_bytes: int) -> dict:
+    """Build a uniform GGUF layout dictionary from parsed header metadata."""
+    return {
+        "file_size_bytes": size_bytes,
+        "architecture": arch,
+        "block_count": _meta_int(meta, arch, "block_count"),
+        "full_attention_interval": _meta_int(meta, arch, "full_attention_interval"),
+        "head_count_kv": _meta_int(meta, arch, "attention.head_count_kv")
+        or _meta_int(meta, arch, "attention.head_count"),
+        "key_length": _meta_int(meta, arch, "attention.key_length") or 128,
+        "value_length": _meta_int(meta, arch, "attention.value_length")
+        or _meta_int(meta, arch, "attention.key_length")
+        or 128,
+        "embedding_length": _meta_int(meta, arch, "embedding_length"),
+    }
+
+
 def inspect_gguf_layout(path: Path) -> dict | None:
     """Read GGUF header layout hints safely without loading tensor weights."""
     try:
@@ -71,33 +121,14 @@ def inspect_gguf_layout(path: Path) -> dict | None:
     if not isinstance(meta, dict):
         meta = {}
     arch = info.get("architecture") if isinstance(info, dict) else None
-    emb = _meta_int(meta, arch, "embedding_length")
-    return {
-        "file_size_bytes": size_bytes,
-        "architecture": arch,
-        "block_count": _meta_int(meta, arch, "block_count"),
-        "head_count_kv": _meta_int(meta, arch, "attention.head_count_kv")
-        or _meta_int(meta, arch, "attention.head_count"),
-        "key_length": _meta_int(meta, arch, "attention.key_length") or 128,
-        "value_length": _meta_int(meta, arch, "attention.value_length")
-        or _meta_int(meta, arch, "attention.key_length")
-        or 128,
-        "embedding_length": emb,
-    }
+    return layout_from_metadata(meta, arch, size_bytes)
 
 
 def estimate_kv_cache_bytes(layout: dict, context_size: int) -> int:
     """Estimate FP16 KV cache VRAM footprint for the configured context size."""
-    block_count = layout.get("block_count") or 32
-    head_kv = layout.get("head_count_kv")
-    if head_kv:
-        key_len = layout.get("key_length") or 128
-        val_len = layout.get("value_length") or key_len
-        bytes_per_token_per_layer = head_kv * (key_len + val_len) * 2
-        return max(1, context_size * block_count * bytes_per_token_per_layer)
-    size_bytes = layout.get("file_size_bytes") or 0
-    bytes_per_token = max(64 * 1024, int(size_bytes / 16384))
-    return max(1, context_size * bytes_per_token)
+    return max(1, context_size * estimate_kv_bytes_per_token(layout)) + estimate_ssm_state_bytes(
+        layout
+    )
 
 
 def estimate_auto_gpu_layers(
@@ -112,10 +143,13 @@ def estimate_auto_gpu_layers(
     if not info or not info.get("file_size_bytes"):
         return max(1, fallback_layers or 99), None, "fallback_default"
     total_layers = info.get("block_count")
+    total_with_output = total_layers + 1 if total_layers else None
     if free_vram_bytes is None or free_vram_bytes <= 0:
-        if total_layers:
-            chosen = min(fallback_layers, total_layers) if fallback_layers else total_layers
-            return max(1, chosen), total_layers, "vram_unknown"
+        if total_with_output:
+            chosen = (
+                min(fallback_layers, total_with_output) if fallback_layers else total_with_output
+            )
+            return max(1, chosen), total_with_output, "vram_unknown"
         return max(1, fallback_layers or 99), None, "vram_unknown"
 
     overhead = max(512 * 1024**2, int(free_vram_bytes * 0.10))
@@ -134,14 +168,14 @@ def estimate_auto_gpu_layers(
 
     full_cost = int(weights_bytes * 1.03) + kv_total
     if full_cost <= vram_budget:
-        return total_layers, total_layers, "fits_in_vram"
+        return total_with_output, total_with_output, "fits_in_vram"
 
-    per_layer_weights = weights_bytes / (total_layers + 2)
+    per_layer_weights = weights_bytes / (total_layers + 1)
     per_layer_kv = kv_total / max(1, total_layers)
     per_layer_cost = max(1.0, per_layer_weights + per_layer_kv)
     fit = math.floor(vram_budget / per_layer_cost)
-    chosen = max(1, min(total_layers - 1, fit))
-    return chosen, total_layers, "vram_partial_offload"
+    chosen = max(1, min(total_layers, fit))
+    return chosen, total_with_output, "vram_partial_offload"
 
 
 def parse_startup_layers(log_text: str) -> tuple[int | None, int | None]:
@@ -176,7 +210,7 @@ def next_stepdown_layers(current_layers: int, detected_total: int | None) -> int
     if current_layers <= 1:
         return None
     if detected_total and 0 < detected_total < current_layers:
-        return max(1, int(detected_total * 0.75))
-    step = max(1, (current_layers + 3) // 4)
+        return max(1, int(detected_total * 0.80))
+    step = max(1, (current_layers + 4) // 5)
     nxt = current_layers - step
     return max(1, nxt) if nxt < current_layers else current_layers - 1

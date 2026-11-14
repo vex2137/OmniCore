@@ -891,6 +891,38 @@ def test_history_header_search_toggles_focuses_and_filters(desktop, qtbot):
     assert first["id"] in {c["id"] for c in w.conversations}
 
 
+def test_history_toolbar_controls_fit_narrow_and_expanded_widths(desktop, qtbot):
+    w = desktop
+    w.resize(1100, 760)
+    w.show()
+    qtbot.waitExposed(w)
+    for width, scale in ((200, 100), (200, 150), (260, 100), (340, 120)):
+        w.ui_scale.setValue(scale)
+        w.sidebar_width.setValue(width)
+        w.resize_sidebar(width)
+        qtbot.wait(25)
+        for btn in (w.nav[0], w.history_search_toggle, w.history_refresh, w.history_menu_btn):
+            assert btn.isVisible()
+            assert btn.width() >= btn.minimumSizeHint().width()
+        # Dedicated toolbar sits below the Conversations button without overlapping it.
+        toolbar_top = w.history_panel.geometry().top() + w.history_search_toggle.geometry().top()
+        assert w.nav[0].geometry().bottom() <= toolbar_top
+        # No horizontal overlap between search trigger, refresh, and menu controls.
+        assert w.history_search_toggle.geometry().right() < w.history_refresh.geometry().left()
+        assert w.history_refresh.geometry().right() < w.history_menu_btn.geometry().left()
+        assert w.history_menu_btn.geometry().right() <= w.sidebar.width()
+
+    w.toggle_sidebar()
+    qtbot.wait(20)
+    assert w.config.sidebar_compact is True
+    assert not w.history_panel.isVisible()
+    assert w.nav[0].isVisible()
+    w.toggle_sidebar()
+    qtbot.wait(20)
+    assert w.history_panel.isVisible()
+    assert w.history_search_toggle.isVisible()
+
+
 def test_history_group_rows_do_not_overlap_headings_or_titles(desktop, qtbot):
     w = desktop
     w.resize(1100, 760)

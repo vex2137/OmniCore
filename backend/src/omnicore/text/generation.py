@@ -107,7 +107,13 @@ class GenerationManager:
             parameters = request.parameters or conversation.parameters
             if request.parameters is None and "desktop_context" in model.metadata:
                 parameters = parameters.model_copy(
-                    update={"context_size": context_settings(model)["effective_tokens"]}
+                    update={
+                        "context_size": context_settings(
+                            model,
+                            device=parameters.device,
+                            gpu_offload_mode=parameters.gpu_offload_mode,
+                        )["effective_tokens"]
+                    }
                 )
             parameter_fingerprint = parameters.model_dump()
             # Preserve idempotency keys created by Alpha.1/2 before thinking was a field.
@@ -400,6 +406,8 @@ class GenerationManager:
                 "output_tokens",
                 "total_tokens",
                 "tokens_per_second",
+                "prompt_processing_seconds",
+                "prompt_tokens_per_second",
                 "finish_reason",
                 "gpu_offloaded_layers",
                 "gpu_total_layers",

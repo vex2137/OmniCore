@@ -394,7 +394,13 @@ class Agents:
             parameters = request.parameters or conversation.parameters
             if request.parameters is None and "desktop_context" in model.metadata:
                 parameters = parameters.model_copy(
-                    update={"context_size": context_settings(model)["effective_tokens"]}
+                    update={
+                        "context_size": context_settings(
+                            model,
+                            device=parameters.device,
+                            gpu_offload_mode=parameters.gpu_offload_mode,
+                        )["effective_tokens"]
+                    }
                 )
             support = capability(self.service, model)
             if support["status"] == "unsupported" and settings.protocol == "auto":
@@ -499,6 +505,10 @@ class Agents:
         )
         raw_gen = record.get("_gen_seconds", 0.0)
         gen_sec = round(raw_gen, 3) if record.get("turns", 0) > 0 and raw_gen > 0 else None
+        raw_prompt = record.get("_prompt_seconds")
+        prompt_sec = round(raw_prompt, 3) if isinstance(raw_prompt, (int, float)) else None
+        raw_load = record.get("_model_load_seconds")
+        load_sec = round(raw_load, 3) if isinstance(raw_load, (int, float)) else None
         tps = (
             round(output_toks / raw_gen, 2)
             if isinstance(output_toks, int) and output_toks > 0 and raw_gen > 0
@@ -514,8 +524,11 @@ class Agents:
             output_tokens=output_toks,
             total_tokens=total_toks,
             tokens_per_second=tps,
+            prompt_processing_seconds=prompt_sec,
+            prompt_tokens_per_second=record.get("_prompt_tokens_per_second"),
             ttft_seconds=record.get("_ttft_seconds"),
             generation_seconds=gen_sec,
+            model_load_seconds=load_sec,
             total_task_seconds=total_task,
             tool_execution_seconds=tool_sec,
             agent_steps=len(steps),
@@ -540,6 +553,9 @@ class Agents:
         record["_run_started"] = time.monotonic()
         record["_tool_seconds"] = 0.0
         record["_gen_seconds"] = 0.0
+        record["_prompt_seconds"] = None
+        record["_prompt_tokens_per_second"] = None
+        record["_model_load_seconds"] = None
         record["_input_tokens"] = 0
         record["_output_tokens"] = 0
         record["_has_token_usage"] = False
@@ -579,6 +595,9 @@ class Agents:
                     "_run_started",
                     "_tool_seconds",
                     "_gen_seconds",
+                    "_prompt_seconds",
+                    "_prompt_tokens_per_second",
+                    "_model_load_seconds",
                     "_input_tokens",
                     "_output_tokens",
                     "_has_token_usage",
@@ -689,6 +708,9 @@ class Agents:
                 "_run_started",
                 "_tool_seconds",
                 "_gen_seconds",
+                "_prompt_seconds",
+                "_prompt_tokens_per_second",
+                "_model_load_seconds",
                 "_input_tokens",
                 "_output_tokens",
                 "_has_token_usage",
@@ -731,7 +753,9 @@ class Agents:
             self.service.require_idle()
             model = self.store.model(model_id)
             parameters = parameters or GenerationParameters(
-                context_size=context_settings(model)["effective_tokens"]
+                context_size=context_settings(model, device="cpu", gpu_offload_mode="cpu")[
+                    "effective_tokens"
+                ]
             )
             limited = parameters.model_copy(
                 update={
@@ -867,6 +891,18 @@ class Agents:
                     record["_gen_seconds"] = record.get("_gen_seconds", 0.0) + float(
                         turn_stats["generation_seconds"]
                     )
+                if isinstance(turn_stats.get("prompt_processing_seconds"), (int, float)):
+                    record["_prompt_seconds"] = (record.get("_prompt_seconds") or 0.0) + float(
+                        turn_stats["prompt_processing_seconds"]
+                    )
+                if isinstance(turn_stats.get("prompt_tokens_per_second"), (int, float)):
+                    record["_prompt_tokens_per_second"] = float(
+                        turn_stats["prompt_tokens_per_second"]
+                    )
+                if isinstance(turn_stats.get("model_load_seconds"), (int, float)):
+                    record["_model_load_seconds"] = (
+                        record.get("_model_load_seconds") or 0.0
+                    ) + float(turn_stats["model_load_seconds"])
                 if (
                     record.get("_ttft_seconds") is None
                     and turn_stats.get("ttft_seconds") is not None

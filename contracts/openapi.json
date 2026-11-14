@@ -1089,6 +1089,30 @@
           "parameters": {
             "$ref": "#/components/schemas/GenerationParameters"
           },
+          "prompt_processing_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Processing Seconds"
+          },
+          "prompt_tokens_per_second": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Tokens Per Second"
+          },
           "reasoning_content": {
             "default": "",
             "maxLength": 1000000,
@@ -1453,6 +1477,30 @@
               }
             ],
             "title": "Output Tokens"
+          },
+          "prompt_processing_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Processing Seconds"
+          },
+          "prompt_tokens_per_second": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Tokens Per Second"
           },
           "tokens_per_second": {
             "anyOf": [
@@ -10084,6 +10132,38 @@
             "schema": {
               "title": "Model Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "device",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Device"
+            }
+          },
+          {
+            "in": "query",
+            "name": "gpu_offload_mode",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Gpu Offload Mode"
             }
           }
         ],

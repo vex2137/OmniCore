@@ -268,9 +268,13 @@ def routes(service: TextService):
         return service.store.model(model_id)
 
     @router.get("/models/{model_id}/context")
-    def get_model_context(model_id: str):
+    def get_model_context(
+        model_id: str,
+        device: str | None = None,
+        gpu_offload_mode: str | None = None,
+    ):
         record = service.store.model(model_id)
-        settings = context_settings(record)
+        settings = context_settings(record, device=device, gpu_offload_mode=gpu_offload_mode)
         engine = service.llama
         settings["applied_tokens"] = (
             engine.parameters[1]

@@ -36,6 +36,7 @@ class AgentModel:
             self.output_tokens.set(0)
             self.backend_version.set(version)
             location = model.location
+            load_seconds = None
             if model.backend == "llama.cpp":
                 path = service.models.validated_reference(model.id)
                 model = service.store.model(model.id)
@@ -50,7 +51,11 @@ class AgentModel:
                         )
                     ):
                         raise TextError("model_file_changed", 409)
-                    await engine.load(path, parameters, file_descriptor=file.fileno())
+                    loading = time.monotonic()
+                    try:
+                        await engine.load(path, parameters, file_descriptor=file.fileno())
+                    finally:
+                        load_seconds = round(time.monotonic() - loading, 3)
                 location = str(path)
             native = (
                 protocol == "auto"
@@ -69,6 +74,8 @@ class AgentModel:
             first_token_at = None
             reported_input = None
             reported_output = None
+            reported_prompt_sec = None
+            reported_prompt_tps = None
             async with asyncio.timeout(service.config.generation_timeout):
                 async for chunk in engine.stream(location, converted, parameters):
                     if (chunk.content or chunk.reasoning_content) and first_token_at is None:
@@ -80,6 +87,10 @@ class AgentModel:
                     if isinstance(chunk.output_tokens, int):
                         reported_output = max(reported_output or 0, chunk.output_tokens)
                         self.output_tokens.set(reported_output)
+                    if chunk.prompt_processing_seconds is not None:
+                        reported_prompt_sec = chunk.prompt_processing_seconds
+                    if chunk.prompt_tokens_per_second is not None:
+                        reported_prompt_tps = chunk.prompt_tokens_per_second
                     if len(content.encode("utf-8")) > 65536:
                         raise TextError("agent_response_limit", 422)
             if finish != "stop":
@@ -102,7 +113,10 @@ class AgentModel:
                     "ttft_seconds": round(first_token_at, 3)
                     if first_token_at is not None
                     else None,
+                    "prompt_processing_seconds": reported_prompt_sec,
+                    "prompt_tokens_per_second": reported_prompt_tps,
                     "generation_seconds": round(gen_seconds, 3),
+                    "model_load_seconds": load_seconds,
                     "tokens_per_second": tps,
                     "context_limit_tokens": parameters.context_size,
                     "context_used_tokens": used_ctx,

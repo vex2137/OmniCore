@@ -323,6 +323,32 @@
           "default": null,
           "title": "Output Tokens"
         },
+        "prompt_processing_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Processing Seconds"
+        },
+        "prompt_tokens_per_second": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Tokens Per Second"
+        },
         "tokens_per_second": {
           "anyOf": [
             {

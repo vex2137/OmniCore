@@ -103,6 +103,15 @@ def openai_chunk(item):
     tot_tok = usage.get("total_tokens")
     if tot_tok is None and isinstance(in_tok, int) and isinstance(out_tok, int):
         tot_tok = in_tok + out_tok
+    prompt_ms = timing.get("prompt_ms")
+    prompt_sec = (
+        round(float(prompt_ms) / 1000.0, 3)
+        if isinstance(prompt_ms, (int, float))
+        and not isinstance(prompt_ms, bool)
+        and prompt_ms >= 0
+        else None
+    )
+    prompt_tps = timing.get("prompt_per_second")
     return TextChunk(
         content=text,
         reasoning_content=reasoning,
@@ -110,6 +119,12 @@ def openai_chunk(item):
         output_tokens=out_tok,
         total_tokens=tot_tok,
         tokens_per_second=timing.get("predicted_per_second"),
+        prompt_processing_seconds=prompt_sec,
+        prompt_tokens_per_second=prompt_tps
+        if isinstance(prompt_tps, (int, float))
+        and not isinstance(prompt_tps, bool)
+        and prompt_tps >= 0
+        else None,
         finish_reason=finish,
     )
 
@@ -594,13 +609,19 @@ class LlamaEngine:
                 reason = "cpu_mode" if mode == "cpu" else "gpu_unavailable"
             elif mode == "max":
                 layout = inspect_gguf_layout(path)
-                est_total = layout.get("block_count") if layout else None
+                blocks = layout.get("block_count") if layout else None
+                est_total = blocks + 1 if blocks else None
                 layers = est_total or 999
                 reason = "max_gpu"
             elif mode == "manual":
                 layers = parameters.gpu_layers
                 reason = "manual_layers"
             else:
+                if self.process is not None:
+                    was_gpu = bool(self.parameters and self.parameters[3] != "cpu")
+                    await self.unload()
+                    if was_gpu:
+                        await asyncio.sleep(0.15)
                 layout = inspect_gguf_layout(path)
                 free_vram = await self._available_vram_bytes(selected_device)
                 layers, est_total, reason = estimate_auto_gpu_layers(

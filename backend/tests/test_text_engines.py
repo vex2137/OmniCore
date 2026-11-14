@@ -412,6 +412,29 @@ def test_llama_fast_path_reprobes_on_context_change_or_dead_process(tmp_path, mo
     asyncio.run(exercise())
 
 
+def _write_test_gguf(path: Path, entries: list[tuple[str, int, bytes]]) -> Path:
+    import struct
+
+    def pack_str(val: str) -> bytes:
+        raw = val.encode("utf-8")
+        return struct.pack("<Q", len(raw)) + raw
+
+    buf = bytearray(b"GGUF")
+    buf += struct.pack("<IQQ", 3, 1, len(entries))
+    for key, kind, val in entries:
+        buf += pack_str(key)
+        buf += struct.pack("<I", kind)
+        buf += val
+    # One minimal F32 tensor header + alignment + 4-byte tensor payload.
+    buf += pack_str("w")
+    buf += struct.pack("<IQ", 1, 1)
+    buf += struct.pack("<IQ", 0, 0)
+    pad = (-len(buf)) % 32
+    buf += b"\x00" * pad + b"\x00" * 32
+    path.write_bytes(bytes(buf))
+    return path
+
+
 def test_auto_offload_estimation_and_gguf_layout(tmp_path):
     import struct
 
@@ -423,12 +446,13 @@ def test_auto_offload_estimation_and_gguf_layout(tmp_path):
         parse_startup_layers,
     )
 
-    def write_test_gguf(path: Path) -> Path:
-        def pack_str(val: str) -> bytes:
-            raw = val.encode("utf-8")
-            return struct.pack("<Q", len(raw)) + raw
+    def pack_str(val: str) -> bytes:
+        raw = val.encode("utf-8")
+        return struct.pack("<Q", len(raw)) + raw
 
-        entries = [
+    gguf_file = _write_test_gguf(
+        tmp_path / "layout.gguf",
+        [
             ("general.architecture", 8, pack_str("llama")),
             ("general.alignment", 4, struct.pack("<I", 32)),
             ("llama.block_count", 4, struct.pack("<I", 32)),
@@ -436,23 +460,8 @@ def test_auto_offload_estimation_and_gguf_layout(tmp_path):
             ("llama.embedding_length", 4, struct.pack("<I", 4096)),
             ("llama.attention.head_count", 4, struct.pack("<I", 32)),
             ("llama.attention.head_count_kv", 4, struct.pack("<I", 8)),
-        ]
-        buf = bytearray(b"GGUF")
-        buf += struct.pack("<IQQ", 3, 1, len(entries))
-        for key, kind, val in entries:
-            buf += pack_str(key)
-            buf += struct.pack("<I", kind)
-            buf += val
-        # One minimal F32 tensor header + alignment + 4-byte tensor payload.
-        buf += pack_str("w")
-        buf += struct.pack("<IQ", 1, 1)
-        buf += struct.pack("<IQ", 0, 0)
-        pad = (-len(buf)) % 32
-        buf += b"\x00" * pad + b"\x00" * 32
-        path.write_bytes(bytes(buf))
-        return path
-
-    gguf_file = write_test_gguf(tmp_path / "layout.gguf")
+        ],
+    )
     layout = inspect_gguf_layout(gguf_file)
     assert layout is not None
     assert layout["block_count"] == 32
@@ -466,7 +475,7 @@ def test_auto_offload_estimation_and_gguf_layout(tmp_path):
         free_vram_bytes=7 * 1024**3,
         layout=layout,
     )
-    assert (layers, total, reason) == (32, 32, "fits_in_vram")
+    assert (layers, total, reason) == (33, 33, "fits_in_vram")
 
     # Simulate a 5.63 GiB model + 8192 context on 6.2 GiB available VRAM -> partial offload.
     large_layout = {
@@ -483,8 +492,8 @@ def test_auto_offload_estimation_and_gguf_layout(tmp_path):
         free_vram_bytes=int(6.2 * 1024**3),
         layout=large_layout,
     )
-    assert p_total == 40
-    assert 1 <= p_layers < 40
+    assert p_total == 41
+    assert 1 <= p_layers <= 40
     assert p_reason == "vram_partial_offload"
 
     assert is_cuda_oom_log("cudaMalloc failed: out of memory\n")
@@ -601,5 +610,121 @@ HTTPServer(('127.0.0.1', args.port), Handler).serve_forever()
         assert max_exc.value.code == "out_of_memory"
         assert len(json.loads(attempts_log.read_text())) == 1
         assert not cpu_log.exists()
+
+    asyncio.run(exercise())
+
+
+def test_hybrid_qwen35_kv_cache_gguf_retention_and_prompt_timings(tmp_path):
+    import struct
+
+    from omnicore.text.engines import openai_chunk
+    from omnicore.text.gguf import read_gguf
+    from omnicore.text.offload import estimate_auto_gpu_layers, estimate_kv_bytes_per_token
+
+    def pack_str(s: str) -> bytes:
+        b = s.encode("utf-8")
+        return struct.pack("<Q", len(b)) + b
+
+    gguf_path = _write_test_gguf(
+        tmp_path / "qwen35-hybrid.gguf",
+        [
+            ("general.architecture", 8, pack_str("qwen35")),
+            ("general.alignment", 4, struct.pack("<I", 32)),
+            ("qwen35.block_count", 4, struct.pack("<I", 33)),
+            ("qwen35.full_attention_interval", 4, struct.pack("<I", 4)),
+            ("qwen35.attention.head_count_kv", 4, struct.pack("<I", 4)),
+            ("qwen35.attention.key_length", 4, struct.pack("<I", 256)),
+            ("qwen35.attention.value_length", 4, struct.pack("<I", 256)),
+            ("qwen35.context_length", 4, struct.pack("<I", 262144)),
+        ],
+    )
+    with gguf_path.open("rb") as f:
+        parsed = read_gguf(f)
+    assert parsed["metadata"]["qwen35.full_attention_interval"] == 4
+
+    layout = {
+        "file_size_bytes": 5_629_111_584,
+        "architecture": "qwen35",
+        "block_count": 33,
+        "full_attention_interval": 4,
+        "head_count_kv": 4,
+        "key_length": 256,
+        "value_length": 256,
+    }
+    assert estimate_kv_bytes_per_token(layout) == 32768
+    layers, total, reason = estimate_auto_gpu_layers(
+        gguf_path,
+        context_size=16384,
+        fallback_layers=99,
+        free_vram_bytes=int(6.9 * 1024**3),
+        layout=layout,
+    )
+    assert total == 34
+    assert layers >= 30
+    assert reason in {"fits_in_vram", "vram_partial_offload"}
+
+    chunk = openai_chunk(
+        {
+            "choices": [{"index": 0, "delta": {"content": ""}, "finish_reason": "stop"}],
+            "timings": {
+                "prompt_n": 512,
+                "prompt_ms": 1425.6,
+                "prompt_per_second": 359.14,
+                "predicted_n": 64,
+                "predicted_per_second": 48.2,
+            },
+        }
+    )
+    assert chunk.prompt_processing_seconds == 1.426
+    assert chunk.prompt_tokens_per_second == 359.14
+    assert chunk.tokens_per_second == 48.2
+
+
+def test_llama_load_unloads_previous_model_before_measuring_vram(tmp_path):
+    from omnicore.schemas import BackendInfo
+
+    async def exercise():
+        model = tmp_path / "m.gguf"
+        model.write_bytes(b"GGUF" + b"\x00" * 64)
+        engine = LlamaEngine(tmp_path / "cpu", cuda_executable=tmp_path / "cuda")
+        engine.devices = ["CUDA0"]
+        engine._device_executables = {"cpu": tmp_path / "cpu", "CUDA0": tmp_path / "cuda"}
+        engine._cpu_executable = tmp_path / "cpu"
+        engine.candidates = []
+
+        class LiveProc:
+            returncode = None
+            pid = 99999
+
+        engine.process = LiveProc()
+        engine.parameters = (str(tmp_path / "old.gguf"), 32768, 23, "CUDA0", str(tmp_path / "cuda"))
+        engine.offload_mode = "auto"
+
+        events = []
+
+        async def fake_probe():
+            return BackendInfo(id="llama.cpp", available=True, version="test")
+
+        async def fake_unload(_name=None):
+            events.append("unload")
+            engine.process = None
+            engine.parameters = None
+
+        async def fake_vram(_device):
+            events.append("vram")
+            return 7 * 1024**3
+
+        async def fake_load_selected(*_args, **_kwargs):
+            events.append("load_selected")
+
+        engine.probe = fake_probe
+        engine.unload = fake_unload
+        engine._available_vram_bytes = fake_vram
+        engine._load_selected = fake_load_selected
+
+        await engine.load(
+            model, GenerationParameters(device="auto", gpu_offload_mode="auto", context_size=8192)
+        )
+        assert events == ["unload", "vram", "load_selected"]
 
     asyncio.run(exercise())

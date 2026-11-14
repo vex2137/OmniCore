@@ -139,6 +139,7 @@ def read_gguf(stream) -> dict:
                 (
                     ".context_length",
                     ".block_count",
+                    ".full_attention_interval",
                     ".attention.head_count",
                     ".attention.head_count_kv",
                     ".attention.key_length",

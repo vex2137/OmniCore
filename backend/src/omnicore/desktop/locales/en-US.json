@@ -418,5 +418,7 @@
   "offload_auto": "Auto (recommended)",
   "offload_max": "Maximum GPU",
   "offload_manual": "Manual",
-  "offload_cpu": "CPU only"
+  "offload_cpu": "CPU only",
+  "search_short": "Search…",
+  "stats_prompt_time": "Prompt processing"
 }

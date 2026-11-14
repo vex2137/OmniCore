@@ -555,3 +555,43 @@ def test_delete_all_conversations_endpoint_checks_idle_and_preserves_models(text
         models = client.get("/api/v1/text/models").json()
         assert any(m["id"] == model["id"] for m in models)
         assert path.exists()
+
+
+def test_context_settings_uses_vram_for_gpu_and_preserves_manual_and_cpu(monkeypatch):
+    import omnicore.text.context as ctx_mod
+
+    monkeypatch.setattr(ctx_mod, "_system_vram_total_bytes", lambda: 8188 * 1024**2)
+    monkeypatch.setattr(ctx_mod, "_system_available_memory_bytes", lambda: 26 * 1024**3)
+
+    deepseek_9b = {
+        "backend": "llama.cpp",
+        "size_bytes": 5_629_111_584,
+        "metadata": {
+            "architecture": "qwen35",
+            "metadata": {
+                "qwen35.context_length": 262144,
+                "qwen35.block_count": 33,
+                "qwen35.full_attention_interval": 4,
+                "qwen35.attention.head_count_kv": 4,
+                "qwen35.attention.key_length": 256,
+                "qwen35.attention.value_length": 256,
+            },
+        },
+    }
+    gpu_auto = ctx_mod.context_settings(deepseek_9b, device="auto", gpu_offload_mode="auto")
+    assert gpu_auto["memory_kind"] == "vram"
+    assert gpu_auto["effective_tokens"] == 16384
+
+    cpu_auto = ctx_mod.context_settings(deepseek_9b, device="cpu", gpu_offload_mode="cpu")
+    assert cpu_auto["memory_kind"] == "ram"
+    assert cpu_auto["effective_tokens"] == 32768
+
+    manual = {
+        **deepseek_9b,
+        "metadata": {
+            **deepseek_9b["metadata"],
+            "desktop_context": {"mode": "manual", "manual_tokens": 8192},
+        },
+    }
+    manual_res = ctx_mod.context_settings(manual, device="auto", gpu_offload_mode="auto")
+    assert manual_res["effective_tokens"] == 8192

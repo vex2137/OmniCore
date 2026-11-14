@@ -97,6 +97,8 @@ def _format_stat_rows(stats, tr):
         ("output_tokens", "output_tokens", ""),
     ):
         rows.append((tr(label), fmt_val(stats.get(key), unit)))
+    if stats.get("prompt_processing_seconds") is not None:
+        rows.append((tr("stats_prompt_time"), fmt_val(stats.get("prompt_processing_seconds"), "s")))
     rows.append((tr("stats_total_tokens"), fmt_val(tot_tok)))
     rows.append((tr("stats_inference_time"), fmt_val(stats.get("generation_seconds"), "s")))
     if stats.get("total_task_seconds") is not None:
