@@ -392,5 +392,21 @@
   "agent_persistence_session": "Jednorazowy",
   "agent_persistence_durable": "Trwały",
   "agent_folder_path_label": "Ścieżka:",
-  "agent_executing_tool": "Agent wykonuje: {tool}"
+  "agent_executing_tool": "Agent wykonuje: {tool}",
+  "stats_total_tokens": "Łącznie tokenów",
+  "stats_total_task_time": "Łączny czas zadania",
+  "stats_inference_time": "Czas inferencji",
+  "stats_tool_time": "Czas narzędzi",
+  "stats_agent_steps": "Kroki agenta",
+  "stats_tool_calls": "Wywołania narzędzi",
+  "stats_model": "Model",
+  "stats_offload_mode": "Tryb GPU/CPU",
+  "error_details_toggle": "Szczegóły techniczne",
+  "error_code_label": "Kod błędu",
+  "error_component_label": "Komponent",
+  "error_cause_label": "Przyczyna",
+  "error_solution_label": "Sugerowane rozwiązanie",
+  "resources_label": "Zasoby",
+  "resources_tooltip": "Monitor zasobów CPU, RAM, GPU i VRAM (kliknij, aby rozwinąć szczegóły)",
+  "close_notice": "Zamknij komunikat"
 }

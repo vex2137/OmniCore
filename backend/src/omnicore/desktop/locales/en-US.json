@@ -392,5 +392,21 @@
   "agent_persistence_session": "One-time",
   "agent_persistence_durable": "Persistent",
   "agent_folder_path_label": "Path:",
-  "agent_executing_tool": "Agent executing: {tool}"
+  "agent_executing_tool": "Agent executing: {tool}",
+  "stats_total_tokens": "Total tokens",
+  "stats_total_task_time": "Total task time",
+  "stats_inference_time": "Inference time",
+  "stats_tool_time": "Tool execution time",
+  "stats_agent_steps": "Agent steps",
+  "stats_tool_calls": "Tool calls",
+  "stats_model": "Model",
+  "stats_offload_mode": "GPU/CPU mode",
+  "error_details_toggle": "Technical details",
+  "error_code_label": "Error code",
+  "error_component_label": "Component",
+  "error_cause_label": "Cause",
+  "error_solution_label": "Suggested solution",
+  "resources_label": "Resources",
+  "resources_tooltip": "CPU, RAM, GPU, and VRAM resource monitor (click to expand details)",
+  "close_notice": "Dismiss notice"
 }

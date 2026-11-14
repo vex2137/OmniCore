@@ -30,13 +30,13 @@ def request(window, method, path, payload=None):
         return response.json()
 
 
-def fixture_gguf():
+def fixture_gguf(name: str = "GUI fixture"):
     def string(value):
         encoded = value.encode()
         return struct.pack("<Q", len(encoded)) + encoded
 
     data = b"GGUF" + struct.pack("<IQQ", 3, 1, 2)
-    for key, value in (("general.architecture", "llama"), ("general.name", "GUI fixture")):
+    for key, value in (("general.architecture", "llama"), ("general.name", name)):
         data += string(key) + struct.pack("<I", 8) + string(value)
     data += string("test.weight") + struct.pack("<IQIQ", 1, 4, 0, 0)
     return data + b"\0" * (-len(data) % 32) + struct.pack("<ffff", 0, 0, 0, 0)
@@ -964,3 +964,231 @@ def test_history_multigroup_real_rendered_geometry_across_scales(desktop, qtbot)
             assert heading.geometry().bottom() < title_row.geometry().top()
             assert row.height() >= title_row.geometry().bottom()
         assert len({h.height() for h in headings}) == 1
+
+
+def test_model_selector_popup_tooltip_and_responsive_header(desktop, qtbot):
+    w = desktop
+    w.show()
+    qtbot.waitExposed(w)
+    names = [
+        "LFM3-1.7B-Q8_0.gguf",
+        "DeepSeek-V4-Pro-Qwen3.5-9B-UNCENSORED-heretic.i1-Q4_K_M.gguf",
+    ]
+    models_dir = data_path() / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        path = models_dir / name
+        path.write_bytes(fixture_gguf(name[:-5]))
+        request(w, "POST", "/api/v1/text/models/import", {"path": str(path)})
+    w.refresh_models()
+    qtbot.waitUntil(lambda: w.model_combo.count() >= 3)
+
+    idx = next(
+        i
+        for i in range(w.model_combo.count())
+        if "DeepSeek-V4-Pro-Qwen3.5-9B-UNCENSORED-heretic" in w.model_combo.itemText(i)
+    )
+    w.model_combo.setCurrentIndex(idx)
+    full_label = w.model_combo.itemText(idx)
+    assert w.model_combo.toolTip() == full_label
+    assert w.model_combo.itemData(idx, Qt.ToolTipRole) == full_label
+
+    w.model_combo.showPopup()
+    QApplication.processEvents()
+    needed = w.model_combo.view().fontMetrics().horizontalAdvance(full_label)
+    assert w.model_combo.view().minimumWidth() >= min(needed, w.width() - 48)
+    w.model_combo.hidePopup()
+
+    for width, height in ((1024, 720), (1440, 900), (1920, 1080)):
+        w.resize(width, height)
+        QApplication.processEvents()
+        w.agent_panel.mode.setCurrentIndex(0)
+        QApplication.processEvents()
+        chat_geos = (
+            w.model_combo.geometry(),
+            w.agent_panel.mode.geometry(),
+            w.context_button.geometry(),
+            w.chat_refresh.geometry(),
+        )
+        assert chat_geos[0].width() >= 140
+        assert chat_geos[0].right() <= chat_geos[1].left()
+        assert chat_geos[1].right() <= chat_geos[2].left()
+        assert chat_geos[2].right() <= chat_geos[3].left()
+        w.agent_panel.mode.setCurrentIndex(1)
+        QApplication.processEvents()
+        agent_geos = (
+            w.model_combo.geometry(),
+            w.agent_panel.mode.geometry(),
+            w.context_button.geometry(),
+            w.chat_refresh.geometry(),
+        )
+        assert chat_geos == agent_geos
+
+
+def test_expandable_error_card_in_notice_and_transcript(desktop, qtbot):
+    from PySide6.QtWidgets import QFrame, QToolButton
+
+    w = desktop
+    w.show()
+    qtbot.waitExposed(w)
+
+    w.show_error("out_of_memory", component="llama.cpp", target="DeepSeek-V4")
+    assert w.notice_card.isVisible()
+    assert w.notice.text() == w.tr("out_of_memory")
+    assert w.notice_details_toggle.isVisible()
+    assert not w.notice_details_frame.isVisible()
+
+    qtbot.mouseClick(w.notice_details_toggle, Qt.LeftButton)
+    QApplication.processEvents()
+    assert w.notice_details_frame.isVisible()
+    details = w.notice_details_label.text()
+    assert "out_of_memory" in details
+    assert "llama.cpp (DeepSeek-V4)" in details
+
+    w.show_error("Traceback (most recent call last) token=SECRET_123")
+    assert "SECRET_123" not in w.notice.text()
+    assert "SECRET_123" not in w.notice_details_label.text()
+    assert "unknown_error" in w.notice_details_label.text()
+
+    qtbot.mouseClick(w.notice_close, Qt.LeftButton)
+    assert not w.notice_card.isVisible()
+
+    w.messages = [
+        {"role": "user", "content": "test"},
+        {
+            "role": "assistant",
+            "content": "",
+            "status": "failed",
+            "error_code": "agent_context_limit",
+            "model_name": "DeepSeek-V4",
+        },
+    ]
+    w.render_messages()
+    QApplication.processEvents()
+    cards = w.transcript.findChildren(QFrame, "errorCard")
+    assert len(cards) == 1
+    toggle = cards[0].findChild(QPushButton, "compactToggle")
+    box = cards[0].findChild(QFrame, "errorDetailsBox")
+    assert toggle is not None and box is not None
+    assert not box.isVisible()
+    qtbot.mouseClick(toggle, Qt.LeftButton)
+    assert box.isVisible()
+    labels = "\n".join(lbl.text() for lbl in box.findChildren(QLabel))
+    assert "agent_context_limit" in labels
+    assert isinstance(w.notice_close, QToolButton)
+
+
+def test_message_statistics_summary_details_and_missing_dash(desktop, qtbot):
+    from PySide6.QtWidgets import QFrame
+
+    w = desktop
+    w.show()
+    qtbot.waitExposed(w)
+    w.messages = [
+        {
+            "role": "assistant",
+            "content": "Complete stats reply",
+            "model_name": "DeepSeek-V4",
+            "statistics": {
+                "ttft_seconds": 0.25,
+                "tokens_per_second": 31.5,
+                "input_tokens": 40,
+                "output_tokens": 120,
+                "total_tokens": 160,
+                "generation_seconds": 3.81,
+                "total_task_seconds": 4.9,
+                "model_load_seconds": 1.05,
+                "execution_model": "DeepSeek-V4",
+                "execution_device": "gpu",
+                "gpu_offloaded_layers": 24,
+                "gpu_total_layers": 40,
+                "gpu_offload_mode": "auto",
+                "context_used_tokens": 160,
+                "context_limit_tokens": 8192,
+                "finish_reason": "stop",
+            },
+        },
+        {
+            "role": "assistant",
+            "content": "Partial stats reply",
+            "model_name": "Tiny",
+            "statistics": {
+                "output_tokens": 12,
+                "execution_device": "cpu",
+            },
+        },
+    ]
+    w.render_messages()
+    QApplication.processEvents()
+
+    detail_boxes = w.transcript.findChildren(QFrame, "messageStatsDetails")
+    assert len(detail_boxes) == 2
+    first_text = "\n".join(lbl.text() for lbl in detail_boxes[0].findChildren(QLabel))
+    assert "160" in first_text
+    assert "24/40" in first_text
+    assert "auto" in first_text
+    assert w.tr("finish_stop") in first_text
+
+    second_text = "\n".join(lbl.text() for lbl in detail_boxes[1].findChildren(QLabel))
+    assert "—" in second_text
+    assert "0.00 s" not in second_text
+
+
+def test_resource_monitor_widgets_and_proc_helpers(desktop, qtbot, tmp_path):
+    from omnicore.desktop.resources import (
+        ResourceSnapshot,
+        compute_cpu_percent,
+        find_related_pids,
+        read_meminfo,
+    )
+
+    assert compute_cpu_percent((100, 1000), (150, 1200)) == 75.0
+    mem_file = tmp_path / "meminfo"
+    mem_file.write_text("MemTotal:       16777216 kB\nMemAvailable:    8388608 kB\n")
+    used, total = read_meminfo(mem_file)
+    assert total == 16777216 * 1024 and used == 8388608 * 1024
+
+    proc = tmp_path / "proc"
+    for pid, name, ppid in (
+        (100, "omnicore", 1),
+        (101, "uvicorn", 100),
+        (102, "llama-server", 101),
+        (999, "unrelated", 1),
+    ):
+        d = proc / str(pid)
+        d.mkdir(parents=True)
+        (d / "stat").write_text(f"{pid} ({name}) S {ppid} 1 1 0")
+    app_pids, engine_pids = find_related_pids([100], proc_root=proc)
+    assert app_pids == {100, 101}
+    assert engine_pids == {102}
+
+    w = desktop
+    w.show()
+    qtbot.waitExposed(w)
+
+    snap = ResourceSnapshot(
+        cpu_percent=42.0,
+        cpu_temp_c=61.0,
+        ram_used_bytes=8 * 1024**3,
+        ram_total_bytes=32 * 1024**3,
+        gpu_name="RTX 4060",
+        gpu_util_percent=None,
+        vram_used_bytes=None,
+        vram_total_bytes=None,
+        app_ram_bytes=250 * 1024**2,
+        engine_ram_bytes=900 * 1024**2,
+        engine_vram_bytes=None,
+    )
+    w._apply_resource_snapshot(snap)
+    summary = w.resource_monitor_btn.text()
+    assert "42%" in summary
+    assert "61°C" in summary
+    assert "GPU: —" in summary and "VRAM: —" in summary
+
+    assert not w.resource_details_frame.isVisible()
+    qtbot.mouseClick(w.resource_monitor_btn, Qt.LeftButton)
+    assert w.resource_details_frame.isVisible()
+    assert "llama-server" in w.resource_details_label.text()
+
+    w.close()
+    assert w.resource_monitor._thread is None

@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from omnicore.desktop.errors import describe_error
+
 
 def _stat_pixmap(kind, color, size=14):
     """Draw a crisp 2x vector icon for response statistics."""
@@ -66,46 +68,88 @@ def _stat_pixmap(kind, color, size=14):
     return pixmap
 
 
-def statistics_text(stats, tr):
+def _format_stat_rows(stats, tr):
     if not stats:
-        return ""
+        return []
     sep = tr("decimal_separator")
-    unavailable = tr("unavailable")
-    parts = []
+    dash = "—"
+    rows = []
+
+    def fmt_val(val, unit="", digits=2):
+        if val is None:
+            return dash
+        if isinstance(val, float):
+            return f"{val:.{digits}f}".replace(".", sep) + (f" {unit}" if unit else "")
+        return f"{val} {unit}".rstrip()
+
+    in_tok = stats.get("input_tokens")
+    out_tok = stats.get("output_tokens")
+    tot_tok = stats.get("total_tokens")
+    if tot_tok is None and isinstance(in_tok, int) and isinstance(out_tok, int):
+        tot_tok = in_tok + out_tok
+
+    if stats.get("execution_model"):
+        rows.append((tr("stats_model"), str(stats["execution_model"])))
     for key, label, unit in (
         ("ttft_seconds", "ttft", "s"),
         ("tokens_per_second", "speed", "tok/s"),
         ("input_tokens", "input_tokens", ""),
         ("output_tokens", "output_tokens", ""),
-        ("generation_seconds", "duration", "s"),
-        ("model_load_seconds", "load_time", "s"),
-        ("execution_device", "execution_device", ""),
-        ("gpu_offloaded_layers", "offloaded_layers", ""),
     ):
-        value = stats.get(key)
-        if value is None:
-            rendered = unavailable
-        elif isinstance(value, float):
-            rendered = f"{value:.2f}".replace(".", sep) + (f" {unit}" if unit else "")
-        else:
-            rendered = f"{value} {unit}".rstrip()
-        parts.append(f"{tr(label)}: {rendered}")
+        rows.append((tr(label), fmt_val(stats.get(key), unit)))
+    rows.append((tr("stats_total_tokens"), fmt_val(tot_tok)))
+    rows.append((tr("stats_inference_time"), fmt_val(stats.get("generation_seconds"), "s")))
+    if stats.get("total_task_seconds") is not None:
+        rows.append((tr("stats_total_task_time"), fmt_val(stats.get("total_task_seconds"), "s")))
+    if stats.get("agent_steps") is not None or stats.get("tool_calls") is not None:
+        rows.append((tr("stats_agent_steps"), fmt_val(stats.get("agent_steps"))))
+        rows.append((tr("stats_tool_calls"), fmt_val(stats.get("tool_calls"))))
+        rows.append((tr("stats_tool_time"), fmt_val(stats.get("tool_execution_seconds"), "s")))
+    rows.append((tr("load_time"), fmt_val(stats.get("model_load_seconds"), "s")))
+    dev = stats.get("execution_device")
+    rows.append((tr("execution_device"), str(dev) if dev else dash))
+    off_layers = stats.get("gpu_offloaded_layers")
+    tot_layers = stats.get("gpu_total_layers")
+    if off_layers is not None and tot_layers:
+        layer_txt = f"{off_layers}/{tot_layers}"
+    elif off_layers is not None:
+        layer_txt = str(off_layers)
+    else:
+        layer_txt = dash
+    if stats.get("gpu_offload_mode"):
+        rows.append((tr("stats_offload_mode"), f"{stats['gpu_offload_mode']} ({layer_txt})"))
+    else:
+        rows.append((tr("offloaded_layers"), layer_txt))
     used, limit = stats.get("context_used_tokens"), stats.get("context_limit_tokens")
     if used is not None and limit:
-        parts.append(f"{tr('context_usage')}: {used}/{limit} ({used / limit:.0%})")
+        rows.append((tr("context_usage"), f"{used}/{limit} ({used / limit:.0%})"))
     else:
-        parts.append(f"{tr('context_usage')}: {unavailable}")
+        rows.append((tr("context_usage"), dash))
     reason = stats.get("finish_reason")
     if reason:
-        reason = (
+        reason_txt = (
             tr("finish_" + reason) if reason in {"stop", "length", "cancelled", "error"} else reason
         )
-        parts.append(f"{tr('finish_reason')}: {reason}")
     else:
-        parts.append(f"{tr('finish_reason')}: {unavailable}")
+        reason_txt = dash
+    rows.append((tr("finish_reason"), reason_txt))
     if stats.get("fallback_reason"):
-        parts.append(tr("cpu_fallback"))
-    return " · ".join(parts)
+        rows.append((tr("stats_offload_mode"), tr("cpu_fallback")))
+    return rows
+
+
+def statistics_text(stats, tr):
+    rows = _format_stat_rows(stats, tr)
+    if not rows:
+        return ""
+    return " · ".join(f"{label}: {val}" for label, val in rows)
+
+
+def statistics_details_text(stats, tr):
+    rows = _format_stat_rows(stats, tr)
+    if not rows:
+        return ""
+    return "\n".join(f"{label}: {val}" for label, val in rows)
 
 
 class SafeMarkdown(QTextBrowser):
@@ -190,20 +234,33 @@ class MessageCard(QFrame):
         self.agent_step_buttons = []
         self.agent_step_details = []
         self.agent_error_label = None
+        self.error_card = None
+        self.error_details_toggle = None
+        self.error_details_frame = None
+        self.error_details_label = None
         self.agent_folder_box = None
         self.agent_folder_label = None
         self.agent_grant_button = None
         self.agent_continue_button = None
+        self.stats_details_frame = None
+        self.stats_details_label = None
         if message["role"] == "assistant" and message.get("agent_run"):
             self._render_agent_activity(message["agent_run"], tr)
         self._body(message["content"], tr)
         if message["role"] == "user" and message.get("agent_run"):
             self._render_agent_activity(message["agent_run"], tr)
+        if (message.get("status") == "failed" or message.get("error_code")) and not self.error_card:
+            err_code = message.get("error_code") or "generation_failed"
+            self._render_error_card(err_code, tr, component="chat_generation")
         if message.get("agent_run"):
             self._render_agent_folder_prompt(message["agent_run"], tr)
-        details = statistics_text(message.get("statistics"), tr)
+        raw_stats = message.get("statistics")
+        if not raw_stats and isinstance(message.get("agent_run"), dict):
+            raw_stats = message["agent_run"].get("statistics")
+        details = statistics_text(raw_stats, tr)
+        multiline_details = statistics_details_text(raw_stats, tr)
         if details:
-            stats = message.get("statistics") or {}
+            stats = raw_stats or {}
             stats_row = QHBoxLayout()
             stats_row.setContentsMargins(0, 2, 0, 0)
             stats_row.setSpacing(6)
@@ -236,39 +293,63 @@ class MessageCard(QFrame):
                 val_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
                 stats_row.addWidget(icon_lbl)
                 stats_row.addWidget(val_lbl)
+            if stats.get("gpu_offloaded_layers") is not None and stats.get("execution_device"):
+                if not first:
+                    sep_lbl = QLabel("·")
+                    sep_lbl.setObjectName("messageStats")
+                    stats_row.addWidget(sep_lbl)
+                first = False
+                off = stats["gpu_offloaded_layers"]
+                tot = stats.get("gpu_total_layers")
+                layer_badge = f"GPU {off}/{tot}" if tot else (f"GPU {off}" if off else "CPU")
+                dev_lbl = QLabel(layer_badge)
+                dev_lbl.setToolTip(details)
+                dev_lbl.setObjectName("messageStats")
+                dev_lbl.setTextFormat(Qt.PlainText)
+                stats_row.addWidget(dev_lbl)
             stats_row.addStretch()
             self.layout_.addLayout(stats_row)
 
-        if message["role"] == "assistant":
+        if message["role"] == "assistant" or details:
             actions = QHBoxLayout()
-            actions.addWidget(copy)
-            retry = QToolButton()
-            self.icon_action(retry, "view-refresh", QStyle.SP_BrowserReload, tr("regenerate"))
-            retry.setToolTip(tr("regenerate_branch"))
-            retry.setEnabled(
-                can_regenerate
-                and bool(message.get("content"))
-                and message.get("status", "completed") == "completed"
-            )
-            if regenerate:
-                retry.clicked.connect(lambda: regenerate(message))
-            actions.addWidget(retry)
+            if message["role"] == "assistant":
+                actions.addWidget(copy)
+                retry = QToolButton()
+                self.icon_action(retry, "view-refresh", QStyle.SP_BrowserReload, tr("regenerate"))
+                retry.setToolTip(tr("regenerate_branch"))
+                retry.setEnabled(
+                    can_regenerate
+                    and bool(message.get("content"))
+                    and message.get("status", "completed") == "completed"
+                )
+                if regenerate:
+                    retry.clicked.connect(lambda: regenerate(message))
+                actions.addWidget(retry)
             info = QToolButton()
             self.icon_action(
                 info, "dialog-information", QStyle.SP_MessageBoxInformation, tr("context_details")
             )
             info.setEnabled(bool(details))
             info.setCheckable(True)
-            full_stats = QLabel(details)
+            stats_frame = QFrame()
+            stats_frame.setObjectName("messageStatsDetails")
+            sf_layout = QVBoxLayout(stats_frame)
+            sf_layout.setContentsMargins(10, 8, 10, 8)
+            sf_layout.setSpacing(2)
+            full_stats = QLabel(multiline_details or details)
+            full_stats.setObjectName("messageStats")
             full_stats.setTextFormat(Qt.PlainText)
             full_stats.setWordWrap(True)
             full_stats.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            full_stats.hide()
-            info.toggled.connect(full_stats.setVisible)
+            sf_layout.addWidget(full_stats)
+            stats_frame.hide()
+            info.toggled.connect(stats_frame.setVisible)
+            self.stats_details_frame = stats_frame
+            self.stats_details_label = full_stats
             actions.addWidget(info)
             actions.addStretch()
             self.layout_.addLayout(actions)
-            self.layout_.addWidget(full_stats)
+            self.layout_.addWidget(stats_frame)
 
     def icon_action(self, button, name, fallback, label):
         button.setIcon(QIcon.fromTheme(name, self.style().standardIcon(fallback)))
@@ -337,12 +418,67 @@ class MessageCard(QFrame):
             self.agent_step_details.append(details_frame)
         if run.get("state") in {"failed", "cancelled", "interrupted"}:
             err_code = run.get("error_code") or ("agent_" + run["state"])
-            err_lbl = QLabel(tr(err_code))
-            err_lbl.setObjectName("agentRunError")
-            err_lbl.setTextFormat(Qt.PlainText)
-            err_lbl.setWordWrap(True)
-            self.layout_.addWidget(err_lbl)
-            self.agent_error_label = err_lbl
+            comp = None
+            target = None
+            err_details = run.get("error_details") or []
+            if err_details and isinstance(err_details[0], dict):
+                comp = err_details[0].get("component")
+                target = err_details[0].get("target")
+            if not comp:
+                for step in reversed(steps):
+                    if step.get("error_code") == err_code:
+                        comp = step.get("error_component") or step.get("tool")
+                        break
+            self._render_error_card(err_code, tr, component=comp, target=target)
+
+    def _render_error_card(self, code, tr, *, component=None, target=None):
+        info = describe_error(code, tr, component=component, target=target)
+        card = QFrame()
+        card.setObjectName("errorCard")
+        c_layout = QVBoxLayout(card)
+        c_layout.setContentsMargins(12, 10, 12, 10)
+        c_layout.setSpacing(6)
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(8)
+        err_lbl = QLabel(info["title"])
+        err_lbl.setObjectName("agentRunError")
+        err_lbl.setTextFormat(Qt.PlainText)
+        err_lbl.setWordWrap(True)
+        top.addWidget(err_lbl, 1)
+        toggle = QPushButton(tr("error_details_toggle"))
+        toggle.setObjectName("compactToggle")
+        toggle.setCheckable(True)
+        top.addWidget(toggle)
+        c_layout.addLayout(top)
+        details_frame = QFrame()
+        details_frame.setObjectName("errorDetailsBox")
+        d_layout = QVBoxLayout(details_frame)
+        d_layout.setContentsMargins(10, 6, 10, 6)
+        d_layout.setSpacing(3)
+        details_text = "\n".join(
+            [
+                f"{tr('error_code_label')}: {info['code']}",
+                f"{tr('error_component_label')}: {info['component']}",
+                f"{tr('error_cause_label')}: {info['cause']}",
+                f"{tr('error_solution_label')}: {info['solution']}",
+            ]
+        )
+        details_lbl = QLabel(details_text)
+        details_lbl.setObjectName("messageStats")
+        details_lbl.setTextFormat(Qt.PlainText)
+        details_lbl.setWordWrap(True)
+        details_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        d_layout.addWidget(details_lbl)
+        details_frame.hide()
+        toggle.toggled.connect(details_frame.setVisible)
+        c_layout.addWidget(details_frame)
+        self.layout_.addWidget(card)
+        self.agent_error_label = err_lbl
+        self.error_card = card
+        self.error_details_toggle = toggle
+        self.error_details_frame = details_frame
+        self.error_details_label = details_lbl
 
     def _render_agent_folder_prompt(self, run, tr):
         if (

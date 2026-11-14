@@ -60,6 +60,9 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStackedWidget,
+    QStyle,
+    QStyleOptionComboBox,
+    QStylePainter,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -72,12 +75,26 @@ from PySide6.QtWidgets import (
 from omnicore.desktop.agents import AgentPanel
 from omnicore.desktop.composer import Composer
 from omnicore.desktop.config import data_path
+from omnicore.desktop.errors import describe_error
 from omnicore.desktop.history import grouped_history
 from omnicore.desktop.i18n import Translator
 from omnicore.desktop.model_card import safe_card_markdown
 from omnicore.desktop.report import diagnostic_report, save_report
+from omnicore.desktop.resources import (
+    ResourceMonitor,
+    ResourceSnapshot,
+)
+from omnicore.desktop.resources import (
+    format_details as format_resource_details,
+)
+from omnicore.desktop.resources import (
+    format_summary as format_resource_summary,
+)
 from omnicore.desktop.themes import contrast_ratio, palette, readable_accent
-from omnicore.desktop.transcript import ChatTranscript, statistics_text
+from omnicore.desktop.transcript import (
+    ChatTranscript,
+    statistics_text,
+)
 from omnicore.desktop.updates import UpdatePanel
 from omnicore.release import build_info, distribution_version
 from omnicore.text.context import CONTEXT_PRESETS, context_settings
@@ -218,6 +235,38 @@ class ModelCardBrowser(QTextBrowser):
         )
 
 
+class ModelComboBox(QComboBox):
+    """Combo box that middle-elides closed text while keeping popup entries full-width."""
+
+    def paintEvent(self, _event):
+        painter = QStylePainter(self)
+        option = QStyleOptionComboBox()
+        self.initStyleOption(option)
+        painter.drawComplexControl(QStyle.CC_ComboBox, option)
+        text_rect = self.style().subControlRect(
+            QStyle.CC_ComboBox, option, QStyle.SC_ComboBoxEditField, self
+        )
+        available = max(24, text_rect.width() - 6)
+        option.currentText = self.fontMetrics().elidedText(
+            self.currentText(), Qt.ElideMiddle, available
+        )
+        painter.drawControl(QStyle.CE_ComboBoxLabel, option)
+
+    def showPopup(self):
+        view = self.view()
+        if view is not None:
+            view.setTextElideMode(Qt.ElideNone)
+            view.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            fm = view.fontMetrics()
+            max_text = max(
+                (fm.horizontalAdvance(self.itemText(i)) for i in range(self.count())),
+                default=0,
+            )
+            window_cap = max(420, self.window().width() - 48) if self.window() else 760
+            view.setMinimumWidth(max(self.width(), min(max_text + 56, window_cap)))
+        super().showPopup()
+
+
 class MainWindow(QMainWindow):
     connected = Signal()
 
@@ -249,7 +298,15 @@ class MainWindow(QMainWindow):
         self._allow_close = False
         self._pending_import = None
         self._health_pending = set()
+        self._backend_pid = None
+        self._last_error_meta = None
         self._theme_colors = ("#ecf1f9", "#8b80f9", "#000000")
+        self.resource_monitor = ResourceMonitor(self._resource_root_pids, interval_seconds=2.0)
+        self.resource_monitor.updated.connect(self._apply_resource_snapshot)
+        if hasattr(session, "ready"):
+            session.ready.connect(self._sync_backend_pid)
+        if hasattr(session, "stopped"):
+            session.stopped.connect(self._sync_backend_pid)
         self.setWindowTitle(f"OmniCore · {distribution_version()}")
         self.resize(1280, 820)
         self.setMinimumSize(920, 640)
@@ -389,13 +446,76 @@ class MainWindow(QMainWindow):
         header.addWidget(self.connection)
         self.reconnect_button = self.button("reconnect", self.reconnect)
         header.addWidget(self.reconnect_button)
+        self.resource_monitor_btn = QPushButton(
+            format_resource_summary(ResourceSnapshot(), self.tr)
+        )
+        self.resource_monitor_btn.setObjectName("resourceMonitorBtn")
+        self.resource_monitor_btn.setCheckable(True)
+        self.resource_monitor_btn.setCursor(Qt.PointingHandCursor)
+        self.resource_monitor_btn.setToolTip(self.tr("resources_tooltip"))
+        self.resource_monitor_btn.setAccessibleName(self.tr("resources_label"))
+        self.resource_monitor_btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        header.insertWidget(header.indexOf(self.connection), self.resource_monitor_btn)
         body.addLayout(header)
+        self.resource_details_frame = QFrame()
+        self.resource_details_frame.setObjectName("resourceDetails")
+        self.resource_details_frame.hide()
+        res_layout = QVBoxLayout(self.resource_details_frame)
+        res_layout.setContentsMargins(12, 8, 12, 8)
+        self.resource_details_label = QLabel(format_resource_details(ResourceSnapshot(), self.tr))
+        self.resource_details_label.setObjectName("mutedMeta")
+        self.resource_details_label.setTextFormat(Qt.PlainText)
+        self.resource_details_label.setWordWrap(True)
+        self.resource_details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        res_layout.addWidget(self.resource_details_label)
+        self.resource_monitor_btn.toggled.connect(self.resource_details_frame.setVisible)
+        body.addWidget(self.resource_details_frame)
+
+        self.notice_card = QFrame()
+        self.notice_card.setObjectName("noticeCard")
+        self.notice_card.hide()
+        notice_layout = QVBoxLayout(self.notice_card)
+        notice_layout.setContentsMargins(12, 10, 12, 10)
+        notice_layout.setSpacing(8)
+        notice_row = QHBoxLayout()
+        notice_row.setContentsMargins(0, 0, 0, 0)
+        notice_row.setSpacing(8)
         self.notice = QLabel()
         self.notice.setWordWrap(True)
         self.notice.setTextFormat(Qt.PlainText)
         self.notice.setObjectName("notice")
         self.notice.hide()
-        body.addWidget(self.notice)
+        self.notice_details_toggle = QPushButton(self.tr("error_details_toggle"))
+        self.notice_details_toggle.setObjectName("errorDetailsToggle")
+        self.notice_details_toggle.setCheckable(True)
+        self.notice_details_toggle.setCursor(Qt.PointingHandCursor)
+        self.notice_details_toggle.hide()
+        self.notice_close = QToolButton()
+        self.notice_close.setObjectName("noticeClose")
+        self.notice_close.setText("×")
+        self.notice_close.setToolTip(self.tr("close_notice"))
+        self.notice_close.setCursor(Qt.PointingHandCursor)
+        self.notice_close.clicked.connect(self._dismiss_notice)
+        notice_row.addWidget(self.notice, 1)
+        notice_row.addWidget(self.notice_details_toggle)
+        notice_row.addWidget(self.notice_close)
+        notice_layout.addLayout(notice_row)
+        self.notice_details_frame = QFrame()
+        self.notice_details_frame.setObjectName("errorDetailsBox")
+        self.notice_details_frame.hide()
+        nd_layout = QVBoxLayout(self.notice_details_frame)
+        nd_layout.setContentsMargins(10, 8, 10, 8)
+        self.notice_details_label = QLabel()
+        self.notice_details_label.setObjectName("mutedMeta")
+        self.notice_details_label.setTextFormat(Qt.PlainText)
+        self.notice_details_label.setWordWrap(True)
+        self.notice_details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        nd_layout.addWidget(self.notice_details_label)
+        self.notice_details_toggle.toggled.connect(self.notice_details_frame.setVisible)
+        notice_layout.addWidget(self.notice_details_frame)
+        body.addWidget(self.notice_card)
+        self._sync_backend_pid()
+        self.resource_monitor.start()
         self.onboarding = QFrame()
         self.onboarding.setObjectName("notice")
         intro = QVBoxLayout(self.onboarding)
@@ -472,12 +592,12 @@ class MainWindow(QMainWindow):
         self.chat_title.setTextFormat(Qt.PlainText)
         self.chat_title.setMinimumWidth(80)
         self.chat_title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.model_combo = QComboBox()
-        self.model_combo.setMinimumWidth(140)
-        self.model_combo.setMaximumWidth(320)
-        self.model_combo.setMinimumContentsLength(14)
+        self.model_combo = ModelComboBox()
+        self.model_combo.setMinimumWidth(180)
+        self.model_combo.setMaximumWidth(560)
+        self.model_combo.setMinimumContentsLength(18)
         self.model_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        self.model_combo.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.model_combo.currentIndexChanged.connect(self.model_selected)
         self.chat_header = self.row(self.chat_title, self.model_combo)
         self.chat_header.setStretch(0, 1)
@@ -1069,9 +1189,10 @@ class MainWindow(QMainWindow):
             widget.setFixedSize(icon_btn, icon_btn)
             widget.setStyleSheet(icon_style)
         self.agent_panel.mode.setFixedWidth(self._scaled(108))
+        self.agent_panel.mode.setFixedHeight(self._scaled(34))
+        self.model_combo.setFixedHeight(self._scaled(34))
         self.model_actions.setFixedSize(self._scaled(32), self._scaled(32))
-        self.model_combo.setMinimumWidth(self._scaled(140))
-        self.model_combo.setMaximumWidth(self._scaled(320))
+        self._sync_model_combo_width()
         self.composer_wrap.setMaximumWidth(self._scaled(840))
         self.agent_panel.setMaximumWidth(self._scaled(840))
         self.settings_container.setMaximumWidth(self._scaled(850))
@@ -1079,6 +1200,90 @@ class MainWindow(QMainWindow):
         self.body_layout.setContentsMargins(
             self._scaled(24), self._scaled(16), self._scaled(24), self._scaled(16)
         )
+
+    def _sync_model_combo_width(self):
+        if not hasattr(self, "model_combo"):
+            return
+        compact_w = self._scaled(60)
+        expanded_w = self._scaled(getattr(self.config, "sidebar_width", 260))
+        sidebar_w = compact_w if self.config.sidebar_compact else expanded_w
+        pane_w = max(self._scaled(420), self.width() - sidebar_w - self._scaled(56))
+        reserved = self._scaled(108 + 34 + 34 + 150)
+        available = max(self._scaled(160), pane_w - reserved)
+        max_cap = min(self._scaled(640), available)
+        fm = self.model_combo.fontMetrics()
+        widest_item = max(
+            (
+                fm.horizontalAdvance(self.model_combo.itemText(i))
+                for i in range(self.model_combo.count())
+            ),
+            default=0,
+        )
+        needed = widest_item + self._scaled(54) if widest_item > 0 else self._scaled(240)
+        min_w = min(self._scaled(180), max_cap)
+        target_max = max(min_w, min(max_cap, needed))
+        self.model_combo.setMinimumWidth(min_w)
+        self.model_combo.setMaximumWidth(target_max)
+
+    def _sync_model_combo_tooltip(self):
+        if hasattr(self, "model_combo"):
+            self.model_combo.setToolTip(self.model_combo.currentText() or "")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_model_combo_width()
+
+    def _sync_backend_pid(self):
+        proc = getattr(self.session, "process", None)
+        pid = 0
+        if proc is not None:
+            try:
+                pid = int(proc.processId() or 0)
+            except Exception:
+                pid = 0
+        self._backend_pid = pid if pid > 0 else None
+
+    def _resource_root_pids(self) -> list[int]:
+        pids = [os.getpid()]
+        backend_pid = self._backend_pid
+        if isinstance(backend_pid, int) and backend_pid > 0:
+            pids.append(backend_pid)
+        return pids
+
+    def _render_resource_widgets(self, snapshot: ResourceSnapshot | None = None):
+        snap = snapshot if snapshot is not None else self.resource_monitor.latest
+        if hasattr(self, "resource_monitor_btn"):
+            self.resource_monitor_btn.setText(format_resource_summary(snap, self.tr))
+            self.resource_monitor_btn.setToolTip(self.tr("resources_tooltip"))
+            self.resource_monitor_btn.setAccessibleName(self.tr("resources_label"))
+        if hasattr(self, "resource_details_label"):
+            self.resource_details_label.setText(format_resource_details(snap, self.tr))
+
+    def _apply_resource_snapshot(self, snapshot):
+        if self._closing or not isinstance(snapshot, ResourceSnapshot):
+            return
+        self._render_resource_widgets(snapshot)
+
+    def _format_notice_details(
+        self, code: str, *, component: str | None = None, target: str | None = None
+    ) -> str:
+        info = describe_error(code, self.tr, component=component, target=target)
+        return "\n".join(
+            [
+                f"{self.tr('error_code_label')}: {info['code']}",
+                f"{self.tr('error_component_label')}: {info['component']}",
+                f"{self.tr('error_cause_label')}: {info['cause']}",
+                f"{self.tr('error_solution_label')}: {info['solution']}",
+            ]
+        )
+
+    def _dismiss_notice(self):
+        self._last_error_meta = None
+        self.notice_details_toggle.setChecked(False)
+        self.notice_details_toggle.hide()
+        self.notice_details_frame.hide()
+        self.notice.hide()
+        self.notice_card.hide()
 
     def _apply_sidebar(self):
         compact = self.config.sidebar_compact
@@ -1121,6 +1326,7 @@ class MainWindow(QMainWindow):
             sidebar_icon("expand" if compact else "collapse", fg, toggle_icon)
         )
         self.sidebar_toggle.setIconSize(QSize(toggle_icon, toggle_icon))
+        self._sync_model_combo_width()
         self.sidebar.setSizePolicy(
             QSizePolicy.Fixed if compact else QSizePolicy.Preferred, QSizePolicy.Expanding
         )
@@ -1266,6 +1472,17 @@ class MainWindow(QMainWindow):
             )
         )
         self.updates.retranslate(self.tr)
+        self._render_resource_widgets()
+        self.notice_details_toggle.setText(self.tr("error_details_toggle"))
+        self.notice_close.setToolTip(self.tr("close_notice"))
+        if self._last_error_meta is not None and self.notice_card.isVisible():
+            safe_code, component, target = self._last_error_meta
+            self.notice.setText(
+                self.tr.catalog.get(safe_code) or self.tr("operation_error", code=safe_code)
+            )
+            self.notice_details_label.setText(
+                self._format_notice_details(safe_code, component=component, target=target)
+            )
         self.refresh_model_table()
         self.render_messages()
         self._fill_conversations()
@@ -1402,10 +1619,63 @@ class MainWindow(QMainWindow):
                 background: {field};
                 border-radius: 12px;
                 }}
-            QLabel#notice {{ background: {field};
+            QFrame#noticeCard {{ background: {field};
+                border: 1px solid {border};
                 border-left: 3px solid {accent};
-                padding: 12px;
+                border-radius: 8px;
+                padding: 4px;
+                }}
+            QFrame#noticeCard[kind="error"] {{
+                border-left: 3px solid #d9534f;
+                }}
+            QLabel#notice {{ background: transparent;
+                border: none;
+                padding: 0px;
+                color: {fg};
+                }}
+            QPushButton#errorDetailsToggle, QPushButton#resourceMonitorBtn {{
+                background: {panel};
+                color: {muted};
+                border: 1px solid {border};
                 border-radius: 6px;
+                padding: 4px 10px;
+                font-size: {self._scaled(12)}px;
+                }}
+            QPushButton#errorDetailsToggle:hover, QPushButton#resourceMonitorBtn:hover {{
+                color: {fg};
+                border-color: {accent};
+                }}
+            QPushButton#errorDetailsToggle:checked, QPushButton#resourceMonitorBtn:checked {{
+                color: {fg};
+                border-color: {accent};
+                background: {field};
+                }}
+            QToolButton#noticeClose {{
+                background: transparent;
+                border: none;
+                color: {muted};
+                padding: 2px 6px;
+                font-size: {self._scaled(14)}px;
+                }}
+            QToolButton#noticeClose:hover {{
+                color: {fg};
+                }}
+            QFrame#errorCard {{
+                background: {panel};
+                border: 1px solid {border};
+                border-left: 3px solid #d9534f;
+                border-radius: 8px;
+                padding: 8px 10px;
+                }}
+            QFrame#errorDetailsBox, QFrame#messageStatsDetails, QFrame#resourceDetails {{
+                background: {panel};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 6px 10px;
+                }}
+            QLabel#agentRunError {{
+                color: {fg};
+                font-weight: 600;
                 }}
             QPushButton {{ background: {field};
                 border: 1px solid {border};
@@ -1771,11 +2041,38 @@ class MainWindow(QMainWindow):
             self.logs.appendPlainText(f"{datetime.now().strftime('%H:%M:%S')}  {code}")
 
     def notify(self, text):
+        self._last_error_meta = None
+        self.notice_card.setProperty("kind", "info")
+        self.notice_card.style().unpolish(self.notice_card)
+        self.notice_card.style().polish(self.notice_card)
         self.notice.setText(text)
         self.notice.show()
+        self.notice_details_toggle.setChecked(False)
+        self.notice_details_toggle.hide()
+        self.notice_details_frame.hide()
+        self.notice_card.show()
         self.statusBar().showMessage(text, 10000)
 
-    def show_error(self, code):
+    def notify_error_card(
+        self, text: str, code: str, *, component: str | None = None, target: str | None = None
+    ):
+        self._last_error_meta = (code, component, target)
+        self.notice_card.setProperty("kind", "error")
+        self.notice_card.style().unpolish(self.notice_card)
+        self.notice_card.style().polish(self.notice_card)
+        self.notice.setText(text)
+        self.notice.show()
+        self.notice_details_label.setText(
+            self._format_notice_details(code, component=component, target=target)
+        )
+        self.notice_details_toggle.setText(self.tr("error_details_toggle"))
+        self.notice_details_toggle.setChecked(False)
+        self.notice_details_toggle.show()
+        self.notice_details_frame.hide()
+        self.notice_card.show()
+        self.statusBar().showMessage(text, 10000)
+
+    def show_error(self, code, *, component: str | None = None, target: str | None = None):
         safe_code = code if code in self.tr.catalog else "unknown_error"
         self.log_event(safe_code)
         if code in {
@@ -1790,7 +2087,7 @@ class MainWindow(QMainWindow):
             self._connection_key = "unauthorized" if code == "unauthorized" else "disconnected"
             self.connection.setText(self.tr(self._connection_key))
         text = self.tr.catalog.get(safe_code) or self.tr("operation_error", code=safe_code)
-        self.notify(text)
+        self.notify_error_card(text, safe_code, component=component, target=target)
 
     def refresh_conversations(self, select=None):
         search = self.history_search.text().strip()
@@ -2102,6 +2399,8 @@ class MainWindow(QMainWindow):
         self.api.request("DELETE", TEXT + f"/conversations/{self.current_id}", success=deleted)
 
     def model_selected(self):
+        self._sync_model_combo_tooltip()
+        self._sync_model_combo_width()
         self.render_messages()
         self._context_dirty = False
         self._render_model_context()
@@ -2434,6 +2733,8 @@ class MainWindow(QMainWindow):
                 "content": job.get("content", ""),
                 "model_name": job.get("model_name"),
                 "reasoning_content": job.get("reasoning_content", ""),
+                "status": job.get("state"),
+                "error_code": job.get("error_code"),
                 "statistics": job,
                 "generation_id": job["id"],
             }
@@ -2442,7 +2743,7 @@ class MainWindow(QMainWindow):
             )
             if index is not None:
                 messages[index] = replacement
-            elif job.get("content") or job.get("reasoning_content"):
+            elif job.get("content") or job.get("reasoning_content") or job.get("error_code"):
                 messages.append(replacement)
         runs = getattr(getattr(self, "agent_panel", None), "runs", None) or []
         panel = getattr(self, "agent_panel", None)
@@ -2628,7 +2929,14 @@ class MainWindow(QMainWindow):
                 self.model_combo.addItem(f"{record['name']} · {record['backend']}", record["id"])
             index = self.model_combo.findData(selected)
             self.model_combo.setCurrentIndex(max(index, 0))
+            for row in range(self.model_combo.count()):
+                if self.model_combo.itemData(row):
+                    self.model_combo.setItemData(
+                        row, self.model_combo.itemText(row), Qt.ToolTipRole
+                    )
             self.model_combo.blockSignals(False)
+            self._sync_model_combo_tooltip()
+            self._sync_model_combo_width()
             self.refresh_model_table()
             self._render_model_context()
             self._refresh_model_context()
@@ -3405,6 +3713,7 @@ class MainWindow(QMainWindow):
             self.show_error("report_failed")
 
     def closeEvent(self, event):
+        self.resource_monitor.stop()
         if self._allow_close:
             event.accept()
             return

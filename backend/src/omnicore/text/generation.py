@@ -288,11 +288,28 @@ class GenerationManager:
                         finally:
                             record.model_load_seconds = time.monotonic() - loading
                         record.gpu_offloaded_layers = getattr(engine, "offloaded_layers", None)
+                        record.gpu_total_layers = getattr(engine, "total_layers", None)
+                        record.gpu_offload_mode = (
+                            getattr(engine, "offload_mode", None)
+                            or getattr(record.parameters, "gpu_offload_mode", None)
+                            or (
+                                "cpu"
+                                if record.parameters.device == "cpu"
+                                else "auto"
+                                if record.parameters.device == "auto"
+                                else "manual"
+                            )
+                        )
+                        record.gpu_offload_reason = getattr(engine, "offload_reason", None)
                         record.execution_device = getattr(engine, "execution_device", None)
                         record.fallback_reason = getattr(engine, "fallback_reason", None)
-                        await self._consume(engine, str(path), messages, record, started)
+                        inference_started = time.monotonic()
+                        await self._consume(
+                            engine, str(path), messages, record, inference_started, started
+                        )
                 else:
-                    await self._consume(engine, model.location, messages, record, started)
+                    record.execution_device = "cpu"
+                    await self._consume(engine, model.location, messages, record, started, started)
                 if record.content.strip():
                     model.compatibility = "tested"
                     model.capabilities = list(
@@ -317,7 +334,9 @@ class GenerationManager:
                         502,
                     )
                 record.state = "completed"
-                record.generation_seconds = time.monotonic() - started
+                record.total_task_seconds = time.monotonic() - started
+                if record.generation_seconds is None:
+                    record.generation_seconds = record.total_task_seconds
                 record.finish_reason = record.finish_reason or "stop"
                 await self._persist(record)
         except asyncio.CancelledError:
@@ -356,7 +375,8 @@ class GenerationManager:
                 self.semaphore.release()
             self.tasks.pop(job_id, None)
 
-    async def _consume(self, engine, model, messages, record, started):
+    async def _consume(self, engine, model, messages, record, started, task_started=None):
+        base_task = task_started if task_started is not None else started
         async for chunk in engine.stream(model, messages, record.parameters):
             if (
                 len(record.content)
@@ -374,12 +394,32 @@ class GenerationManager:
             record.content += chunk.content
             record.reasoning_content += chunk.reasoning_content
             record.generation_seconds = elapsed
-            for field in ("input_tokens", "output_tokens", "tokens_per_second", "finish_reason"):
+            record.total_task_seconds = time.monotonic() - base_task
+            for field in (
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+                "tokens_per_second",
+                "finish_reason",
+                "gpu_offloaded_layers",
+                "gpu_total_layers",
+            ):
                 value = getattr(chunk, field)
                 if value is not None:
                     setattr(record, field, value)
+            if record.gpu_offloaded_layers is not None:
+                record.execution_device = "gpu" if record.gpu_offloaded_layers > 0 else "cpu"
             if record.input_tokens is not None and record.output_tokens is not None:
+                if record.total_tokens is None:
+                    record.total_tokens = record.input_tokens + record.output_tokens
                 record.context_used_tokens = record.input_tokens + record.output_tokens
+            if (
+                record.tokens_per_second is None
+                and isinstance(record.output_tokens, int)
+                and record.output_tokens > 0
+                and elapsed > 0
+            ):
+                record.tokens_per_second = round(record.output_tokens / elapsed, 2)
             await self._persist(record)
 
     async def cancel(self, job_id):

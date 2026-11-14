@@ -81,11 +81,25 @@ def openai_chunk(item):
         reasoning += _text(delta.get("reasoning_content") or delta.get("reasoning"))
         finish = choice.get("finish_reason") or finish
     usage, timing = item.get("usage") or {}, item.get("timings") or {}
+    in_tok = (
+        usage.get("prompt_tokens")
+        if usage.get("prompt_tokens") is not None
+        else timing.get("prompt_n")
+    )
+    out_tok = (
+        usage.get("completion_tokens")
+        if usage.get("completion_tokens") is not None
+        else timing.get("predicted_n")
+    )
+    tot_tok = usage.get("total_tokens")
+    if tot_tok is None and isinstance(in_tok, int) and isinstance(out_tok, int):
+        tot_tok = in_tok + out_tok
     return TextChunk(
         content=text,
         reasoning_content=reasoning,
-        input_tokens=usage.get("prompt_tokens"),
-        output_tokens=usage.get("completion_tokens"),
+        input_tokens=in_tok,
+        output_tokens=out_tok,
+        total_tokens=tot_tok,
         tokens_per_second=timing.get("predicted_per_second"),
         finish_reason=finish,
     )

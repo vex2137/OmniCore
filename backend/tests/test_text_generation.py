@@ -11,7 +11,7 @@ from omnicore.text.files import FilePolicy
 from omnicore.text.generation import GenerationManager, GenerationRequest
 from omnicore.text.models import ModelManager
 from omnicore.text.store import TextStore
-from omnicore.text.types import TextChunk, TextError
+from omnicore.text.types import GenerationParameters, TextChunk, TextError
 
 
 class ProtocolTestEngine:
@@ -276,6 +276,49 @@ def test_model_snapshot_statistics_export_and_old_idempotency_survive_restart(tm
                 conversation.id, request.model_copy(update={"model_id": result.model_id})
             )
         ).id == result.id
+        await manager.close()
+
+    asyncio.run(exercise())
+
+
+def test_generation_records_detailed_timings_and_device_metadata(tmp_path):
+    async def exercise():
+        class TimedEngine(ProtocolTestEngine):
+            async def stream(self, model, messages, parameters):
+                yield TextChunk(content="Hello")
+                yield TextChunk(
+                    content=" world",
+                    input_tokens=18,
+                    output_tokens=12,
+                    tokens_per_second=24.0,
+                    finish_reason="stop",
+                    context_used_tokens=30,
+                    context_limit_tokens=4096,
+                    gpu_offloaded_layers=20,
+                    gpu_total_layers=40,
+                )
+
+        manager, conversation = create_manager(tmp_path, TimedEngine())
+        record = await manager.submit(
+            conversation.id,
+            GenerationRequest(
+                content="hi",
+                request_key="timed-1",
+                parameters=GenerationParameters(device="auto"),
+            ),
+        )
+        await manager.tasks[record.id]
+        result = manager.record(record.id)
+        assert result.state == "completed"
+        assert result.total_tokens == 30
+        assert result.model_load_seconds is not None and result.model_load_seconds >= 0
+        assert result.generation_seconds is not None and result.generation_seconds >= 0
+        assert result.total_task_seconds is not None and result.total_task_seconds >= 0
+        assert result.gpu_offloaded_layers == 20
+        assert result.gpu_total_layers == 40
+        assert result.gpu_offload_mode == "auto"
+        assert result.execution_device == "gpu"
+        assert result.finish_reason == "stop"
         await manager.close()
 
     asyncio.run(exercise())
