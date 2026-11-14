@@ -473,8 +473,10 @@ class MainWindow(QMainWindow):
         self.chat_title.setMinimumWidth(80)
         self.chat_title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.model_combo = QComboBox()
-        self.model_combo.setMinimumWidth(150)
-        self.model_combo.setMaximumWidth(280)
+        self.model_combo.setMinimumWidth(140)
+        self.model_combo.setMaximumWidth(320)
+        self.model_combo.setMinimumContentsLength(14)
+        self.model_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.model_combo.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.model_combo.currentIndexChanged.connect(self.model_selected)
         self.chat_header = self.row(self.chat_title, self.model_combo)
@@ -1055,8 +1057,8 @@ class MainWindow(QMainWindow):
             widget.setStyleSheet(icon_style)
         self.agent_panel.mode.setFixedWidth(self._scaled(108))
         self.model_actions.setFixedSize(self._scaled(32), self._scaled(32))
-        self.model_combo.setMinimumWidth(self._scaled(150))
-        self.model_combo.setMaximumWidth(self._scaled(280))
+        self.model_combo.setMinimumWidth(self._scaled(140))
+        self.model_combo.setMaximumWidth(self._scaled(320))
         self.composer_wrap.setMaximumWidth(self._scaled(840))
         self.agent_panel.setMaximumWidth(self._scaled(840))
         self.settings_container.setMaximumWidth(self._scaled(850))
@@ -1084,8 +1086,8 @@ class MainWindow(QMainWindow):
         )
         toggle_size = btn_size if compact else self._scaled(32)
         toggle_icon = self._scaled(19 if compact else 16)
-        header_btn = self._scaled(26)
-        header_icon = self._scaled(13)
+        header_btn = self._scaled(30)
+        header_icon = self._scaled(15)
         self.history_search_toggle.setFixedSize(header_btn, header_btn)
         self.history_search_toggle.setIcon(sidebar_icon("search", fg, header_icon))
         self.history_search_toggle.setIconSize(QSize(header_icon, header_icon))
@@ -1158,7 +1160,7 @@ class MainWindow(QMainWindow):
                     button.ensurePolished()
                     max_label_w = max(
                         24,
-                        self.config.sidebar_width - self._scaled(118),
+                        self.config.sidebar_width - self._scaled(108),
                     )
                     label_text = self.tr(key)
                     if (
@@ -1401,7 +1403,8 @@ class MainWindow(QMainWindow):
                 font-weight: 550;
                 }}
             QWidget#historyGroupRow {{ background: {panel}; border-radius: 6px; }}
-            QWidget#historyGroupRow[selected="true"] {{ background: {field}; }}
+            QWidget#historyTitleRow {{ background: {panel}; border-radius: 6px; }}
+            QWidget#historyTitleRow[selected="true"] {{ background: {field}; }}
             QPushButton#historyHeaderButton {{
                 background: transparent; border: 1px solid transparent;
                 border-radius: 7px; padding: 0; color: {muted}; }}
@@ -1409,8 +1412,8 @@ class MainWindow(QMainWindow):
                 color: {fg}; }}
             QLabel#historyItemTitle {{ background: transparent; color: {fg}; }}
             QLabel#historyItemTitle[selected="true"] {{ color: {accent}; }}
-            QPushButton#historyHeading {{ background: transparent; border: 1px solid transparent;
-                border-radius: 5px; padding: 3px 4px; text-align: left; font-size: 11px;
+            QPushButton#historyHeading {{ background: transparent; border: none;
+                border-radius: 5px; padding: 4px 6px; text-align: left; font-size: 11px;
                 font-weight: 600; color: {muted}; }}
             QPushButton#historyHeading:hover {{ color: {fg}; }}
             QPushButton#historyHeading:focus {{ border: 2px solid {accent}; }}
@@ -1596,15 +1599,17 @@ class MainWindow(QMainWindow):
             QListWidget::item {{ padding: 12px 8px;
                 border-radius: 6px;
                 }}
-            QListWidget#conversations {{ background: transparent;
+            QListWidget#conversations {{ background: {panel};
                 border: none;
                 padding: 0;
                 outline: none;
                 }}
-            QListWidget#conversations::item {{ padding: 6px 8px;
+            QListWidget#conversations::item {{ padding: 0;
                 border-radius: 6px;
-                margin: 1px 0;
+                margin: 0;
+                background: transparent;
                 }}
+            QListWidget#conversations::item:selected {{ background: transparent; }}
             QListWidget::item:selected, QTableWidget::item:selected {{ background: {field};
                 color: {accent};
                 }}
@@ -1791,14 +1796,54 @@ class MainWindow(QMainWindow):
         query = urlencode({"query": search})
         self.api.request("GET", TEXT + "/conversations?" + query, success=received)
 
+    def _build_history_title_row(self, title: str, selected: bool, elide_width: int) -> QWidget:
+        title_row = QWidget(self.conversation_list)
+        title_row.setObjectName("historyTitleRow")
+        title_row.setProperty("selected", selected)
+        title_row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        box = QVBoxLayout(title_row)
+        box.setContentsMargins(0, self._scaled(1), 0, self._scaled(1))
+        box.setSpacing(0)
+        label = QLabel()
+        label.setObjectName("historyItemTitle")
+        label.setProperty("selected", selected)
+        label.setContentsMargins(self._scaled(8), self._scaled(5), self._scaled(8), self._scaled(5))
+        label.setTextFormat(Qt.PlainText)
+        label.setWordWrap(False)
+        label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        label.ensurePolished()
+        label.setText(label.fontMetrics().elidedText(title, Qt.ElideRight, elide_width))
+        label_h = max(
+            label.minimumSizeHint().height(),
+            label.sizeHint().height(),
+            label.fontMetrics().height() + self._scaled(12),
+        )
+        label.setFixedHeight(label_h)
+        box.addWidget(label)
+        title_row.ensurePolished()
+        box.activate()
+        title_row.setFixedHeight(
+            max(title_row.minimumSizeHint().height(), title_row.sizeHint().height())
+        )
+        return title_row
+
     def _fill_conversations(self, select=None):
         current = select or self.current_id
         self.conversation_list.blockSignals(True)
         self.conversation_list.setUpdatesEnabled(False)
         self.conversation_list.clear()
+        viewport_w = self.conversation_list.viewport().width()
+        avail_w = (
+            viewport_w
+            if viewport_w > 60
+            else max(60, self.config.sidebar_width - self._scaled(24))
+        )
+        elide_width = max(60, avail_w - self._scaled(24))
+        heading_width = max(48, avail_w - self._scaled(20))
         for group, records in grouped_history(self.conversations).items():
             for index, record in enumerate(records):
                 title = record["title"] or self.tr("untitled")
+                selected = record["id"] == current
                 item = QListWidgetItem(title)
                 item.setData(Qt.UserRole, record["id"])
                 item.setToolTip(escape(title))
@@ -1806,16 +1851,17 @@ class MainWindow(QMainWindow):
                 if index == 0:
                     row = QWidget(self.conversation_list)
                     row.setObjectName("historyGroupRow")
-                    row.setProperty("selected", record["id"] == current)
+                    row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
                     column = QVBoxLayout(row)
-                    column.setContentsMargins(0, 4, 0, 2)
-                    column.setSpacing(2)
+                    column.setContentsMargins(0, self._scaled(4), 0, self._scaled(1))
+                    column.setSpacing(self._scaled(2))
                     collapsed = group in self.config.collapsed_history
                     heading = QPushButton(
                         ("▸ " if collapsed else "▾ ") + self.tr("history_" + group)
                     )
                     heading.setObjectName("historyHeading")
                     heading.setAccessibleName(self.tr("history_" + group))
+                    heading.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
                     heading.clicked.connect(
                         lambda checked=False, key=group: self.toggle_history_group(key)
                     )
@@ -1823,38 +1869,31 @@ class MainWindow(QMainWindow):
                     heading.ensurePolished()
                     heading.setToolTip(self.tr("history_" + group))
                     heading.setText(
-                        sidebar_text(
-                            heading.text(),
-                            heading.fontMetrics(),
-                            max(48, self.config.sidebar_width - self._scaled(52)),
+                        heading.fontMetrics().elidedText(
+                            heading.text(), Qt.ElideRight, heading_width
                         )
                     )
-                    heading.setMinimumHeight(
-                        len(heading.text().splitlines()) * heading.fontMetrics().lineSpacing() + 6
+                    heading_h = max(
+                        heading.minimumSizeHint().height(),
+                        heading.sizeHint().height(),
+                        heading.fontMetrics().height() + self._scaled(10),
                     )
-                    elide_width = max(60, self.config.sidebar_width - self._scaled(48))
-                    label = QLabel(self.fontMetrics().elidedText(title, Qt.ElideRight, elide_width))
-                    label.setObjectName("historyItemTitle")
-                    label.setProperty("selected", record["id"] == current)
-                    label.setContentsMargins(6, 4, 6, 4)
-                    label.setTextFormat(Qt.PlainText)
-                    label.setWordWrap(False)
-                    column.addWidget(label)
-                    label.setVisible(not collapsed)
+                    heading.setFixedHeight(heading_h)
+                    title_row = self._build_history_title_row(title, selected, elide_width)
+                    column.addWidget(title_row)
+                    title_row.setVisible(not collapsed)
                     row.ensurePolished()
-                    row.adjustSize()
-                    heading_h = max(heading.minimumHeight(), heading.sizeHint().height())
-                    label_h = 0 if collapsed else max(label.sizeHint().height(), self._scaled(24))
-                    item_h = (
-                        max(self._scaled(28), heading_h + self._scaled(8))
-                        if collapsed
-                        else max(row.sizeHint().height(), heading_h + label_h + self._scaled(12))
-                    )
-                    item.setSizeHint(QSize(0, item_h))
+                    column.activate()
+                    row_h = max(row.minimumSizeHint().height(), row.sizeHint().height())
+                    item.setSizeHint(QSize(0, row_h))
                     self.conversation_list.setItemWidget(item, row)
+                else:
+                    title_row = self._build_history_title_row(title, selected, elide_width)
+                    item.setSizeHint(QSize(0, title_row.height()))
+                    self.conversation_list.setItemWidget(item, title_row)
                 if index > 0 and group in self.config.collapsed_history:
                     item.setHidden(True)
-                if record["id"] == current:
+                if selected:
                     self.conversation_list.setCurrentItem(item)
         self.conversation_list.setUpdatesEnabled(True)
         self.conversation_list.blockSignals(False)
@@ -1875,15 +1914,17 @@ class MainWindow(QMainWindow):
             widget = self.conversation_list.itemWidget(candidate) if candidate else None
             if widget:
                 selected = candidate is item
-                widget.setProperty("selected", selected)
-                widget.style().unpolish(widget)
-                widget.style().polish(widget)
-                title = widget.findChild(QLabel, "historyItemTitle")
-                if title:
-                    title.setProperty("selected", selected)
-                    title.style().unpolish(title)
-                    title.style().polish(title)
-                widget.update()
+                title_row = (
+                    widget
+                    if widget.objectName() == "historyTitleRow"
+                    else widget.findChild(QWidget, "historyTitleRow")
+                )
+                for target in (title_row, widget.findChild(QLabel, "historyItemTitle")):
+                    if target is not None:
+                        target.setProperty("selected", selected)
+                        target.style().unpolish(target)
+                        target.style().polish(target)
+                        target.update()
 
     def toggle_history_group(self, group):
         if group in self.config.collapsed_history:

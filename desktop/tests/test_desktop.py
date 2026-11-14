@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QWidget,
 )
 
 from omnicore.desktop.config import DesktopConfig, config_path, data_path
@@ -907,7 +908,59 @@ def test_history_group_rows_do_not_overlap_headings_or_titles(desktop, qtbot):
         row.adjustSize()
         row.layout().activate()
         heading = row.findChild(QPushButton, "historyHeading")
+        title_row = row.findChild(QWidget, "historyTitleRow")
         title = row.findChild(QLabel, "historyItemTitle")
-        assert heading is not None and title is not None
-        assert heading.geometry().bottom() < title.geometry().top()
-        assert item.sizeHint().height() >= title.geometry().bottom()
+        assert heading is not None and title_row is not None and title is not None
+        assert heading.geometry().bottom() < title_row.geometry().top()
+        assert item.sizeHint().height() >= title_row.geometry().bottom()
+
+
+def test_history_multigroup_real_rendered_geometry_across_scales(desktop, qtbot):
+    from datetime import UTC, datetime, timedelta
+
+    w = desktop
+    w.resize(1280, 760)
+    w.show()
+    qtbot.waitExposed(w)
+    now = datetime.now(UTC)
+    offsets = (
+        ("today", "Dzisiaj rozmowa pierwsza", timedelta(hours=1)),
+        ("yesterday", "Wczoraj rozmowa druga", timedelta(days=1, hours=2)),
+        ("week", "Ostatnie 7 dni rozmowa", timedelta(days=4)),
+        ("month", "Ostatnie 30 dni rozmowa", timedelta(days=15)),
+        ("older", "Starsza rozmowa archiwalna", timedelta(days=45)),
+    )
+    for _group, title, _delta in offsets:
+        request(w, "POST", "/api/v1/text/conversations", {"title": title})
+    w.refresh_conversations()
+    qtbot.waitUntil(lambda: len(w.conversations) == 5)
+    for idx, (_group, _title, delta) in enumerate(offsets):
+        w.conversations[idx]["updated_at"] = (now - delta).isoformat()
+    w._fill_conversations()
+    QApplication.processEvents()
+
+    for scale in (80, 90, 100, 125, 150):
+        w.ui_scale.setValue(scale)
+        qtbot.wait(50)
+        QApplication.processEvents()
+        if scale in (100, 125) and (cap := os.environ.get("OMNICORE_CAPTURE_DIR")):
+            w.grab().save(f"{cap}/verify_multigroup_{scale}.png")
+        headings = []
+        for i in range(w.conversation_list.count()):
+            item = w.conversation_list.item(i)
+            row = w.conversation_list.itemWidget(item)
+            assert row is not None
+            rect = w.conversation_list.visualItemRect(item)
+            assert rect.height() >= row.height()
+            heading = row.findChild(QPushButton, "historyHeading")
+            title_lbl = row.findChild(QLabel, "historyItemTitle")
+            assert heading is not None and title_lbl is not None
+            headings.append(heading)
+            assert heading.isVisible()
+            assert heading.height() >= heading.fontMetrics().height() + 4
+            assert title_lbl.height() >= title_lbl.fontMetrics().height() + 4
+            title_row = row.findChild(QWidget, "historyTitleRow")
+            assert title_row is not None
+            assert heading.geometry().bottom() < title_row.geometry().top()
+            assert row.height() >= title_row.geometry().bottom()
+        assert len({h.height() for h in headings}) == 1
