@@ -121,6 +121,17 @@ class Conversations:
                         "DELETE FROM text_jobs WHERE kind='agent-run' AND id=?", (row[0],)
                     )
 
+    def delete_all(self) -> int:
+        with self.store.db.connect() as connection, connection:
+            removed = connection.execute("SELECT COUNT(*) FROM text_conversations").fetchone()[0]
+            connection.execute("DELETE FROM text_conversations")
+            connection.execute("DELETE FROM text_generation_keys")
+            connection.execute(
+                "DELETE FROM text_jobs WHERE kind IN "
+                "('agent-settings', 'agent-run', 'agent-folder-grant', 'generation')"
+            )
+        return int(removed)
+
     def messages(self, conversation_id, query=""):
         self.get(conversation_id)
         with self.store.db.connect() as connection:

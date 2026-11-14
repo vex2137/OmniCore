@@ -428,6 +428,16 @@ def routes(service: TextService):
                 service.history.update, conversation_id, **body.model_dump(exclude_unset=True)
             )
 
+    @router.delete("/conversations", response_model=dict[str, str | int])
+    async def delete_all_conversations():
+        async with service.generations.submission_lock:
+            service.require_idle()
+            removed = await run_in_threadpool(service.history.delete_all)
+            service.agents.files.grants.clear()
+            service.agents.live.clear()
+            service.agents.tokens.clear()
+            return {"status": "removed", "deleted": removed}
+
     @router.delete("/conversations/{conversation_id}", response_model=dict[str, str])
     async def delete_conversation(conversation_id: str):
         async with service.generations.submission_lock:

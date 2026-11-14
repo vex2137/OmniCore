@@ -87,3 +87,58 @@ def test_missing_conversation_is_404(history):
     for action in [history.get, history.messages, history.delete, history.export]:
         with pytest.raises(TextError, match="not_found"):
             action("missing")
+
+
+def test_delete_all_conversations_clears_owned_records_and_preserves_models(tmp_path):
+    db = Database(tmp_path / "data")
+    db.initialize()
+    store = TextStore(db)
+    store.initialize()
+    history = Conversations(store)
+
+    model_file = tmp_path / "kept-model.gguf"
+    model_file.write_bytes(b"GGUF-DATA")
+    with store.db.connect() as conn, conn:
+        conn.execute(
+            "INSERT INTO text_models VALUES(?,?,?,?,?,?)",
+            ("m1", "llama.cpp", str(model_file), json.dumps({"id": "m1"}), 1, 2),
+        )
+
+    c1 = history.create("First", model_id="m1")
+    c2 = history.create("Second", model_id="m1")
+    history.add_message(c1.id, "user", "hello")
+    history.add_message(c2.id, "assistant", "world")
+    store.save_job("agent-settings", c1.id, {"protocol": "json"})
+    store.save_job("agent-run", "run-1", {"id": "run-1", "conversation_id": c1.id})
+    store.save_job("agent-folder-grant", "g1", {"id": "g1", "conversation_id": c1.id})
+    store.save_job("generation", "gen-1", {"id": "gen-1", "conversation_id": c1.id})
+    store.save_job("download", "dl-1", {"id": "dl-1", "state": "completed"})
+    store.save_job("agent-compatibility", "m1:json", {"compatible": True})
+    with store.db.connect() as conn, conn:
+        conn.execute(
+            "INSERT INTO text_generation_keys VALUES(?,?,?)",
+            ("req-1", "gen-1", "fp-1"),
+        )
+
+    removed = history.delete_all()
+    assert removed == 2
+    assert history.list() == []
+    with store.db.connect() as conn:
+        assert conn.execute("SELECT count(*) FROM text_messages").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM text_generation_keys").fetchone()[0] == 0
+        for kind in ("agent-settings", "agent-run", "agent-folder-grant", "generation"):
+            assert (
+                conn.execute("SELECT count(*) FROM text_jobs WHERE kind=?", (kind,)).fetchone()[0]
+                == 0
+            )
+        assert conn.execute("SELECT count(*) FROM text_models").fetchone()[0] == 1
+        assert (
+            conn.execute("SELECT count(*) FROM text_jobs WHERE kind='download'").fetchone()[0] == 1
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM text_jobs WHERE kind='agent-compatibility'"
+            ).fetchone()[0]
+            == 1
+        )
+    assert model_file.exists()

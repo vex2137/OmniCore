@@ -408,5 +408,10 @@
   "error_solution_label": "Suggested solution",
   "resources_label": "Resources",
   "resources_tooltip": "CPU, RAM, GPU, and VRAM resource monitor (click to expand details)",
-  "close_notice": "Dismiss notice"
+  "close_notice": "Dismiss notice",
+  "history_menu": "History menu",
+  "delete_selected_conversation": "Delete selected conversation",
+  "delete_all_conversations": "Delete all conversations",
+  "delete_all_conversations_confirm": "Delete all conversations, messages, and agent runs? Local GGUF models, settings, and user files will not be deleted.",
+  "all_conversations_deleted": "All conversations deleted."
 }

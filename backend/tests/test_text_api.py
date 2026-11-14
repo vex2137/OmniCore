@@ -520,3 +520,38 @@ def test_auto_context_estimates_from_gguf_limit_and_memory_budget():
     s_warn = context_settings(manual_tight, available_memory_bytes=int(2.8 * 1024**3))
     assert s_warn["effective_tokens"] == 32768
     assert s_warn["memory_warning"] is True
+
+
+def test_delete_all_conversations_endpoint_checks_idle_and_preserves_models(text_app):
+    app, path = text_app
+    app.state.text.engines["llama.cpp"] = ProtocolTestEngine(wait=True)
+    with TestClient(app, base_url="http://localhost") as client:
+        model, c1 = create_chat(client, path)
+        c2 = client.post(
+            "/api/v1/text/conversations", json={"model_id": model["id"], "title": "Second"}
+        ).json()
+        app.state.text.agents.grant_folder(c2["id"], str(path.parent))
+        assert len(app.state.text.agents.files.grants) == 1
+
+        job = client.post(
+            f"/api/v1/text/conversations/{c1['id']}/generations",
+            json={"content": "active", "request_key": "busy-delete-all"},
+        ).json()
+        wait_job(client, job["id"], "running")
+
+        busy = client.delete("/api/v1/text/conversations")
+        assert busy.status_code == 409
+        assert busy.json()["error"]["code"] == "conversation_busy"
+
+        client.post(f"/api/v1/text/generations/{job['id']}/cancel")
+        wait_job(client, job["id"], "cancelled")
+
+        removed = client.delete("/api/v1/text/conversations")
+        assert removed.status_code == 200
+        assert removed.json()["status"] == "removed"
+        assert removed.json()["deleted"] == 2
+        assert client.get("/api/v1/text/conversations").json() == []
+        assert len(app.state.text.agents.files.grants) == 0
+        models = client.get("/api/v1/text/models").json()
+        assert any(m["id"] == model["id"] for m in models)
+        assert path.exists()

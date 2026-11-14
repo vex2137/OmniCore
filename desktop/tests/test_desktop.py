@@ -1192,3 +1192,61 @@ def test_resource_monitor_widgets_and_proc_helpers(desktop, qtbot, tmp_path):
 
     w.close()
     assert w.resource_monitor._thread is None
+
+
+def test_history_menu_delete_all_conversations_with_confirmation(desktop, qtbot, monkeypatch):
+    w = desktop
+    w.show()
+    qtbot.waitExposed(w)
+
+    models_dir = data_path() / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    gguf_path = models_dir / "kept-for-history-test.gguf"
+    gguf_path.write_bytes(fixture_gguf("Kept Model"))
+    imported = request(w, "POST", "/api/v1/text/models/import", {"path": str(gguf_path)})
+    w.refresh_models()
+    qtbot.waitUntil(lambda: any(m["id"] == imported["id"] for m in w.models))
+
+    for title in ("First chat", "Second chat"):
+        created = request(
+            w, "POST", "/api/v1/text/conversations", {"title": title, "model_id": imported["id"]}
+        )
+        request(
+            w,
+            "POST",
+            f"/api/v1/text/conversations/{created['id']}/messages",
+            {"role": "user", "content": f"Message in {title}"},
+        )
+    w.refresh_conversations()
+    qtbot.waitUntil(lambda: len(w.conversations) == 2 and bool(w.current_id))
+
+    assert w.history_menu_btn.isVisible()
+    menu = w._build_history_menu()
+    texts = [action.text() for action in menu.actions() if not action.isSeparator()]
+    assert w.tr("delete_selected_conversation") in texts
+    assert w.tr("delete_all_conversations") in texts
+    assert all(action.isEnabled() for action in menu.actions() if not action.isSeparator())
+
+    # Cancelling confirmation preserves all conversations.
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.Cancel)
+    w.delete_all_conversations()
+    QApplication.processEvents()
+    assert len(w.conversations) == 2
+
+    # Active generation prevents destructive deletion cleanly.
+    w.active_job = "busy-job"
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.Yes)
+    w.delete_all_conversations()
+    assert w.notice_card.isVisible()
+    assert w.notice.text() == w.tr("conversation_busy")
+    assert len(w.conversations) == 2
+    w.active_job = None
+
+    # Confirmed deletion clears conversations, messages, and sidebar while preserving models.
+    w.delete_all_conversations()
+    qtbot.waitUntil(lambda: len(w.conversations) == 0 and w.conversation_list.count() == 0)
+    assert w.current_id is None
+    assert w.messages == []
+    assert w.notice.text() == w.tr("all_conversations_deleted")
+    assert gguf_path.exists()
+    assert any(m["id"] == imported["id"] for m in w.models)

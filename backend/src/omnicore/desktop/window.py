@@ -412,8 +412,12 @@ class MainWindow(QMainWindow):
         self.history_refresh = QPushButton("↻")
         self.history_refresh.setObjectName("historyHeaderButton")
         self.history_refresh.clicked.connect(self.refresh_shared_history)
+        self.history_menu_btn = QPushButton("⋯")
+        self.history_menu_btn.setObjectName("historyHeaderButton")
+        self.history_menu_btn.clicked.connect(self.open_history_menu)
         self.conversations_row.addWidget(self.history_search_toggle)
         self.conversations_row.addWidget(self.history_refresh)
+        self.conversations_row.addWidget(self.history_menu_btn)
         self.history_search = QLineEdit()
         self.history_search.setMaxLength(256)
         self.history_search.setClearButtonEnabled(True)
@@ -1182,6 +1186,7 @@ class MainWindow(QMainWindow):
         for widget in (
             self.history_search_toggle,
             self.history_refresh,
+            self.history_menu_btn,
             self.history_search_close,
             self.context_button,
             self.chat_refresh,
@@ -1310,11 +1315,13 @@ class MainWindow(QMainWindow):
         self.history_search_toggle.setIcon(sidebar_icon("search", fg, header_icon))
         self.history_search_toggle.setIconSize(QSize(header_icon, header_icon))
         self.history_refresh.setFixedSize(header_btn, header_btn)
+        self.history_menu_btn.setFixedSize(header_btn, header_btn)
         self.history_search_close.setFixedSize(header_btn, header_btn)
         search_open = not compact and self._history_search_open
         self.nav[0].setVisible(compact or not search_open)
         self.history_search_toggle.setVisible(not compact and not search_open)
         self.history_refresh.setVisible(not compact and not search_open)
+        self.history_menu_btn.setVisible(not compact and not search_open)
         self.history_search.setVisible(search_open)
         self.history_search_close.setVisible(search_open)
         self.conversations_row.setSpacing(0 if compact else self._scaled(2))
@@ -1347,6 +1354,8 @@ class MainWindow(QMainWindow):
         self.history_search_close.setAccessibleName(self.tr("cancel"))
         self.history_refresh.setToolTip(self.tr("refresh"))
         self.history_refresh.setAccessibleName(self.tr("refresh"))
+        self.history_menu_btn.setToolTip(self.tr("history_menu"))
+        self.history_menu_btn.setAccessibleName(self.tr("history_menu"))
         self.history_panel.setVisible(not compact)
         self.compact_spacer.setVisible(compact)
         for button, key in zip(
@@ -2255,7 +2264,27 @@ class MainWindow(QMainWindow):
             lambda: self.pin_conversation(record),
         )
         menu.addAction(self.tr("delete"), self.delete_conversation)
+        menu.addSeparator()
+        menu.addAction(self.tr("delete_all_conversations"), self.delete_all_conversations)
         menu.exec(self.conversation_list.viewport().mapToGlobal(position))
+
+    def _build_history_menu(self) -> QMenu:
+        menu = QMenu(self)
+        busy = bool(self.active_job or self._submitting)
+        delete_one = menu.addAction(
+            self.tr("delete_selected_conversation"), self.delete_conversation
+        )
+        delete_one.setEnabled(bool(self.current_id and not busy))
+        menu.addSeparator()
+        delete_all = menu.addAction(
+            self.tr("delete_all_conversations"), self.delete_all_conversations
+        )
+        delete_all.setEnabled(bool((self.conversations or self.history_search.text()) and not busy))
+        return menu
+
+    def open_history_menu(self):
+        menu = self._build_history_menu()
+        menu.exec(self.history_menu_btn.mapToGlobal(self.history_menu_btn.rect().bottomLeft()))
 
     def pin_conversation(self, record):
         if self.active_job or self._submitting:
@@ -2397,6 +2426,43 @@ class MainWindow(QMainWindow):
             self.refresh_conversations()
 
         self.api.request("DELETE", TEXT + f"/conversations/{self.current_id}", success=deleted)
+
+    def delete_all_conversations(self):
+        if self.active_job or self._submitting:
+            self.show_error("conversation_busy")
+            return
+        if not self.conversations and not self.history_search.text():
+            return
+        if (
+            QMessageBox.question(
+                self,
+                self.tr("confirm"),
+                self.tr("delete_all_conversations_confirm"),
+                QMessageBox.Yes | QMessageBox.Cancel,
+                QMessageBox.Cancel,
+            )
+            != QMessageBox.Yes
+        ):
+            return
+
+        def deleted_all(_):
+            self.agent_panel.load(None)
+            self.current_id = None
+            self.last_job = None
+            self.messages = []
+            self.conversations = []
+            if self._history_search_open or self.history_search.text():
+                self.search_timer.stop()
+                self.history_search.blockSignals(True)
+                self.history_search.clear()
+                self.history_search.blockSignals(False)
+                self._history_search_open = False
+                self._apply_sidebar()
+            self.render_messages()
+            self.refresh_conversations()
+            self.notify(self.tr("all_conversations_deleted"))
+
+        self.api.request("DELETE", TEXT + "/conversations", success=deleted_all)
 
     def model_selected(self):
         self._sync_model_combo_tooltip()

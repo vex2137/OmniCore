@@ -408,5 +408,10 @@
   "error_solution_label": "Sugerowane rozwiązanie",
   "resources_label": "Zasoby",
   "resources_tooltip": "Monitor zasobów CPU, RAM, GPU i VRAM (kliknij, aby rozwinąć szczegóły)",
-  "close_notice": "Zamknij komunikat"
+  "close_notice": "Zamknij komunikat",
+  "history_menu": "Menu historii",
+  "delete_selected_conversation": "Usuń wybraną rozmowę",
+  "delete_all_conversations": "Usuń wszystkie rozmowy",
+  "delete_all_conversations_confirm": "Usunąć wszystkie rozmowy, wiadomości i zadania agenta? Lokalne modele GGUF, ustawienia oraz pliki użytkownika nie zostaną usunięte.",
+  "all_conversations_deleted": "Usunięto wszystkie rozmowy."
 }
