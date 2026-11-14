@@ -13,6 +13,9 @@ class FolderGrant(WireModel):
     path: str = Field(min_length=1, max_length=4096)
     include_sensitive: bool = False
     confirmed: bool = False
+    allow_write: bool = True
+    subfolders: bool = True
+    persistent: bool = False
 
 
 class CompatibilityTest(WireModel):
@@ -75,7 +78,14 @@ def routes(service):
         if not body.confirmed:
             raise TextError("agent_confirmation_required", 422)
         try:
-            return agents.files.grant(conversation_id, body.path, body.include_sensitive)
+            return agents.grant_folder(
+                conversation_id,
+                body.path,
+                body.include_sensitive,
+                allow_write=body.allow_write,
+                subfolders=body.subfolders,
+                persistent=body.persistent,
+            )
         except (OSError, ValueError, RuntimeError):
             raise TextError("agent_permission_denied", 403) from None
 
@@ -84,7 +94,7 @@ def routes(service):
         for run_id in list(agents.tasks):
             if agents.record(run_id)["conversation_id"] == conversation_id:
                 await agents.cancel(run_id)
-        agents.files.revoke(grant_id, conversation_id)
+        agents.revoke_folder(grant_id, conversation_id)
         return {"revoked": True}
 
     @router.post("/conversations/{conversation_id}/runs", status_code=202)

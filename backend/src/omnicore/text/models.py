@@ -94,9 +94,7 @@ class ModelManager:
     def scan_and_recover(self, *, import_all_roots: bool = False):
         records = self.store.models()
         all_candidates = self._root_candidates(self.policy.roots)
-        claimed = {
-            Path(r.location).absolute() for r in records if r.backend == "llama.cpp"
-        }
+        claimed = {Path(r.location).absolute() for r in records if r.backend == "llama.cpp"}
         for record in records:
             if record.backend != "llama.cpp":
                 continue

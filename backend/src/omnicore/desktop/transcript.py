@@ -140,11 +140,23 @@ class SafeMarkdown(QTextBrowser):
 
 
 class MessageCard(QFrame):
-    def __init__(self, message, tr, parent=None, regenerate=None, can_regenerate=False):
+    def __init__(
+        self,
+        message,
+        tr,
+        parent=None,
+        regenerate=None,
+        can_regenerate=False,
+        grant_folder=None,
+        continue_run=None,
+    ):
         super().__init__(parent)
         self.setObjectName("userBubble" if message["role"] == "user" else "assistantBubble")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         self.message = message
+        self.can_regenerate = can_regenerate
+        self._grant_folder = grant_folder
+        self._continue_run = continue_run
         self.layout_ = QVBoxLayout(self)
         self.layout_.setContentsMargins(18, 10, 18, 16)
         header = QHBoxLayout()
@@ -178,11 +190,17 @@ class MessageCard(QFrame):
         self.agent_step_buttons = []
         self.agent_step_details = []
         self.agent_error_label = None
+        self.agent_folder_box = None
+        self.agent_folder_label = None
+        self.agent_grant_button = None
+        self.agent_continue_button = None
         if message["role"] == "assistant" and message.get("agent_run"):
             self._render_agent_activity(message["agent_run"], tr)
         self._body(message["content"], tr)
         if message["role"] == "user" and message.get("agent_run"):
             self._render_agent_activity(message["agent_run"], tr)
+        if message.get("agent_run"):
+            self._render_agent_folder_prompt(message["agent_run"], tr)
         details = statistics_text(message.get("statistics"), tr)
         if details:
             stats = message.get("statistics") or {}
@@ -326,6 +344,54 @@ class MessageCard(QFrame):
             self.layout_.addWidget(err_lbl)
             self.agent_error_label = err_lbl
 
+    def _render_agent_folder_prompt(self, run, tr):
+        if (
+            not isinstance(run, dict)
+            or not run.get("needs_folder_grant")
+            or run.get("continued_by")
+        ):
+            return
+        has_folder = bool(self.message.get("has_granted_folder"))
+        cancelled_grant = bool(self.message.get("folder_grant_cancelled"))
+        box = QFrame()
+        box.setObjectName("agentStepDetails")
+        b_layout = QVBoxLayout(box)
+        b_layout.setContentsMargins(10, 8, 10, 8)
+        b_layout.setSpacing(6)
+        notice_key = (
+            "agent_folder_ready_notice"
+            if has_folder
+            else "agent_folder_cancelled"
+            if cancelled_grant
+            else "agent_needs_folder_notice"
+        )
+        lbl = QLabel(tr(notice_key))
+        lbl.setTextFormat(Qt.PlainText)
+        lbl.setWordWrap(True)
+        b_layout.addWidget(lbl)
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(0, 0, 0, 0)
+        btn_row.setSpacing(8)
+        grant_btn = QPushButton(tr("agent_folder"))
+        grant_btn.setEnabled(self.can_regenerate)
+        if self._grant_folder:
+            grant_btn.clicked.connect(lambda: self._grant_folder(run))
+        btn_row.addWidget(grant_btn)
+        cont_btn = QPushButton(tr("agent_continue_task"))
+        cont_btn.setProperty("primary", True)
+        cont_btn.setVisible(has_folder)
+        cont_btn.setEnabled(has_folder and self.can_regenerate)
+        if self._continue_run:
+            cont_btn.clicked.connect(lambda: self._continue_run(run))
+        btn_row.addWidget(cont_btn)
+        btn_row.addStretch()
+        b_layout.addLayout(btn_row)
+        self.layout_.addWidget(box)
+        self.agent_folder_box = box
+        self.agent_folder_label = lbl
+        self.agent_grant_button = grant_btn
+        self.agent_continue_button = cont_btn
+
     def _body(self, content, tr):
         # Treat fenced code as plain text, with a separate native clipboard action.
         lines, prose, code, fence = content.splitlines(keepends=True), [], [], None
@@ -373,6 +439,8 @@ class MessageCard(QFrame):
 
 class ChatTranscript(QScrollArea):
     regenerate_requested = Signal(object)
+    grant_folder_requested = Signal(object)
+    continue_run_requested = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -435,10 +503,13 @@ class ChatTranscript(QScrollArea):
                 tr,
                 regenerate=self.regenerate_requested.emit,
                 can_regenerate=self.can_regenerate,
+                grant_folder=self.grant_folder_requested.emit,
+                continue_run=self.continue_run_requested.emit,
             )
             if index < len(self.cards):
                 old = self.cards[index]
                 self.column.replaceWidget(old, card)
+                old.setParent(None)
                 old.deleteLater()
                 self.cards[index] = card
             else:
@@ -447,6 +518,7 @@ class ChatTranscript(QScrollArea):
         while len(self.cards) > len(visible):
             card = self.cards.pop()
             self.column.removeWidget(card)
+            card.setParent(None)
             card.deleteLater()
         self.messages, self.locale = messages, locale
         self._previous_can_regenerate = self.can_regenerate

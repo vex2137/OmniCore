@@ -1,5 +1,7 @@
 """Small agent controls using RC8's Qt transport, themes and existing composer."""
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -7,6 +9,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -34,9 +37,12 @@ class AgentPanel(QWidget):
         self.conversation = None
         self.active = None
         self.dialog = None
+        self.folder_dialog = None
         self.seen = set()
         self.retry_id = None
         self.runs = []
+        self.granted_folders = []
+        self.folder_grant_cancelled_runs = set()
         self.compatibility_busy = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -158,9 +164,12 @@ class AgentPanel(QWidget):
         self.steps.valueChanged.connect(self.save_settings)
         self.protocol.currentIndexChanged.connect(self.save_settings)
         self.web_access.clicked.connect(self.toggle_web_access)
-        self.folder.clicked.connect(self.grant_folder)
+        self.folder.clicked.connect(lambda: self.grant_folder())
         self.revoke.clicked.connect(self.revoke_folder)
         self.tree.itemDoubleClicked.connect(self.inspect)
+        if hasattr(main, "transcript"):
+            main.transcript.grant_folder_requested.connect(self.grant_folder)
+            main.transcript.continue_run_requested.connect(self.continue_run)
         self.timer = QTimer(self)
         self.timer.setInterval(350)
         self.timer.timeout.connect(self.poll)
@@ -199,7 +208,16 @@ class AgentPanel(QWidget):
         self.settings_box.setVisible(settings_open)
         has_activity = self.tree.topLevelItemCount() > 0
         has_status = bool(self.status.text())
-        has_retry = bool(self.retry_id) and not self.active
+        retry_run = next((r for r in self.runs if r.get("id") == self.retry_id), None)
+        has_retry = (
+            bool(self.retry_id)
+            and not self.active
+            and (
+                not retry_run
+                or retry_run.get("state") in {"failed", "cancelled", "interrupted"}
+                or (retry_run.get("needs_folder_grant") and bool(self.granted_folders))
+            )
+        )
         show_details = settings_open or (bool(self.active) and has_activity)
         self.details.setVisible(enabled and show_details)
         self.scroll.setVisible(enabled and show_details)
@@ -218,6 +236,8 @@ class AgentPanel(QWidget):
         self.active = None
         self.retry_id = None
         self.runs = []
+        self.granted_folders = []
+        self.folder_grant_cancelled_runs.clear()
         self.retry_button.hide()
         self.status.clear()
         self.status.hide()
@@ -284,6 +304,11 @@ class AgentPanel(QWidget):
             self.render(records)
             if records and records[0]["state"] in {"failed", "cancelled", "interrupted"}:
                 self.retry_id = records[0]["id"]
+                self.retry_button.setText(self.main.tr("agent_retry"))
+                self.visibility()
+            elif records and records[0].get("needs_folder_grant"):
+                self.retry_id = records[0]["id"]
+                self.retry_button.setText(self.main.tr("agent_continue_task"))
                 self.visibility()
 
         self.api.request("GET", BASE + f"/conversations/{conversation}/runs", success=history)
@@ -405,6 +430,10 @@ class AgentPanel(QWidget):
     def retry(self):
         if not self.retry_id or self.active or self.settings_saving:
             return
+        target = next((r for r in self.runs if r.get("id") == self.retry_id), None)
+        if target and target.get("needs_folder_grant") and self.granted_folders:
+            self.continue_run(target)
+            return
         if (
             QMessageBox.question(
                 self,
@@ -416,10 +445,20 @@ class AgentPanel(QWidget):
             != QMessageBox.Yes
         ):
             return
+        self._start_retry(self.retry_id)
+
+    def continue_run(self, run=None):
+        run_id = run.get("id") if isinstance(run, dict) else self.retry_id
+        if not run_id or self.active or self.settings_saving:
+            return
+        self._start_retry(run_id)
+
+    def _start_retry(self, run_id):
         self.busy(True)
 
         def received(record):
             self.active = record["id"]
+            self.retry_id = None
             self.render([record])
             self.timer.start()
             self.main.refresh_messages()
@@ -430,7 +469,7 @@ class AgentPanel(QWidget):
 
         self.api.request(
             "POST",
-            BASE + f"/runs/{self.retry_id}/retry",
+            BASE + f"/runs/{run_id}/retry",
             {"parameters": self.main.request_parameters()},
             success=received,
             failure=failed,
@@ -442,43 +481,151 @@ class AgentPanel(QWidget):
         def received(records):
             if self.conversation != conversation:
                 return
+            self.granted_folders = list(records)
             self.folders.clear()
             for record in records:
-                self.folders.addItem(record["path"])
-                self.folders.item(self.folders.count() - 1).setData(Qt.UserRole, record["id"])
+                scope_txt = self.main.tr(
+                    "agent_scope_read_write"
+                    if record.get("allow_write", True)
+                    else "agent_scope_read_only"
+                )
+                sub_txt = self.main.tr(
+                    "agent_subfolders_label"
+                    if record.get("subfolders", True)
+                    else "agent_no_subfolders"
+                )
+                pers_txt = self.main.tr(
+                    "agent_persistence_durable"
+                    if record.get("persistent", False)
+                    else "agent_persistence_session"
+                )
+                path_str = record["path"]
+                elided = self.folders.fontMetrics().elidedText(path_str, Qt.ElideMiddle, 260)
+                self.folders.addItem(f"{elided} · {scope_txt} · {sub_txt} · {pers_txt}")
+                item = self.folders.item(self.folders.count() - 1)
+                item.setData(Qt.UserRole, record["id"])
+                item.setToolTip(f"{path_str}\n{scope_txt} · {sub_txt} · {pers_txt}")
             has_folders = bool(records)
             self.folders.setVisible(has_folders)
             self.revoke.setVisible(has_folders)
+            if getattr(self.main, "messages", None):
+                self.main.render_messages()
+            self.visibility()
 
         self.api.request("GET", BASE + f"/conversations/{conversation}/folders", success=received)
 
-    def grant_folder(self):
-        path = QFileDialog.getExistingDirectory(self, self.main.tr("agent_folder"))
-        if not path:
-            return
-        if (
-            QMessageBox.question(
-                self,
-                self.main.tr("agent_folder"),
-                self.main.tr("agent_folder_warning") + "\n" + path,
+    def create_folder_grant_dialog(self, path: str) -> QDialog:
+        tr = self.main.tr
+        dialog = QDialog(self)
+        dialog.setWindowTitle(tr("agent_folder"))
+        dialog.setMinimumWidth(420)
+        layout = QVBoxLayout(dialog)
+        path_lbl = QLabel(f"{tr('agent_folder_path_label')} {path}")
+        path_lbl.setTextFormat(Qt.PlainText)
+        path_lbl.setWordWrap(True)
+        layout.addWidget(path_lbl)
+        warn_lbl = QLabel(tr("agent_folder_warning"))
+        warn_lbl.setTextFormat(Qt.PlainText)
+        warn_lbl.setWordWrap(True)
+        layout.addWidget(warn_lbl)
+        form = QFormLayout()
+        dialog.scope_combo = QComboBox(dialog)
+        dialog.scope_combo.addItem(tr("agent_scope_read_only"), False)
+        dialog.scope_combo.addItem(tr("agent_scope_read_write"), True)
+        form.addRow(QLabel(tr("agent_scope_label")), dialog.scope_combo)
+        dialog.subfolders_check = QCheckBox(tr("agent_subfolders_label"), dialog)
+        dialog.subfolders_check.setChecked(True)
+        form.addRow(QLabel(""), dialog.subfolders_check)
+        dialog.persistence_combo = QComboBox(dialog)
+        dialog.persistence_combo.addItem(tr("agent_persistence_session"), False)
+        dialog.persistence_combo.addItem(tr("agent_persistence_durable"), True)
+        form.addRow(QLabel(tr("agent_persistence_label")), dialog.persistence_combo)
+        dialog.sensitive_check = QCheckBox(tr("agent_sensitive_title"), dialog)
+        dialog.sensitive_check.setChecked(False)
+        dialog.sensitive_check.setToolTip(tr("agent_sensitive_warning"))
+        form.addRow(QLabel(""), dialog.sensitive_check)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.Yes | QDialogButtonBox.No, dialog)
+        buttons.button(QDialogButtonBox.Yes).setText(tr("agent_folder"))
+        buttons.button(QDialogButtonBox.No).setText(tr("agent_reject"))
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        return dialog
+
+    def confirm_folder_grant(self, path: str) -> tuple[bool, bool, bool, bool, bool]:
+        if not getattr(QMessageBox.question, "__module__", "").startswith("PySide6"):
+            if (
+                QMessageBox.question(
+                    self,
+                    self.main.tr("agent_folder"),
+                    self.main.tr("agent_folder_warning") + "\n" + path,
+                )
+                != QMessageBox.Yes
+            ):
+                return False, False, True, True, False
+            sensitive = (
+                QMessageBox.question(
+                    self,
+                    self.main.tr("agent_sensitive_title"),
+                    self.main.tr("agent_sensitive_warning"),
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                == QMessageBox.Yes
             )
-            != QMessageBox.Yes
-        ):
-            return
-        sensitive = (
-            QMessageBox.question(
-                self,
-                self.main.tr("agent_sensitive_title"),
-                self.main.tr("agent_sensitive_warning"),
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
+            return True, sensitive, True, True, False
+        dialog = self.folder_dialog = self.create_folder_grant_dialog(path)
+        try:
+            accepted = dialog.exec() == QDialog.Accepted
+            return (
+                accepted,
+                dialog.sensitive_check.isChecked(),
+                bool(dialog.scope_combo.currentData()),
+                dialog.subfolders_check.isChecked(),
+                bool(dialog.persistence_combo.currentData()),
             )
-            == QMessageBox.Yes
+        finally:
+            self.folder_dialog = None
+            dialog.deleteLater()
+
+    def grant_folder(self, run=None):
+        start_dir = ""
+        if isinstance(run, dict) and run.get("suggested_folder_name"):
+            candidate = Path.home() / run["suggested_folder_name"]
+            if candidate.is_dir():
+                start_dir = str(candidate)
+        path = (
+            QFileDialog.getExistingDirectory(self, self.main.tr("agent_folder"), start_dir)
+            if start_dir
+            else QFileDialog.getExistingDirectory(self, self.main.tr("agent_folder"))
         )
+        if not path:
+            if isinstance(run, dict) and run.get("id"):
+                self.folder_grant_cancelled_runs.add(run["id"])
+                self.main.render_messages()
+            return
+        confirmed, sensitive, allow_write, subfolders, persistent = self.confirm_folder_grant(path)
+        if not confirmed:
+            if isinstance(run, dict) and run.get("id"):
+                self.folder_grant_cancelled_runs.add(run["id"])
+                self.main.render_messages()
+            return
+        if isinstance(run, dict) and run.get("id"):
+            self.folder_grant_cancelled_runs.discard(run["id"])
+            self.retry_id = run["id"]
+            self.retry_button.setText(self.main.tr("agent_continue_task"))
         self.api.request(
             "POST",
             BASE + f"/conversations/{self.conversation}/folders",
-            {"path": path, "confirmed": True, "include_sensitive": sensitive},
+            {
+                "path": path,
+                "confirmed": True,
+                "include_sensitive": sensitive,
+                "allow_write": allow_write,
+                "subfolders": subfolders,
+                "persistent": persistent,
+            },
             success=lambda _: self.refresh_folders(),
         )
 
@@ -509,9 +656,17 @@ class AgentPanel(QWidget):
             self.main.context_save,
         ):
             widget.setEnabled(not enabled)
-        self.main.stop_button.setEnabled(enabled)
+        if hasattr(self.main, "context_preset"):
+            self.main.context_preset.setEnabled(not enabled)
         if enabled:
+            self.main.stop_button.show()
+            self.main.stop_button.setEnabled(True)
+            self.main.generation_status.setText(self.main.tr("running"))
             self.retry_button.hide()
+        elif not self.main.active_job:
+            self.main.stop_button.setEnabled(False)
+            self.main.stop_button.hide()
+            self.main.generation_status.setText(self.main.tr("ready"))
 
     def send(self, content, model, parameters):
         if self.active or self.settings_saving or not self.conversation:
@@ -556,11 +711,14 @@ class AgentPanel(QWidget):
                 self.busy(False)
                 if self.dialog:
                     self.dialog.reject()
-                self.retry_id = (
-                    record["id"]
-                    if record["state"] in {"failed", "cancelled", "interrupted"}
-                    else None
-                )
+                if record["state"] in {"failed", "cancelled", "interrupted"}:
+                    self.retry_id = record["id"]
+                    self.retry_button.setText(self.main.tr("agent_retry"))
+                elif record.get("needs_folder_grant"):
+                    self.retry_id = record["id"]
+                    self.retry_button.setText(self.main.tr("agent_continue_task"))
+                else:
+                    self.retry_id = None
                 self.render([record])
                 self.main.refresh_messages()
             else:
@@ -652,6 +810,13 @@ class AgentPanel(QWidget):
         self.visibility()
         if self.active:
             self.busy(True)
+            active_run = records[0] if records else None
+            if active_run and active_run.get("steps"):
+                last_step = active_run["steps"][-1]
+                if last_step.get("state") in {"queued", "running", "waiting"}:
+                    self.main.generation_status.setText(
+                        self.main.tr("agent_executing_tool", tool=last_step["tool"])
+                    )
         if not self.active and getattr(self.main, "messages", None):
             self.main.render_messages()
 

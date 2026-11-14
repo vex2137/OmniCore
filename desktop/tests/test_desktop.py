@@ -852,7 +852,7 @@ def test_chat_header_stays_aligned_across_modes_and_scales(desktop, qtbot):
 
     w.agent_panel.mode.setCurrentIndex(w.agent_panel.mode.findData("agent"))
     qtbot.wait(20)
-    assert not w.context_controls.isVisible()
+    assert w.context_controls.isVisible()
     assert w.agent_panel.details.isVisible()
 
 

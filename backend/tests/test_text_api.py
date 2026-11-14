@@ -479,3 +479,44 @@ def test_refresh_model_entry_is_blocked_during_generation(text_app):
             ).status_code
             == 201
         )
+
+
+def test_auto_context_estimates_from_gguf_limit_and_memory_budget():
+    from omnicore.text.context import context_settings
+
+    # 1. Unknown limit or zero size falls back safely to 2048
+    fallback_model = {"size_bytes": 0, "metadata": {}}
+    s_fallback = context_settings(fallback_model)
+    assert s_fallback["effective_tokens"] == 2048
+    assert s_fallback["auto_reason"] == "safe_fallback"
+
+    # 2. 1.8 GB GGUF model with 32K declared limit and 8 GB available memory -> selects 32768
+    small_gguf = {
+        "size_bytes": int(1.8 * 1024**3),
+        "metadata": {
+            "architecture": "lfm2",
+            "metadata": {"lfm2.context_length": 32768},
+        },
+    }
+    s_ample = context_settings(small_gguf, available_memory_bytes=8 * 1024**3)
+    assert s_ample["mode"] == "auto"
+    assert s_ample["auto_reason"] == "memory_estimated"
+    assert s_ample["effective_tokens"] == 32768
+    assert not s_ample["memory_warning"]
+
+    # 3. Tight memory budget (2.8 GB available for 1.8 GB model) -> caps auto context to 2048
+    s_tight = context_settings(small_gguf, available_memory_bytes=int(2.8 * 1024**3))
+    assert s_tight["effective_tokens"] == 2048
+    assert s_tight["auto_reason"] == "memory_estimated"
+
+    # 4. Manual 32768 under tight memory triggers memory_warning
+    manual_tight = {
+        **small_gguf,
+        "metadata": {
+            **small_gguf["metadata"],
+            "desktop_context": {"mode": "manual", "manual_tokens": 32768},
+        },
+    }
+    s_warn = context_settings(manual_tight, available_memory_bytes=int(2.8 * 1024**3))
+    assert s_warn["effective_tokens"] == 32768
+    assert s_warn["memory_warning"] is True

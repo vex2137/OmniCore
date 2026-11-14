@@ -515,6 +515,139 @@ def test_missing_folder_permission_reports_permission_denied(tmp_path):
         assert len(result["steps"]) == 1
         assert result["steps"][0]["state"] == "failed"
         assert result["steps"][0]["error_code"] == "agent_permission_denied"
+        assert result["needs_folder_grant"] is True
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_agent_missing_folder_detects_needs_grant_and_continues_without_duplicating_message(
+    tmp_path,
+):
+    async def exercise():
+        downloads = tmp_path / "Pobrane"
+        downloads.mkdir()
+        (downloads / "raport.pdf").write_text("pdf")
+        agents, conv, engine = setup(
+            tmp_path,
+            [
+                "Nie mam dostępu do folderu Pobrane, ponieważ nie przyznano grant_id.",
+            ],
+        )
+        run1 = await agents.submit(
+            conv.id,
+            AgentRequest(content="weź sprawdź jakie pliki mam na komputerze w folderze Pobrane"),
+        )
+        await agents.tasks[run1["id"]]
+        first_record = agents.record(run1["id"])
+        assert first_record["state"] == "completed"
+        assert first_record["steps"] == []
+        assert first_record["needs_folder_grant"] is True
+        assert first_record["suggested_folder_name"] == "Pobrane"
+        assert len(agents.service.history.messages(conv.id)) == 2
+
+        grant = agents.grant_folder(
+            conv.id,
+            downloads,
+            allow_write=False,
+            subfolders=True,
+            persistent=True,
+        )
+        assert grant["allow_write"] is False
+        assert grant["subfolders"] is True
+        assert grant["persistent"] is True
+
+        engine.responses = iter(
+            [
+                tool("list_files", grant_id=grant["id"], path="Pobrane"),
+                '{"kind": "final", "text": "W folderze Pobrane znajduje się plik raport.pdf."}',
+            ]
+        )
+        run2 = await agents.retry(first_record["id"])
+        await agents.tasks[run2["id"]]
+        second_record = agents.record(run2["id"])
+        assert second_record["state"] == "completed"
+        assert len(second_record["steps"]) == 1
+        assert second_record["steps"][0]["tool"] == "list_files"
+        assert second_record["steps"][0]["state"] == "completed"
+        msgs = agents.service.history.messages(conv.id)
+        assert [m.role for m in msgs] == ["user", "assistant"]
+        assert "raport.pdf" in msgs[-1].content
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_agent_folder_grant_read_only_and_subfolders_and_revoke(tmp_path):
+    import threading
+
+    from omnicore.agents.tools import FileArgs, FindArgs, WriteArgs
+
+    async def exercise():
+        folder = tmp_path / "workspace"
+        sub = folder / "nested"
+        sub.mkdir(parents=True)
+        (folder / "top.txt").write_text("top")
+        (sub / "deep.txt").write_text("deep")
+        agents, conv, _ = setup(tmp_path, [FINAL])
+        grant = agents.grant_folder(
+            conv.id,
+            folder,
+            allow_write=False,
+            subfolders=False,
+            persistent=False,
+        )
+        cancelled = threading.Event()
+        # 1. Read-only blocks write proposals
+        with pytest.raises(TextError) as exc_info:
+            agents.files.propose(
+                WriteArgs(
+                    grant_id=grant["id"],
+                    path="out.txt",
+                    mode="create",
+                    content="blocked",
+                ),
+                conv.id,
+                cancelled,
+            )
+        assert exc_info.value.code == "agent_permission_denied"
+
+        # 2. Top-level file is readable, nested file is blocked when subfolders=False
+        top_res = agents.files.read(
+            "read_text",
+            FileArgs(grant_id=grant["id"], path="top.txt"),
+            conv.id,
+            cancelled,
+        )
+        assert top_res["text"] == "top"
+        with pytest.raises(TextError) as exc_sub:
+            agents.files.read(
+                "read_text",
+                FileArgs(grant_id=grant["id"], path="nested/deep.txt"),
+                conv.id,
+                cancelled,
+            )
+        assert exc_sub.value.code == "agent_permission_denied"
+        found = agents.files.read(
+            "find_files",
+            FindArgs(grant_id=grant["id"], path=".", query="txt"),
+            conv.id,
+            cancelled,
+        )
+        assert [e["path"] for e in found["entries"]] == ["top.txt"]
+
+        # 3. Revoke immediately blocks further operations
+        agents.revoke_folder(grant["id"], conv.id)
+        with pytest.raises(TextError) as exc_revoked:
+            agents.files.read(
+                "list_files",
+                FileArgs(grant_id=grant["id"], path="."),
+                conv.id,
+                cancelled,
+            )
+        assert exc_revoked.value.code == "agent_permission_denied"
         await agents.close()
         await agents.service.generations.close()
 

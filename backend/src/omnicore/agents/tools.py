@@ -146,6 +146,9 @@ class Grant:
     path: str
     fd: int
     sensitive: bool = False
+    allow_write: bool = True
+    subfolders: bool = True
+    persistent: bool = False
     active: bool = True
     lock: threading.RLock = field(default_factory=threading.RLock)
 
@@ -155,24 +158,61 @@ class FileTools:
         self.grants = {}
         self.write_lock = threading.RLock()
 
-    def grant(self, conversation_id, path, sensitive=False):
+    def grant(
+        self,
+        conversation_id,
+        path,
+        sensitive=False,
+        *,
+        allow_write=True,
+        subfolders=True,
+        persistent=False,
+        grant_id=None,
+    ):
         if not os.supports_dir_fd or not hasattr(os, "O_NOFOLLOW"):
             raise TextError("agent_filesystem_unsupported", 422)
-        if sum(g.active for g in self.grants.values()) >= 32:
-            raise TextError("agent_grant_limit", 422)
         root = Path(path).resolve(strict=True)
         if not root.is_dir() or str(root) == "/" or root.parts[1] in {"proc", "sys", "dev"}:
             raise TextError("agent_permission_denied", 403)
         if not sensitive and any(part.startswith(".") for part in root.parts):
             raise TextError("agent_sensitive_file", 403)
+        for existing in list(self.grants.values()):
+            if (
+                existing.active
+                and existing.conversation_id == conversation_id
+                and existing.path == str(root)
+            ):
+                with existing.lock:
+                    existing.active = False
+                    os.close(existing.fd)
+                if grant_id is None:
+                    grant_id = existing.id
+        if sum(g.active for g in self.grants.values()) >= 32:
+            raise TextError("agent_grant_limit", 422)
         fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        grant = Grant(uuid.uuid4().hex, conversation_id, str(root), fd, sensitive)
+        grant = Grant(
+            grant_id or uuid.uuid4().hex,
+            conversation_id,
+            str(root),
+            fd,
+            sensitive,
+            bool(allow_write),
+            bool(subfolders),
+            bool(persistent),
+        )
         self.grants[grant.id] = grant
         return self.describe(grant)
 
     @staticmethod
     def describe(grant):
-        return {"id": grant.id, "path": grant.path, "sensitive": grant.sensitive}
+        return {
+            "id": grant.id,
+            "path": grant.path,
+            "sensitive": grant.sensitive,
+            "allow_write": grant.allow_write,
+            "subfolders": grant.subfolders,
+            "persistent": grant.persistent,
+        }
 
     def revoke(self, grant_id, conversation_id):
         grant = self.get(grant_id, conversation_id)
@@ -219,6 +259,8 @@ class FileTools:
         if ".." in parts or any(not part for part in parts):
             raise TextError("agent_permission_denied", 403)
         parts = [part for part in parts if part != "."]
+        if not grant.subfolders and len(parts) > 1:
+            raise TextError("agent_permission_denied", 403)
         if not grant.sensitive and any(self.sensitive(part) for part in parts):
             raise TextError("agent_sensitive_file", 403)
         return parts
@@ -290,6 +332,8 @@ class FileTools:
                         "modified_ns": info.st_mtime_ns,
                     }
         else:
+            if not grant.subfolders and parts:
+                raise TextError("agent_permission_denied", 403)
             result = {"entries": []}
             queue = [(parts, 0)]
             visited, deadline = 0, time.monotonic() + 2
@@ -329,7 +373,8 @@ class FileTools:
                                 result["limited"] = True
                                 break
                         if (
-                            tool in {"find_files", "search_text"}
+                            grant.subfolders
+                            and tool in {"find_files", "search_text"}
                             and stat.S_ISDIR(info.st_mode)
                             and depth < 12
                         ):
@@ -351,6 +396,8 @@ class FileTools:
 
     def propose(self, args, conversation_id, cancelled):
         grant = self.get(args.grant_id, conversation_id)
+        if not grant.allow_write:
+            raise TextError("agent_permission_denied", 403)
         parts = self.parts(grant, args.path)
         if not parts or len(args.content.encode("utf-8")) > LIMIT:
             raise TextError("agent_file_limit", 422)

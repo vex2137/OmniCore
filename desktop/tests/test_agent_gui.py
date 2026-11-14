@@ -447,3 +447,131 @@ def test_agent_gui_plain_text_no_banner_and_persisted_step_cards(
     restored_cards = [c for c in w.transcript.findChildren(MessageCard) if c.agent_step_buttons]
     assert len(restored_cards) == 1
     assert len(restored_cards[0].agent_step_buttons) == 2
+
+
+def test_hotfix2_context_presets_inline_folder_continue_and_stop_button(
+    agent_window, qtbot, monkeypatch, tmp_path
+):
+    from omnicore.desktop.transcript import MessageCard
+
+    w, service = agent_window
+    downloads = tmp_path / "Pobrane"
+    downloads.mkdir()
+    (downloads / "lista.txt").write_text("element 1")
+
+    w.model_combo.setCurrentIndex(1)
+    qtbot.mouseClick(w.new_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: bool(w.current_id))
+    panel = w.agent_panel
+    qtbot.waitUntil(lambda: not panel.settings_loading)
+
+    # 1. Idle state: stop_button is hidden and disabled, status is Gotowy
+    assert not w.stop_button.isVisible()
+    assert not w.stop_button.isEnabled()
+    assert w.send_button.isEnabled()
+    assert w.generation_status.text() == w.tr("ready")
+
+    # 2. Switch to Agent mode and verify context_controls + presets are available via gear button
+    panel.mode.setCurrentIndex(panel.mode.findData("agent"))
+    qtbot.waitUntil(lambda: not panel.settings_saving)
+    qtbot.mouseClick(w.context_button, Qt.LeftButton)
+    assert w.context_controls.isVisible()
+    assert panel.details.isVisible()
+    preset_values = [w.context_preset.itemData(i) for i in range(w.context_preset.count())]
+    assert "auto" in preset_values
+    assert 4096 in preset_values or 2048 in preset_values
+    assert "custom" in preset_values
+    qtbot.mouseClick(w.context_button, Qt.LeftButton)
+
+    # 3. Ask about files in Pobrane without folder grant -> inline Udostępnij folder appears
+    class MissingFolderThenListEngine(ToolEngine):
+        def __init__(self):
+            self.calls = 0
+
+        async def stream(self, model, messages, parameters):
+            self.calls += 1
+            if self.calls == 1:
+                yield TextChunk(
+                    content=(
+                        "Nie mam dostępu do folderu Pobrane. Udostępnij folder, aby kontynuować."
+                    ),
+                    finish_reason="stop",
+                )
+            elif self.calls == 2:
+                grants_msg = messages[-1].content
+                grant_id = json.loads(grants_msg.split(": ", 1)[1])[0]["id"]
+                yield TextChunk(
+                    content=json.dumps(
+                        {
+                            "kind": "tool",
+                            "name": "list_files",
+                            "arguments": {"grant_id": grant_id, "path": "."},
+                        }
+                    ),
+                    finish_reason="stop",
+                )
+            else:
+                yield TextChunk(
+                    content=json.dumps(
+                        {
+                            "kind": "final",
+                            "text": "W folderze Pobrane znajduje się plik lista.txt.",
+                        }
+                    ),
+                    finish_reason="stop",
+                )
+
+    service.engines["llama.cpp"] = MissingFolderThenListEngine()
+    w.composer.setPlainText("weź sprawdź jakie pliki mam na komputerze w folderze Pobrane")
+    qtbot.mouseClick(w.send_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: panel.active is None and len(panel.runs) == 1, timeout=10000)
+    qtbot.waitUntil(
+        lambda: any(
+            c.agent_grant_button is not None for c in w.transcript.findChildren(MessageCard)
+        ),
+        timeout=5000,
+    )
+    prompt_card = next(
+        c for c in w.transcript.findChildren(MessageCard) if c.agent_grant_button is not None
+    )
+    assert prompt_card.agent_grant_button.isVisible()
+    assert not prompt_card.agent_continue_button.isVisible()
+
+    # 4. Cancelling folder dialog updates notice without error loop
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a: "")
+    qtbot.mouseClick(prompt_card.agent_grant_button, Qt.LeftButton)
+    cancelled_card = next(
+        c for c in w.transcript.findChildren(MessageCard) if c.agent_grant_button is not None
+    )
+    assert w.tr("agent_folder_cancelled") in cancelled_card.agent_folder_label.text()
+
+    # 5. Granting folder via FolderGrantDialog enables Kontynuuj zadanie without duplicating message
+    dialog_check = panel.create_folder_grant_dialog(str(downloads))
+    assert dialog_check.scope_combo.currentData() is False  # Read-only by default
+    assert dialog_check.subfolders_check.isChecked() is True
+    assert dialog_check.persistence_combo.currentData() is False
+    dialog_check.deleteLater()
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a: str(downloads))
+    monkeypatch.setattr(
+        panel,
+        "confirm_folder_grant",
+        lambda _p: (True, False, False, True, True),
+    )
+    qtbot.mouseClick(cancelled_card.agent_grant_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: len(panel.granted_folders) == 1, timeout=5000)
+    assert w.tr("agent_scope_read_only") in panel.folders.item(0).text()
+    assert w.tr("agent_persistence_durable") in panel.folders.item(0).text()
+
+    ready_card = next(
+        c for c in w.transcript.findChildren(MessageCard) if c.agent_continue_button is not None
+    )
+    assert ready_card.agent_continue_button.isVisible()
+    assert ready_card.agent_continue_button.isEnabled()
+
+    qtbot.mouseClick(ready_card.agent_continue_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: "lista.txt" in w.transcript.toPlainText(), timeout=10000)
+    qtbot.waitUntil(lambda: panel.active is None, timeout=5000)
+    assert not w.stop_button.isVisible()
+    assert w.generation_status.text() == w.tr("ready")
+    assert [m["role"] for m in w.messages] == ["user", "assistant"]

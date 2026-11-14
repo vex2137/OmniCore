@@ -7,6 +7,7 @@ import os
 import threading
 import time
 import uuid
+from contextlib import suppress
 from typing import Literal
 
 from pydantic import Field, ValidationError
@@ -85,6 +86,121 @@ class Agents:
                     if item["state"] not in TERMINAL and item["state"] != "not_executed":
                         item["state"] = "interrupted"
                 self.save(record)
+        for saved_grant in self.store.jobs("agent-folder-grant"):
+            if saved_grant.get("active") and saved_grant.get("persistent"):
+                with suppress(Exception):
+                    self.files.grant(
+                        saved_grant["conversation_id"],
+                        saved_grant["path"],
+                        saved_grant.get("sensitive", False),
+                        allow_write=saved_grant.get("allow_write", True),
+                        subfolders=saved_grant.get("subfolders", True),
+                        persistent=True,
+                        grant_id=saved_grant["id"],
+                    )
+
+    def grant_folder(
+        self,
+        conversation_id,
+        path,
+        sensitive=False,
+        *,
+        allow_write=True,
+        subfolders=True,
+        persistent=False,
+    ):
+        described = self.files.grant(
+            conversation_id,
+            path,
+            sensitive,
+            allow_write=allow_write,
+            subfolders=subfolders,
+            persistent=persistent,
+        )
+        if persistent:
+            self.store.save_job(
+                "agent-folder-grant",
+                described["id"],
+                {**described, "conversation_id": conversation_id, "active": True},
+            )
+        else:
+            with suppress(Exception):
+                self.store.save_job(
+                    "agent-folder-grant",
+                    described["id"],
+                    {"id": described["id"], "conversation_id": conversation_id, "active": False},
+                )
+        return described
+
+    def revoke_folder(self, grant_id, conversation_id):
+        self.files.revoke(grant_id, conversation_id)
+        with suppress(Exception):
+            self.store.save_job(
+                "agent-folder-grant",
+                grant_id,
+                {"id": grant_id, "conversation_id": conversation_id, "active": False},
+            )
+
+    @staticmethod
+    def _detect_folder_intent(text: str) -> tuple[bool, str | None]:
+        lower = (text or "").casefold()
+        known_folders = (
+            ("pobrane", "Pobrane"),
+            ("downloads", "Downloads"),
+            ("dokumenty", "Dokumenty"),
+            ("documents", "Documents"),
+            ("pulpit", "Pulpit"),
+            ("desktop", "Desktop"),
+            ("obrazy", "Obrazy"),
+            ("pictures", "Pictures"),
+            ("muzyka", "Muzyka"),
+            ("music", "Music"),
+            ("wideo", "Wideo"),
+            ("videos", "Videos"),
+        )
+        suggested = next((label for key, label in known_folders if key in lower), None)
+        keywords = (
+            "folder",
+            "katalog",
+            "plik",
+            "pobrane",
+            "downloads",
+            "dokumenty",
+            "documents",
+            "pulpit",
+            "desktop",
+            "na komputerze",
+            "na dysku",
+            "w katalogu",
+            "w folderze",
+            "list_files",
+            "read_text",
+            "find_files",
+            "search_text",
+            "file_info",
+            "write_text",
+        )
+        return any(k in lower for k in keywords), suggested
+
+    @staticmethod
+    def _mentions_missing_folder(text: str) -> bool:
+        lower = (text or "").casefold()
+        return any(
+            phrase in lower
+            for phrase in (
+                "grant_id",
+                "udostępni",
+                "uprawnie",
+                "brak dostępu",
+                "nie mam dostępu",
+                "dostępu do folderu",
+                "dostępu do katalogu",
+                "granted folder",
+                "no folder",
+                "folder access",
+                "permission",
+            )
+        )
 
     def save(self, record):
         record["updated_at"] = timestamp()
@@ -124,12 +240,33 @@ class Agents:
             parent = self.record(request.retry_of) if request.retry_of else None
             if parent and (
                 parent["conversation_id"] != conversation_id
-                or parent["state"] not in {"failed", "cancelled", "interrupted"}
+                or (
+                    parent["state"] not in {"failed", "cancelled", "interrupted"}
+                    and not parent.get("needs_folder_grant")
+                )
             ):
                 raise TextError("agent_retry_unavailable", 409)
-            message = self.service.history.add_message(
-                conversation_id, "user", request.content, model_id=model.id
-            )
+            message = None
+            if parent and parent.get("request_message_id"):
+                message = next(
+                    (
+                        m
+                        for m in self.service.history.messages(conversation_id)
+                        if m.id == parent["request_message_id"]
+                    ),
+                    None,
+                )
+                if parent.get("response_message_id"):
+                    with self.store.db.connect() as conn, conn:
+                        conn.execute(
+                            "DELETE FROM text_messages WHERE id=? AND conversation_id=?",
+                            (parent["response_message_id"], conversation_id),
+                        )
+            if message is None:
+                message = self.service.history.add_message(
+                    conversation_id, "user", request.content, model_id=model.id
+                )
+            intent, suggested_folder = self._detect_folder_intent(request.content)
             record = {
                 "id": uuid.uuid4().hex,
                 "conversation_id": conversation_id,
@@ -152,9 +289,16 @@ class Agents:
                 token_estimate=0,
                 step_limit=settings.max_steps,
                 web_access=settings.web_access,
+                folder_intent=intent,
+                suggested_folder_name=suggested_folder,
+                needs_folder_grant=False,
             )
             record["family"] = parent.get("family", parent["id"]) if parent else record["id"]
             if parent:
+                if parent.get("needs_folder_grant"):
+                    parent["needs_folder_grant"] = False
+                    parent["continued_by"] = record["id"]
+                    self.save(parent)
                 for previous in self.store.jobs("agent-run"):
                     if previous.get("family", previous["id"]) == record["family"]:
                         record["write_receipts"].update(previous.get("write_receipts", {}))
@@ -173,7 +317,8 @@ class Agents:
             "Never claim a write succeeded without a successful tool result. Do not copy "
             "private file contents into the final answer unless requested. "
             "Answer general questions directly; for granted folder files, call "
-            "search_text and read_text first. "
+            'list_files (with path "." to list the folder root), find_files, '
+            "search_text, or read_text first. "
             "When native tools are supplied, use their structured calls and a plain final answer. "
             'Otherwise return ONLY one JSON object: {"kind":"tool","name":"TOOL",'
             '"arguments":{...}} or {"kind":"final","text":"answer"}. '
@@ -236,6 +381,21 @@ class Agents:
                     item["state"] = (
                         "not_executed" if record["state"] == "completed" else record["state"]
                     )
+            final_text = record.pop("_final_text", "")
+            folder_intent = bool(record.pop("folder_intent", False))
+            if (
+                record.get("error_code") == "agent_permission_denied"
+                or any(
+                    step.get("error_code") == "agent_permission_denied" for step in record["steps"]
+                )
+                or (
+                    not grants
+                    and not record["steps"]
+                    and record["state"] == "completed"
+                    and (folder_intent or self._mentions_missing_folder(final_text))
+                )
+            ):
+                record["needs_folder_grant"] = True
             self.save(record)
             self.tokens.pop(record["id"], None)
             for key in [key for key in self.live if key[0] == record["id"]]:
@@ -461,6 +621,7 @@ class Agents:
                 )
                 continue
             if isinstance(plan, Final):
+                record["_final_text"] = plan.text
                 assistant_msg = self.service.history.add_message(
                     record["conversation_id"], "assistant", plan.text, model_id=model.id
                 )
@@ -537,6 +698,11 @@ class Agents:
                         "File read complete. Return "
                         '{"kind":"final","text":"..."} if all needed files are read.'
                     )
+                elif call.name == "list_files" and isinstance(result, dict) and "entries" in result:
+                    payload["hint"] = (
+                        "Directory listing complete. Return "
+                        '{"kind":"final","text":"..."} summarizing the files if done.'
+                    )
                 group.append(
                     {
                         "role": "tool" if native else "user",
@@ -588,6 +754,8 @@ class Agents:
                 if alias in raw_args and isinstance(raw_args[alias], str):
                     raw_args["path"] = raw_args.pop(alias)
                     break
+        if "path" not in raw_args and tool_name in {"list_files", "find_files", "search_text"}:
+            raw_args["path"] = "."
         if tool_name in {"search_text", "find_files"} and "query" not in raw_args:
             for alias in ("pattern", "keyword", "search", "text"):
                 if alias in raw_args and isinstance(raw_args[alias], str):
@@ -627,7 +795,15 @@ class Agents:
                 gname = os.path.basename(gpath)
                 p = raw_args["path"].strip()
                 if ".." not in p.split("/"):
-                    if p in {gpath, gname, ""} and tool_name in {
+                    if p in {
+                        gpath,
+                        gpath + "/",
+                        gname,
+                        gname + "/",
+                        "",
+                        "/",
+                        "./",
+                    } and tool_name in {
                         "list_files",
                         "find_files",
                         "search_text",

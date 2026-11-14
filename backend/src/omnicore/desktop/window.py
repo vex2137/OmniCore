@@ -80,7 +80,7 @@ from omnicore.desktop.themes import contrast_ratio, palette, readable_accent
 from omnicore.desktop.transcript import ChatTranscript, statistics_text
 from omnicore.desktop.updates import UpdatePanel
 from omnicore.release import build_info, distribution_version
-from omnicore.text.context import context_settings
+from omnicore.text.context import CONTEXT_PRESETS, context_settings
 from omnicore.text.downloads import is_multipart_gguf
 
 TEXT = "/api/v1/text"
@@ -498,6 +498,11 @@ class MainWindow(QMainWindow):
         self.context_controls.hide()
         self.context_button.toggled.connect(lambda _checked=False: self._sync_mode_settings())
         chat.addWidget(self.context_controls)
+        self.context_label = self.label("context_label")
+        self.context_preset = QComboBox()
+        self.context_preset.setAccessibleName(self.tr("context_configure"))
+        self._populate_context_presets(1_000_000)
+        self.context_preset.currentIndexChanged.connect(self._context_preset_changed)
         self.context_mode = QComboBox()
         self.context_mode.addItem(self.tr("context_auto"), "auto")
         self.context_mode.addItem(self.tr("context_manual"), "manual")
@@ -508,9 +513,16 @@ class MainWindow(QMainWindow):
         self.context_tokens.setSingleStep(256)
         self.context_tokens.setValue(2048)
         self.context_tokens.valueChanged.connect(self._context_edited)
+        self.context_tokens.valueChanged.connect(self._sync_context_preset)
         self.context_save = self.button("context_save", self.save_model_context)
         context_layout.addLayout(
-            self.row(self.context_mode, self.context_tokens, self.context_save)
+            self.row(
+                self.context_label,
+                self.context_preset,
+                self.context_mode,
+                self.context_tokens,
+                self.context_save,
+            )
         )
         self.context_status = QLabel()
         self.context_status.setWordWrap(True)
@@ -535,6 +547,8 @@ class MainWindow(QMainWindow):
         chat.addLayout(agent_row)
         self.transcript = ChatTranscript()
         self.transcript.regenerate_requested.connect(self.regenerate_answer)
+        self.transcript.grant_folder_requested.connect(self.agent_panel.grant_folder)
+        self.transcript.continue_run_requested.connect(self.agent_panel.continue_run)
         chat.addWidget(self.transcript, 1)
         self.composer_wrap = QWidget()
         self.composer_wrap.setMaximumWidth(840)
@@ -576,6 +590,7 @@ class MainWindow(QMainWindow):
         self.send_button = self.button("send", self.send_message, primary=True)
         self.stop_button = self.button("stop", self.stop_generation)
         self.stop_button.setEnabled(False)
+        self.stop_button.hide()
         self.stop_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         self.send_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         meta_row = QHBoxLayout()
@@ -1005,7 +1020,7 @@ class MainWindow(QMainWindow):
     def _sync_mode_settings(self):
         agent_mode = self.agent_panel.mode.currentData() == "agent"
         open_settings = self.context_button.isChecked()
-        self.context_controls.setVisible(open_settings and not agent_mode)
+        self.context_controls.setVisible(open_settings)
         self.agent_panel.settings_toggle.blockSignals(True)
         self.agent_panel.settings_toggle.setChecked(open_settings and agent_mode)
         self.agent_panel.settings_toggle.blockSignals(False)
@@ -1207,6 +1222,8 @@ class MainWindow(QMainWindow):
         self.history_search.setPlaceholderText(self.tr("search_history"))
         self.context_mode.setItemText(0, self.tr("context_auto"))
         self.context_mode.setItemText(1, self.tr("context_manual"))
+        if hasattr(self, "context_preset"):
+            self._populate_context_presets(self.context_tokens.maximum())
         self._render_model_context()
         self.model_actions.setToolTip(self.tr("model_actions"))
         self.model_actions.setAccessibleName(self.tr("model_actions"))
@@ -2035,6 +2052,7 @@ class MainWindow(QMainWindow):
                 if live and not self.active_job:
                     job = live["generation_id"]
                     self.active_job = job
+                    self.stop_button.show()
                     self.stop_button.setEnabled(True)
                     self.send_button.setEnabled(False)
                     self.conversation_list.setEnabled(False)
@@ -2098,6 +2116,47 @@ class MainWindow(QMainWindow):
     def _selected_chat_model(self):
         return next((m for m in self.models if m["id"] == self.model_combo.currentData()), None)
 
+    def _populate_context_presets(self, maximum: int):
+        if not hasattr(self, "context_preset"):
+            return
+        current = self.context_preset.currentData()
+        self.context_preset.blockSignals(True)
+        self.context_preset.clear()
+        self.context_preset.addItem(self.tr("context_preset_auto"), "auto")
+        for preset in CONTEXT_PRESETS:
+            if preset <= max(2048, maximum):
+                self.context_preset.addItem(f"{preset} ({preset // 1024}K)", preset)
+        self.context_preset.addItem(self.tr("context_preset_custom"), "custom")
+        idx = self.context_preset.findData(current if current is not None else "auto")
+        self.context_preset.setCurrentIndex(idx if idx >= 0 else 0)
+        self.context_preset.blockSignals(False)
+
+    def _sync_context_preset(self, *_):
+        if not hasattr(self, "context_preset"):
+            return
+        self.context_preset.blockSignals(True)
+        if self.context_mode.currentData() == "auto":
+            self.context_preset.setCurrentIndex(self.context_preset.findData("auto"))
+        else:
+            val = self.context_tokens.value()
+            idx = self.context_preset.findData(val)
+            if idx >= 0:
+                self.context_preset.setCurrentIndex(idx)
+            else:
+                self.context_preset.setCurrentIndex(self.context_preset.findData("custom"))
+        self.context_preset.blockSignals(False)
+
+    def _context_preset_changed(self, *_):
+        data = self.context_preset.currentData()
+        if data == "auto":
+            self.context_mode.setCurrentIndex(self.context_mode.findData("auto"))
+        elif isinstance(data, int):
+            self.context_mode.setCurrentIndex(self.context_mode.findData("manual"))
+            self.context_tokens.setValue(min(data, self.context_tokens.maximum()))
+        elif data == "custom":
+            self.context_mode.setCurrentIndex(self.context_mode.findData("manual"))
+        self._context_edited()
+
     def _context_edited(self, *_):
         self._context_dirty = True
 
@@ -2117,6 +2176,7 @@ class MainWindow(QMainWindow):
         self.context_tokens.setValue(round(128 * (maximum / 128) ** (position / 1000)))
 
     def _context_mode_changed(self, *_):
+        self._sync_context_preset()
         self.context_slider.setEnabled(
             bool(self._selected_chat_model())
             and self.context_mode.currentData() == "manual"
@@ -2134,10 +2194,11 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "context_mode"):
             return
         model = self._selected_chat_model()
-        self.context_mode.setEnabled(bool(model) and not self._context_saving)
-        self.context_save.setEnabled(
-            bool(model) and not self._context_saving and not self.active_job
-        )
+        busy = bool(self._context_saving or self.active_job or self.agent_panel.active)
+        self.context_mode.setEnabled(bool(model) and not busy)
+        if hasattr(self, "context_preset"):
+            self.context_preset.setEnabled(bool(model) and not busy)
+        self.context_save.setEnabled(bool(model) and not busy)
         if not model:
             self.context_tokens.setEnabled(False)
             self.context_status.setText(self.tr("context_choose_model"))
@@ -2146,6 +2207,7 @@ class MainWindow(QMainWindow):
             self._context_mode_changed()
             return
         saved = self.model_contexts.get(model["id"]) or context_settings(model)
+        self._populate_context_presets(saved["maximum"])
         self.context_mode.blockSignals(True)
         self.context_mode.setCurrentIndex(self.context_mode.findData(saved["mode"]))
         self.context_mode.blockSignals(False)
@@ -2163,6 +2225,10 @@ class MainWindow(QMainWindow):
                 text += " · " + self.tr("context_reload")
         else:
             text += " · " + self.tr("context_on_start")
+        if saved.get("mode") == "auto" and saved.get("auto_reason") == "safe_fallback":
+            text += " · " + self.tr("context_auto_fallback")
+        if saved.get("memory_warning"):
+            text += " · " + self.tr("context_memory_warning")
         self.context_status.setText(text)
 
     def _refresh_model_context(self):
@@ -2220,7 +2286,20 @@ class MainWindow(QMainWindow):
     def _parameters_for_model(self, model):
         parameters = dict(self.config.parameters)
         if model:
-            parameters["context_size"] = context_settings(model)["effective_tokens"]
+            saved = self.model_contexts.get(model["id"]) or context_settings(model)
+            if (
+                self._context_dirty
+                and self.model_combo.currentData() == model["id"]
+                and hasattr(self, "context_mode")
+            ):
+                if self.context_mode.currentData() == "manual":
+                    parameters["context_size"] = self.context_tokens.value()
+                else:
+                    parameters["context_size"] = saved.get(
+                        "automatic_tokens", context_settings(model)["effective_tokens"]
+                    )
+            else:
+                parameters["context_size"] = saved["effective_tokens"]
             if model["backend"] == "ollama":
                 parameters.update(device="cpu", gpu_layers=0)
         return parameters
@@ -2263,6 +2342,7 @@ class MainWindow(QMainWindow):
             self.messages.append({"role": "user", "content": content})
             self.active_job = record["id"]
             self.last_job = None
+            self.stop_button.show()
             self.stop_button.setEnabled(True)
             self.conversation_list.setEnabled(False)
             self.new_button.setEnabled(False)
@@ -2309,7 +2389,10 @@ class MainWindow(QMainWindow):
 
     def _generation_idle(self):
         self.send_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
+        if not getattr(getattr(self, "agent_panel", None), "active", None):
+            self.stop_button.setEnabled(False)
+            self.stop_button.hide()
+            self.generation_status.setText(self.tr("ready"))
         self.conversation_list.setEnabled(True)
         self.new_button.setEnabled(True)
         self.model_combo.setEnabled(True)
@@ -2362,10 +2445,18 @@ class MainWindow(QMainWindow):
             elif job.get("content") or job.get("reasoning_content"):
                 messages.append(replacement)
         runs = getattr(getattr(self, "agent_panel", None), "runs", None) or []
+        has_granted_folder = bool(
+            getattr(getattr(self, "agent_panel", None), "granted_folders", None)
+        )
+        cancelled_grants = getattr(
+            getattr(self, "agent_panel", None), "folder_grant_cancelled_runs", set()
+        )
         if runs:
             by_response = {}
             by_request = {}
             for run in runs:
+                if run.get("continued_by"):
+                    continue
                 resp_id = run.get("response_message_id")
                 if resp_id and resp_id not in by_response:
                     by_response[resp_id] = run
@@ -2389,11 +2480,15 @@ class MainWindow(QMainWindow):
                     )
                     if not next_is_assistant or req_run.get("state") != "completed":
                         msg["agent_run"] = req_run
+                if msg.get("agent_run"):
+                    msg["has_granted_folder"] = has_granted_folder
+                    msg["folder_grant_cancelled"] = msg["agent_run"].get("id") in cancelled_grants
         self.transcript.can_regenerate = bool(
             self.is_connected
             and self.model_combo.currentData()
             and not self.active_job
             and not self._submitting
+            and not getattr(getattr(self, "agent_panel", None), "active", None)
         )
         self.transcript.set_messages(messages, self.tr)
         latest = next(
@@ -2403,6 +2498,9 @@ class MainWindow(QMainWindow):
             statistics_text(latest, self.tr) or self.tr("context_unavailable")
         )
         used, limit = latest.get("context_used_tokens"), latest.get("context_limit_tokens")
+        if used is None and runs and isinstance(runs[0].get("context"), dict):
+            used = runs[0]["context"].get("approx_tokens")
+            limit = runs[0]["context"].get("limit")
         if used is not None and limit:
             self.context_usage.setText(
                 self.tr("context_last", used=used, limit=limit, percent=round(100 * used / limit))
