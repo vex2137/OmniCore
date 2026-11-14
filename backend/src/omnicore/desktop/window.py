@@ -3,8 +3,6 @@
 import math
 import os
 import platform
-import re
-import tempfile
 import uuid
 from datetime import datetime
 from html import escape
@@ -15,7 +13,6 @@ from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
     QPropertyAnimation,
-    QRectF,
     QSize,
     Qt,
     QTimer,
@@ -26,7 +23,6 @@ from PySide6.QtGui import (
     QIcon,
     QKeySequence,
     QPainter,
-    QPen,
     QPixmap,
     QShortcut,
     QTextDocument,
@@ -90,7 +86,14 @@ from omnicore.desktop.resources import (
 from omnicore.desktop.resources import (
     format_summary as format_resource_summary,
 )
-from omnicore.desktop.themes import contrast_ratio, palette, readable_accent
+from omnicore.desktop.styles import (
+    app_icon,
+    build_stylesheet,
+    ensure_arrow_icon,
+    make_divider,
+    polish_property,
+)
+from omnicore.desktop.themes import palette, resolve_theme_tokens
 from omnicore.desktop.transcript import (
     ChatTranscript,
     statistics_text,
@@ -102,6 +105,7 @@ from omnicore.text.downloads import is_multipart_gguf
 
 TEXT = "/api/v1/text"
 TERMINAL = {"completed", "failed", "cancelled", "interrupted"}
+sidebar_icon = app_icon
 
 
 def human_size(value):
@@ -126,101 +130,6 @@ def sidebar_text(text, metrics, width):
         else:
             line = candidate
     return "\n".join([*lines, line])
-
-
-def sidebar_icon(kind, color, size=18):
-    """Draw a crisp 2x vector icon for sidebar buttons."""
-    dpr = 2
-    px = max(12, size) * dpr
-    pixmap = QPixmap(px, px)
-    pixmap.fill(Qt.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing)
-    pen = QPen(QColor(color), 1.8 * dpr, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-    painter.setPen(pen)
-    s = float(px)
-    u = s / 18.0
-    if kind in {"expand", "collapse"}:
-        painter.drawRoundedRect(QRectF(2.5 * u, 3 * u, 13 * u, 12 * u), 2 * u, 2 * u)
-        painter.drawLine(round(6.8 * u), round(3.5 * u), round(6.8 * u), round(14.5 * u))
-        if kind == "expand":
-            painter.drawLine(round(10 * u), round(7 * u), round(12.2 * u), round(9 * u))
-            painter.drawLine(round(10 * u), round(11 * u), round(12.2 * u), round(9 * u))
-        else:
-            painter.drawLine(round(12 * u), round(7 * u), round(9.8 * u), round(9 * u))
-            painter.drawLine(round(12 * u), round(11 * u), round(9.8 * u), round(9 * u))
-    elif kind == "new_chat":
-        painter.drawLine(round(9 * u), round(4 * u), round(9 * u), round(14 * u))
-        painter.drawLine(round(4 * u), round(9 * u), round(14 * u), round(9 * u))
-    elif kind == "conversations_nav":
-        painter.drawRoundedRect(QRectF(2.5 * u, 3 * u, 13 * u, 9.5 * u), 2.5 * u, 2.5 * u)
-        painter.drawLine(round(6 * u), round(12.5 * u), round(5 * u), round(15.2 * u))
-        painter.drawLine(round(5 * u), round(15.2 * u), round(9 * u), round(12.5 * u))
-    elif kind == "models":
-        painter.drawRoundedRect(QRectF(3 * u, 3 * u, 5 * u, 5 * u), 1.2 * u, 1.2 * u)
-        painter.drawRoundedRect(QRectF(10 * u, 3 * u, 5 * u, 5 * u), 1.2 * u, 1.2 * u)
-        painter.drawRoundedRect(QRectF(3 * u, 10 * u, 5 * u, 5 * u), 1.2 * u, 1.2 * u)
-        painter.drawRoundedRect(QRectF(10 * u, 10 * u, 5 * u, 5 * u), 1.2 * u, 1.2 * u)
-    elif kind == "diagnostics":
-        painter.drawLine(round(2.5 * u), round(9.5 * u), round(5.5 * u), round(9.5 * u))
-        painter.drawLine(round(5.5 * u), round(9.5 * u), round(7.5 * u), round(4.5 * u))
-        painter.drawLine(round(7.5 * u), round(4.5 * u), round(10.5 * u), round(13.5 * u))
-        painter.drawLine(round(10.5 * u), round(13.5 * u), round(12.5 * u), round(9.5 * u))
-        painter.drawLine(round(12.5 * u), round(9.5 * u), round(15.5 * u), round(9.5 * u))
-    elif kind == "settings":
-        painter.drawEllipse(QRectF(6.2 * u, 6.2 * u, 5.6 * u, 5.6 * u))
-        spokes = (
-            (0, -6),
-            (0, 6),
-            (-6, 0),
-            (6, 0),
-            (-4.2, -4.2),
-            (4.2, 4.2),
-            (-4.2, 4.2),
-            (4.2, -4.2),
-        )
-        for dx, dy in spokes:
-            painter.drawLine(
-                round((9 + dx * 0.58) * u),
-                round((9 + dy * 0.58) * u),
-                round((9 + dx * 0.92) * u),
-                round((9 + dy * 0.92) * u),
-            )
-    elif kind == "search":
-        painter.drawEllipse(QRectF(3 * u, 3 * u, 8.5 * u, 8.5 * u))
-        painter.drawLine(round(10.3 * u), round(10.3 * u), round(15 * u), round(15 * u))
-    elif kind == "refresh":
-        painter.drawArc(QRectF(3.2 * u, 3.2 * u, 11.6 * u, 11.6 * u), 35 * 16, 285 * 16)
-        painter.drawLine(round(12.2 * u), round(3.0 * u), round(14.8 * u), round(5.2 * u))
-        painter.drawLine(round(14.8 * u), round(5.2 * u), round(11.6 * u), round(6.6 * u))
-    painter.end()
-    pixmap.setDevicePixelRatio(dpr)
-    return QIcon(pixmap)
-
-
-def ensure_arrow_icon(direction: str, color: str) -> str:
-    """Return path to a crisp 2x antialiased chevron PNG for QSS subcontrols."""
-    safe_color = re.sub(r"[^a-zA-Z0-9]", "", color.lower()) or "fg"
-    cache_dir = Path(tempfile.gettempdir()) / "omnicore-ui-icons"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    target = cache_dir / f"chevron-{direction}-{safe_color}.png"
-    if not target.exists():
-        size = 24
-        pixmap = QPixmap(size, size)
-        pixmap.fill(Qt.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing)
-        pen = QPen(QColor(color), 3.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-        painter.setPen(pen)
-        if direction == "up":
-            painter.drawLine(6, 15, 12, 9)
-            painter.drawLine(12, 9, 18, 15)
-        else:
-            painter.drawLine(6, 9, 12, 15)
-            painter.drawLine(12, 15, 18, 9)
-        painter.end()
-        pixmap.save(str(target), "PNG")
-    return target.as_posix()
 
 
 class ModelCardBrowser(QTextBrowser):
@@ -391,12 +300,18 @@ class MainWindow(QMainWindow):
         self.shell.splitterMoved.connect(self.sidebar_dragged)
         self.sidebar = QFrame()
         self.sidebar.setObjectName("sidebar")
+        self.sidebar.installEventFilter(self)
         self.side_layout = QVBoxLayout(self.sidebar)
-        self.side_layout.setContentsMargins(8, 12, 8, 12)
-        self.brand = QLabel("◈  OmniCore")
+        self.side_layout.setContentsMargins(10, 12, 10, 12)
+        self.side_layout.setSpacing(8)
+        self.brand_mark = QLabel()
+        self.brand_mark.setObjectName("brandMark")
+        self.brand = QLabel("OmniCore")
         self.brand.setObjectName("brand")
         self.sidebar_header = QHBoxLayout()
-        self.sidebar_header.setContentsMargins(0, 0, 0, 0)
+        self.sidebar_header.setContentsMargins(2, 0, 0, 4)
+        self.sidebar_header.setSpacing(8)
+        self.sidebar_header.addWidget(self.brand_mark)
         self.sidebar_header.addWidget(self.brand, 1)
         self.side_layout.addLayout(self.sidebar_header)
         self.sidebar_toggle = QPushButton()
@@ -405,17 +320,35 @@ class MainWindow(QMainWindow):
         self.sidebar_toggle.clicked.connect(self.toggle_sidebar)
         self.sidebar_toggle.setFixedSize(32, 32)
         self.sidebar_header.addWidget(self.sidebar_toggle)
+        self.new_button = self.button("new_chat", self.new_conversation, primary=True)
+        self.new_button.setCursor(Qt.PointingHandCursor)
+        self.side_layout.addWidget(self.new_button)
         self.nav = []
         for index, key in enumerate(("chat", "models", "settings", "diagnostics")):
             button = self.button(key, lambda checked=False, i=index: self.navigate(i))
             button.setCheckable(True)
             button.setObjectName("nav")
+            button.setCursor(Qt.PointingHandCursor)
             self.nav.append(button)
+        self.side_layout.addWidget(self.nav[0])
+        self.side_layout.addWidget(self.nav[1])
+
         self._history_search_open = False
-        self.conversations_row = QHBoxLayout()
-        self.conversations_row.setContentsMargins(0, 0, 0, 0)
-        self.conversations_row.setSpacing(4)
-        self.conversations_row.addWidget(self.nav[0], 1)
+        self.history_panel = QWidget()
+        left = QVBoxLayout(self.history_panel)
+        left.setContentsMargins(0, 4, 0, 0)
+        left.setSpacing(6)
+        self.history_toolbar = QHBoxLayout()
+        self.history_toolbar.setContentsMargins(0, 0, 0, 2)
+        self.history_toolbar.setSpacing(6)
+        self.history_search_toggle = QPushButton()
+        self.history_search_toggle.setObjectName("historySearchTrigger")
+        self.history_search_toggle.setCursor(Qt.PointingHandCursor)
+        self.history_search_toggle.clicked.connect(self.open_history_search)
+        self.history_menu_btn = QPushButton()
+        self.history_menu_btn.setObjectName("historyHeaderButton")
+        self.history_menu_btn.setCursor(Qt.PointingHandCursor)
+        self.history_menu_btn.clicked.connect(self.open_history_menu)
         self.history_search = QLineEdit()
         self.history_search.setObjectName("historySearch")
         self.history_search.setMaxLength(256)
@@ -427,28 +360,60 @@ class MainWindow(QMainWindow):
         self.search_timer.setInterval(250)
         self.search_timer.timeout.connect(self.refresh_conversations)
         self.history_search.textChanged.connect(lambda _: self.search_timer.start())
-        self.history_search_close = QPushButton("✕")
+        self.history_search_close = QPushButton()
         self.history_search_close.setObjectName("historyHeaderButton")
+        self.history_search_close.setCursor(Qt.PointingHandCursor)
         self.history_search_close.clicked.connect(self.close_history_search)
         self.history_search_close.hide()
-        self.conversations_row.addWidget(self.history_search, 1)
-        self.conversations_row.addWidget(self.history_search_close)
-        self.side_layout.addLayout(self.conversations_row)
-        self.side_layout.addWidget(self.nav[1])
+        self.history_toolbar.addWidget(self.history_search_toggle, 1)
+        self.history_toolbar.addWidget(self.history_menu_btn)
+        self.history_toolbar.addWidget(self.history_search, 1)
+        self.history_toolbar.addWidget(self.history_search_close)
+        left.addLayout(self.history_toolbar)
+
+        self.sidebar_width = QSpinBox()
+        self.sidebar_width.setRange(200, 360)
+        self.sidebar_width.setValue(self.config.sidebar_width)
+        self.sidebar_width.setSuffix(" px")
+        self.sidebar_width.valueChanged.connect(self.resize_sidebar)
+
+        self.conversation_list = QListWidget()
+        self.conversation_list.setObjectName("conversations")
+        self.conversation_list.setFrameShape(QFrame.NoFrame)
+        self.conversation_list.viewport().setAutoFillBackground(False)
+        self.conversation_list.setLayoutMode(QListWidget.Batched)
+        self.conversation_list.setBatchSize(128)
+        self.conversation_list.setWordWrap(False)
+        self.conversation_list.setTextElideMode(Qt.ElideRight)
+        self.conversation_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.conversation_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.conversation_list.customContextMenuRequested.connect(self.conversation_menu)
+        self.conversation_list.currentItemChanged.connect(self.select_conversation)
+        self.conversation_list.currentItemChanged.connect(self.update_history_selection)
+        left.addWidget(self.conversation_list, 1)
+        self.side_layout.addWidget(self.history_panel, 1)
+        self.compact_spacer = QWidget()
+        self.compact_spacer.setObjectName("compactSpacer")
+        self.side_layout.addWidget(self.compact_spacer, 1)
+        self.nav_footer_divider = make_divider()
+        self.side_layout.addWidget(self.nav_footer_divider)
+        self.side_layout.addWidget(self.nav[3])
+        self.side_layout.addWidget(self.nav[2])
         self.shell.addWidget(self.sidebar)
+
         main = QWidget()
         self.body_layout = QVBoxLayout(main)
         body = self.body_layout
-        body.setContentsMargins(28, 22, 28, 22)
-        header = QHBoxLayout()
+        body.setContentsMargins(18, 12, 18, 12)
+        body.setSpacing(10)
+        self.topbar = QFrame()
+        self.topbar.setObjectName("appTopbar")
+        topbar_layout = QHBoxLayout(self.topbar)
+        topbar_layout.setContentsMargins(0, 0, 0, 8)
+        topbar_layout.setSpacing(6)
         self.page_title = self.label("chat", title=True)
-        header.addWidget(self.page_title)
-        header.addStretch()
-        self.connection = self.label("connecting")
-        self.connection.setObjectName("badge")
-        header.addWidget(self.connection)
-        self.reconnect_button = self.button("reconnect", self.reconnect)
-        header.addWidget(self.reconnect_button)
+        topbar_layout.addWidget(self.page_title)
+        topbar_layout.addStretch(1)
         self.resource_monitor_btn = QPushButton(
             format_resource_summary(ResourceSnapshot(), self.tr)
         )
@@ -458,12 +423,16 @@ class MainWindow(QMainWindow):
         self.resource_monitor_btn.setToolTip(self.tr("resources_tooltip"))
         self.resource_monitor_btn.setAccessibleName(self.tr("resources_label"))
         self.resource_monitor_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        body.addLayout(header)
-        resource_row = QHBoxLayout()
-        resource_row.setContentsMargins(0, 0, 0, 0)
-        resource_row.addWidget(self.resource_monitor_btn)
-        resource_row.addStretch(1)
-        body.addLayout(resource_row)
+        topbar_layout.addWidget(self.resource_monitor_btn)
+        self.connection = self.label("connecting")
+        self.connection.setObjectName("statusPill")
+        polish_property(self.connection, "tone", "warn")
+        topbar_layout.addWidget(self.connection)
+        self.reconnect_button = self.button("reconnect", self.reconnect)
+        self.reconnect_button.hide()
+        topbar_layout.addWidget(self.reconnect_button)
+        body.addWidget(self.topbar)
+
         self.resource_details_frame = QFrame()
         self.resource_details_frame.setObjectName("resourceDetails")
         self.resource_details_frame.hide()
@@ -524,10 +493,13 @@ class MainWindow(QMainWindow):
         self._sync_backend_pid()
         self.resource_monitor.start()
         self.onboarding = QFrame()
-        self.onboarding.setObjectName("notice")
+        self.onboarding.setObjectName("onboardingCard")
         intro = QVBoxLayout(self.onboarding)
+        intro.setContentsMargins(16, 14, 16, 14)
+        intro.setSpacing(8)
         intro.addWidget(self.label("welcome_title", title=True))
         intro_text = self.label("welcome_steps")
+        intro_text.setObjectName("subtleHint")
         intro_text.setWordWrap(True)
         intro.addWidget(intro_text)
         self.welcome_import = self.button("import_gguf", self.first_import, primary=True)
@@ -542,15 +514,9 @@ class MainWindow(QMainWindow):
         self.onboarding.setVisible(not self.config.onboarding_complete)
         body.addWidget(self.onboarding)
         self.pages = QStackedWidget()
+        self.pages.setMinimumWidth(0)
         body.addWidget(self.pages, 1)
         self._build_chat()
-        self.compact_spacer = QWidget()
-        self.compact_spacer.setObjectName("compactSpacer")
-        self.compact_spacer.setStyleSheet("background: transparent;")
-        self.side_layout.addWidget(self.compact_spacer, 1)
-        self.side_layout.addWidget(self.nav[3])
-        self.side_layout.addWidget(self.nav[2])
-        self._apply_sidebar()
         self._build_models()
         self._build_settings()
         self._build_diagnostics()
@@ -564,60 +530,16 @@ class MainWindow(QMainWindow):
     def _build_chat(self):
         page = QWidget()
         outer = QHBoxLayout(page)
-        outer.setContentsMargins(0, 12, 0, 0)
-        self.history_panel = QWidget()
-        left = QVBoxLayout(self.history_panel)
-        left.setContentsMargins(0, 0, 0, 0)
-        left.setSpacing(6)
-        self.history_toolbar = QHBoxLayout()
-        self.history_toolbar.setContentsMargins(0, 0, 0, 2)
-        self.history_toolbar.setSpacing(6)
-        self.history_search_toggle = QPushButton()
-        self.history_search_toggle.setObjectName("historySearchTrigger")
-        self.history_search_toggle.setCursor(Qt.PointingHandCursor)
-        self.history_search_toggle.clicked.connect(self.open_history_search)
-        self.history_refresh = QPushButton()
-        self.history_refresh.setObjectName("historyHeaderButton")
-        self.history_refresh.setCursor(Qt.PointingHandCursor)
-        self.history_refresh.clicked.connect(self.refresh_shared_history)
-        self.history_menu_btn = QPushButton("⋯")
-        self.history_menu_btn.setObjectName("historyHeaderButton")
-        self.history_menu_btn.setCursor(Qt.PointingHandCursor)
-        self.history_menu_btn.clicked.connect(self.open_history_menu)
-        self.history_toolbar_spacer = QWidget()
-        self.history_toolbar_spacer.setStyleSheet("background: transparent;")
-        self.history_toolbar_spacer.hide()
-        self.history_toolbar.addWidget(self.history_search_toggle, 1)
-        self.history_toolbar.addWidget(self.history_toolbar_spacer, 1)
-        self.history_toolbar.addWidget(self.history_refresh)
-        self.history_toolbar.addWidget(self.history_menu_btn)
-        left.addLayout(self.history_toolbar)
-        self.sidebar_width = QSpinBox()
-        self.sidebar_width.setRange(200, 360)
-        self.sidebar_width.setValue(self.config.sidebar_width)
-        self.sidebar_width.setSuffix(" px")
-        self.sidebar_width.valueChanged.connect(self.resize_sidebar)
-        self.new_button = self.button("new_chat", self.new_conversation, primary=True)
-        left.addWidget(self.new_button)
-        self.conversation_list = QListWidget()
-        self.conversation_list.setObjectName("conversations")
-        self.conversation_list.setLayoutMode(QListWidget.Batched)
-        self.conversation_list.setBatchSize(128)
-        self.conversation_list.setWordWrap(False)
-        self.conversation_list.setTextElideMode(Qt.ElideRight)
-        self.conversation_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.conversation_list.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.conversation_list.customContextMenuRequested.connect(self.conversation_menu)
-        self.conversation_list.currentItemChanged.connect(self.select_conversation)
-        self.conversation_list.currentItemChanged.connect(self.update_history_selection)
-        left.addWidget(self.conversation_list, 1)
-        self.side_layout.insertWidget(1, self.new_button)
-        left.removeWidget(self.new_button)
-        self.side_layout.addWidget(self.history_panel, 1)
+        outer.setContentsMargins(0, 0, 0, 0)
         pane = QWidget()
         chat = QVBoxLayout(pane)
         chat.setContentsMargins(0, 0, 0, 0)
         chat.setSpacing(10)
+        self.chat_header_card = QFrame()
+        self.chat_header_card.setObjectName("chatHeaderCard")
+        self.chat_header = QHBoxLayout(self.chat_header_card)
+        self.chat_header.setContentsMargins(14, 8, 14, 8)
+        self.chat_header.setSpacing(10)
         self.chat_title = QLabel(self.tr("new_chat"))
         self.chat_title.setObjectName("chatTitle")
         self.chat_title.setTextFormat(Qt.PlainText)
@@ -630,26 +552,38 @@ class MainWindow(QMainWindow):
         self.model_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.model_combo.currentIndexChanged.connect(self.model_selected)
-        self.chat_header = self.row(self.chat_title, self.model_combo)
-        self.chat_header.setStretch(0, 1)
-        self.context_button = QPushButton("⚙")
+        self.chat_header.addWidget(self.chat_title, 1)
+        self.chat_header.addWidget(self.model_combo)
+        self.context_button = QPushButton()
+        self.context_button.setObjectName("iconButton")
+        self.context_button.setCursor(Qt.PointingHandCursor)
         self.context_button.setFixedWidth(34)
         self.context_button.setCheckable(True)
-        self.chat_refresh = QPushButton("↻")
+        self.chat_refresh = QPushButton()
+        self.chat_refresh.setObjectName("iconButton")
+        self.chat_refresh.setCursor(Qt.PointingHandCursor)
         self.chat_refresh.setFixedWidth(34)
         self.chat_refresh.clicked.connect(self.refresh_models)
         self.chat_header.addWidget(self.context_button)
         self.chat_header.addWidget(self.chat_refresh)
-        chat.addLayout(self.chat_header)
+        chat.addWidget(self.chat_header_card)
         self.context_controls = QFrame()
         self.context_controls.setObjectName("contextCard")
+        self.context_controls.setMaximumWidth(860)
         context_layout = QVBoxLayout(self.context_controls)
-        context_layout.setContentsMargins(12, 10, 12, 10)
-        context_layout.setSpacing(6)
+        context_layout.setContentsMargins(16, 12, 16, 12)
+        context_layout.setSpacing(8)
         self.context_controls.hide()
         self.context_button.toggled.connect(lambda _checked=False: self._sync_mode_settings())
-        chat.addWidget(self.context_controls)
+        self.context_button.toggled.connect(lambda _checked=False: self._sync_chat_icons())
+        context_row = QHBoxLayout()
+        context_row.setContentsMargins(0, 0, 0, 0)
+        context_row.addStretch(1)
+        context_row.addWidget(self.context_controls, 100)
+        context_row.addStretch(1)
+        chat.addLayout(context_row)
         self.context_label = self.label("context_label")
+        self.context_label.setObjectName("drawerHeading")
         self.context_preset = QComboBox()
         self.context_preset.setAccessibleName(self.tr("context_configure"))
         self._populate_context_presets(1_000_000)
@@ -666,6 +600,7 @@ class MainWindow(QMainWindow):
         self.context_tokens.valueChanged.connect(self._context_edited)
         self.context_tokens.valueChanged.connect(self._sync_context_preset)
         self.context_save = self.button("context_save", self.save_model_context)
+        self.context_save.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         context_layout.addLayout(
             self.row(
                 self.context_label,
@@ -684,11 +619,10 @@ class MainWindow(QMainWindow):
         self.context_tokens.valueChanged.connect(self.sync_context_slider)
         context_layout.addWidget(self.context_slider)
         context_layout.addWidget(self.context_status)
-        self.context_gpu_divider = QFrame()
-        self.context_gpu_divider.setObjectName("contextDivider")
-        self.context_gpu_divider.setFrameShape(QFrame.HLine)
+        self.context_gpu_divider = make_divider("contextDivider")
         context_layout.addWidget(self.context_gpu_divider)
         self.chat_gpu_label = self.label("gpu_section_label")
+        self.chat_gpu_label.setObjectName("drawerHeading")
         self.chat_gpu_mode = QComboBox()
         self.chat_gpu_mode.setAccessibleName(self.tr("gpu_offload_mode"))
         for key in ("auto", "max", "manual", "cpu"):
@@ -701,6 +635,7 @@ class MainWindow(QMainWindow):
         self.chat_gpu_layers.setAccessibleName(self.tr("gpu_layers"))
         self.chat_gpu_layers.valueChanged.connect(self._chat_gpu_edited)
         self.chat_gpu_save = self.button("save", self.save_model_gpu)
+        self.chat_gpu_save.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         context_layout.addLayout(
             self.row(
                 self.chat_gpu_label,
@@ -732,19 +667,20 @@ class MainWindow(QMainWindow):
         self.transcript.continue_run_requested.connect(self.agent_panel.continue_run)
         chat.addWidget(self.transcript, 1)
         self.composer_wrap = QWidget()
-        self.composer_wrap.setMaximumWidth(840)
+        self.composer_wrap.setMaximumWidth(860)
         wrap_layout = QVBoxLayout(self.composer_wrap)
         wrap_layout.setContentsMargins(0, 0, 0, 0)
         wrap_layout.setSpacing(6)
         self.composer_box = QFrame()
         self.composer_box.setObjectName("composerBox")
         box_layout = QVBoxLayout(self.composer_box)
-        box_layout.setContentsMargins(10, 8, 10, 8)
+        box_layout.setContentsMargins(12, 8, 12, 8)
         box_layout.setSpacing(6)
         self.composer = Composer()
         self.composer.submitted.connect(self.send_message)
         self.composer.setObjectName("composer")
         box_layout.addWidget(self.composer)
+        box_layout.addWidget(make_divider("subtleDivider"))
         self.generation_status = self.label("ready")
         self.generation_status.setObjectName("mutedMeta")
         self.generation_status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
@@ -770,6 +706,7 @@ class MainWindow(QMainWindow):
         self.context_toggle.toggled.connect(self.context_details.setVisible)
         self.send_button = self.button("send", self.send_message, primary=True)
         self.stop_button = self.button("stop", self.stop_generation)
+        self.stop_button.setObjectName("dangerButton")
         self.stop_button.setEnabled(False)
         self.stop_button.hide()
         self.stop_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
@@ -802,24 +739,43 @@ class MainWindow(QMainWindow):
     def _build_models(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 12, 0, 0)
-        layout.addWidget(self.label("model_hint"))
+        layout.setContentsMargins(0, 6, 0, 0)
+        layout.setSpacing(10)
+        models_hint = self.label("model_hint")
+        models_hint.setObjectName("subtleHint")
+        layout.addWidget(models_hint)
         self.model_tabs = QTabWidget()
         layout.addWidget(self.model_tabs, 1)
+
         installed = QWidget()
         local = QVBoxLayout(installed)
+        local.setContentsMargins(0, 10, 0, 0)
+        local.setSpacing(10)
+
+        controls_card = QFrame()
+        controls_card.setObjectName("surfaceCard")
+        controls_layout = QVBoxLayout(controls_card)
+        controls_layout.setContentsMargins(14, 10, 14, 10)
+        controls_layout.setSpacing(8)
         self.engine_filter = QComboBox()
         self.engine_filter.addItems(["llama.cpp", "ollama"])
         self.engine_filter.currentTextChanged.connect(self.refresh_model_table)
         self.scan_button = self.button("scan_models", self.scan_models)
-        local.addLayout(
-            self.row(
-                self.button("import_gguf", self.choose_gguf, primary=True),
-                self.scan_button,
-                self.button("sync_ollama", self.sync_ollama),
-                self.button("refresh", self.refresh_models),
-            )
-        )
+        import_btn = self.button("import_gguf", self.choose_gguf, primary=True)
+        sync_btn = self.button("sync_ollama", self.sync_ollama)
+        refresh_btn = self.button("refresh", self.refresh_models)
+        for btn in (import_btn, self.scan_button, sync_btn, refresh_btn):
+            btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        action_bar = QHBoxLayout()
+        action_bar.setContentsMargins(0, 0, 0, 0)
+        action_bar.setSpacing(8)
+        action_bar.addWidget(import_btn)
+        action_bar.addWidget(self.scan_button)
+        action_bar.addWidget(sync_btn)
+        action_bar.addStretch(1)
+        action_bar.addWidget(refresh_btn)
+        controls_layout.addLayout(action_bar)
+
         self.model_search = QLineEdit()
         self.model_search.textChanged.connect(self.refresh_model_table)
         self.model_sort = QComboBox()
@@ -829,15 +785,23 @@ class MainWindow(QMainWindow):
         self.favorites_only = QCheckBox(self.tr("favorites_only"))
         self._texts.append((self.favorites_only, "favorites_only"))
         self.favorites_only.toggled.connect(self.refresh_model_table)
-        local.addLayout(
-            self.row(self.model_search, self.engine_filter, self.model_sort, self.favorites_only)
+        filter_bar = self.row(
+            self.model_search, self.engine_filter, self.model_sort, self.favorites_only
         )
+        filter_bar.setStretch(0, 1)
+        controls_layout.addLayout(filter_bar)
+        local.addWidget(controls_card)
+
         self.models_empty = self.label("models_empty")
+        self.models_empty.setObjectName("subtleHint")
         local.addWidget(self.models_empty)
+
         self.model_table = QTableWidget(0, 4)
         self.model_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.model_table.setSelectionMode(QTableWidget.SingleSelection)
         self.model_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.model_table.setShowGrid(False)
+        self.model_table.setAlternatingRowColors(True)
         self.model_table.verticalHeader().hide()
         self.model_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         for column in (1, 2, 3):
@@ -846,14 +810,23 @@ class MainWindow(QMainWindow):
             )
         self.model_table.itemSelectionChanged.connect(self.model_details)
         local.addWidget(self.model_table, 1)
+
+        footer_card = QFrame()
+        footer_card.setObjectName("surfaceCard")
+        footer_layout = QHBoxLayout(footer_card)
+        footer_layout.setContentsMargins(14, 10, 14, 10)
+        footer_layout.setSpacing(12)
         self.model_detail = self.label("model_details")
+        self.model_detail.setObjectName("subtleHint")
         self.model_detail.setTextFormat(Qt.PlainText)
         self.model_detail.setWordWrap(True)
-        local.addWidget(self.model_detail)
+        footer_layout.addWidget(self.model_detail, 1)
         self.favorite_button = self.button("favorite_toggle", self.toggle_favorite_model)
         self.load_button = self.button("load", self.load_model, primary=True)
+        configure_btn = self.button("model_configure", self.configure_selected_model)
         self.model_actions = QToolButton()
-        self.model_actions.setText("⋯")
+        self.model_actions.setObjectName("iconButton")
+        self.model_actions.setCursor(Qt.PointingHandCursor)
         self.model_actions.setFixedSize(32, 32)
         self.model_actions.setPopupMode(QToolButton.InstantPopup)
         self.model_actions_menu = QMenu(self.model_actions)
@@ -864,24 +837,37 @@ class MainWindow(QMainWindow):
             self.tr("remove_entry"), self.remove_model
         )
         self.model_actions.setMenu(self.model_actions_menu)
-        local.addLayout(
-            self.row(
-                self.load_button,
-                self.favorite_button,
-                self.button("model_configure", self.configure_selected_model),
-                self.model_actions,
-            )
-        )
+        for btn in (self.load_button, self.favorite_button, configure_btn):
+            btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            footer_layout.addWidget(btn)
+        footer_layout.addWidget(self.model_actions)
+        local.addWidget(footer_card)
         self.model_tabs.addTab(installed, "")
+
         remote = QWidget()
         hf = QVBoxLayout(remote)
-        hf.addWidget(self.label("download_hint"))
+        hf.setContentsMargins(0, 10, 0, 0)
+        hf.setSpacing(10)
+        download_hint = self.label("download_hint")
+        download_hint.setObjectName("subtleHint")
+        hf.addWidget(download_hint)
         splitter = QSplitter(Qt.Horizontal)
-        left, right = QWidget(), QWidget()
-        left_layout, right_layout = QVBoxLayout(left), QVBoxLayout(right)
+        splitter.setHandleWidth(6)
+        left = QFrame()
+        left.setObjectName("surfaceCard")
+        right = QFrame()
+        right.setObjectName("surfaceCard")
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(12, 12, 12, 12)
+        left_layout.setSpacing(8)
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(14, 12, 14, 12)
+        right_layout.setSpacing(8)
         self.hf_query = QLineEdit()
         self.hf_query.returnPressed.connect(self.search_hf)
-        left_layout.addLayout(self.row(self.hf_query, self.button("search", self.search_hf)))
+        hf_search_btn = self.button("search", self.search_hf)
+        hf_search_btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        left_layout.addLayout(self.row(self.hf_query, hf_search_btn))
         self.hf_sort = QComboBox()
         for key, value in (
             ("sort_downloads", "downloads"),
@@ -889,21 +875,24 @@ class MainWindow(QMainWindow):
             ("sort_updated", "lastModified"),
         ):
             self.hf_sort.addItem(self.tr(key), value)
-        left_layout.addLayout(
-            self.row(self.button("popular_models", self.popular_hf), self.hf_sort)
-        )
+        popular_btn = self.button("popular_models", self.popular_hf)
+        popular_btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        left_layout.addLayout(self.row(popular_btn, self.hf_sort))
         self.hf_results = QListWidget()
         self.hf_results.currentItemChanged.connect(self._hf_selection_changed)
         self.hf_sort.currentIndexChanged.connect(self.search_hf)
         left_layout.addWidget(self.hf_results, 1)
         self.hf_detail = QLabel()
+        self.hf_detail.setObjectName("subtleHint")
         self.hf_detail.setWordWrap(True)
         self.hf_detail.setTextFormat(Qt.PlainText)
         right_layout.addWidget(self.hf_detail)
         self.hf_readme = ModelCardBrowser()
         self.hf_readme.setMinimumHeight(100)
         right_layout.addWidget(self.hf_readme, 1)
-        right_layout.addWidget(self.label("files"))
+        files_label = self.label("files")
+        files_label.setObjectName("drawerHeading")
+        right_layout.addWidget(files_label)
         self.hf_quant_filter = QLineEdit()
         self.hf_quant_filter.setPlaceholderText(self.tr("filter_quantization"))
         self.hf_quant_filter.textChanged.connect(self._filter_hf_files)
@@ -916,40 +905,55 @@ class MainWindow(QMainWindow):
         self.hf_files = QComboBox()
         right_layout.addWidget(self.hf_files)
         self.hf_file_info = QLabel()
+        self.hf_file_info.setObjectName("mutedMeta")
         self.hf_file_info.setWordWrap(True)
         self.hf_files.currentIndexChanged.connect(self._hf_file_info)
         right_layout.addWidget(self.hf_file_info)
         self.download_button = self.button("download_file", self.download_file, primary=True)
         right_layout.addWidget(self.download_button)
+
         transfers = QWidget()
         transfer_layout = QVBoxLayout(transfers)
+        transfer_layout.setContentsMargins(0, 10, 0, 0)
+        transfer_layout.setSpacing(10)
+        transfers_card = QFrame()
+        transfers_card.setObjectName("surfaceCard")
+        tc_layout = QVBoxLayout(transfers_card)
+        tc_layout.setContentsMargins(18, 16, 18, 16)
+        tc_layout.setSpacing(10)
         self.transfers_empty = self.label("transfers_empty")
-        transfer_layout.addWidget(self.transfers_empty)
+        self.transfers_empty.setObjectName("subtleHint")
+        tc_layout.addWidget(self.transfers_empty)
         self.download_list = QComboBox()
-        transfer_layout.addWidget(self.download_list)
+        tc_layout.addWidget(self.download_list)
         self.download_progress = QProgressBar()
         self.download_progress.setValue(0)
-        transfer_layout.addWidget(self.download_progress)
+        tc_layout.addWidget(self.download_progress)
         self.download_status = QLabel()
-        transfer_layout.addWidget(self.download_status)
+        self.download_status.setObjectName("mutedMeta")
+        tc_layout.addWidget(self.download_status)
         self.download_list.currentIndexChanged.connect(self._show_download_progress)
         self.cancel_download_button = self.button("cancel_download", self.cancel_download)
         self.resume_download_button = self.button("resume_download", self.resume_download)
         self.import_download_button = self.button("import_download", self.import_download)
-        transfer_layout.addLayout(
-            self.row(
-                self.cancel_download_button,
-                self.resume_download_button,
-                self.import_download_button,
-            )
-        )
+        dl_actions = QHBoxLayout()
+        dl_actions.setContentsMargins(0, 4, 0, 0)
+        dl_actions.setSpacing(8)
         for button in (
             self.cancel_download_button,
             self.resume_download_button,
             self.import_download_button,
         ):
             button.hide()
+            button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            dl_actions.addWidget(button)
+        dl_actions.addStretch(1)
+        tc_layout.addLayout(dl_actions)
+        transfer_layout.addWidget(transfers_card)
+        transfer_layout.addStretch(1)
+
         right_scroll = QScrollArea()
+        right_scroll.setFrameShape(QFrame.NoFrame)
         right_scroll.setWidgetResizable(True)
         right_scroll.setWidget(right)
         splitter.addWidget(left)
@@ -959,12 +963,12 @@ class MainWindow(QMainWindow):
         splitter.setSizes([390, 700])
         hf.addWidget(splitter, 1)
         self.model_tabs.addTab(remote, "")
-        transfer_layout.addStretch()
         self.model_tabs.addTab(transfers, "")
         self.pages.addWidget(page)
 
     def _build_settings(self):
         scroll = QScrollArea()
+        scroll.setFrameShape(QFrame.NoFrame)
         scroll.setWidgetResizable(True)
         outer = QWidget()
         outer_layout = QHBoxLayout(outer)
@@ -985,7 +989,7 @@ class MainWindow(QMainWindow):
             card_form.setContentsMargins(20, 18, 20, 18)
             card_form.setHorizontalSpacing(18)
             card_form.setVerticalSpacing(14)
-            card_form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
+            card_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
             container_layout.addWidget(card)
             return card_form
 
@@ -1000,12 +1004,18 @@ class MainWindow(QMainWindow):
 
         appearance_form = make_card()
         self.language = QComboBox()
+        self.language.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.language.setMinimumContentsLength(16)
+        self.language.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.language.addItem("Polski", "pl-PL")
         self.language.addItem("English", "en-US")
         self.language.setCurrentIndex(self.language.findData(self.config.locale))
         self.language.currentIndexChanged.connect(self.preview_language)
         appearance_form.addRow(self.label("language"), self.language)
         self.theme = QComboBox()
+        self.theme.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.theme.setMinimumContentsLength(16)
+        self.theme.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         for key in ("system", "light", "midnight", "graphite", "oled", "ocean", "forest"):
             self.theme.addItem(self.tr(key), key)
         self.theme.setCurrentIndex(
@@ -1029,8 +1039,10 @@ class MainWindow(QMainWindow):
         self.ui_scale.setSingleStep(10)
         self.ui_scale.setSuffix(" %")
         self.ui_scale.setValue(self.config.ui_scale)
+        self.ui_scale.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         self.ui_scale.valueChanged.connect(self.change_ui_scale)
         appearance_form.addRow(self.label("ui_scale"), self.ui_scale)
+        self.sidebar_width.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         appearance_form.addRow(self.label("sidebar_width"), self.sidebar_width)
         self.accent_button = self.button("accent", self.choose_accent)
         appearance_form.addRow(
@@ -1039,6 +1051,9 @@ class MainWindow(QMainWindow):
 
         engine_form = make_card()
         self.device = QComboBox()
+        self.device.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.device.setMinimumContentsLength(28)
+        self.device.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         for key in ("auto", "cpu", "cuda"):
             self.device.addItem(self.tr("mode_" + key), key)
         selected = self.config.parameters.get("device", "auto")
@@ -1047,6 +1062,9 @@ class MainWindow(QMainWindow):
         self.device.setCurrentIndex(self.device.findData(selected))
         engine_form.addRow(self.label("execution_mode"), self.device)
         self.gpu_offload_mode = QComboBox()
+        self.gpu_offload_mode.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.gpu_offload_mode.setMinimumContentsLength(20)
+        self.gpu_offload_mode.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         for key in ("auto", "max", "manual", "cpu"):
             self.gpu_offload_mode.addItem(self.tr("offload_" + key), key)
         offload_selected = self.config.parameters.get(
@@ -1157,18 +1175,37 @@ class MainWindow(QMainWindow):
         footer_form.addRow(self.updates)
         container_layout.addStretch(1)
         scroll.setWidget(outer)
+        scroll.setMinimumWidth(0)
         self.pages.addWidget(scroll)
 
     def _build_diagnostics(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.addWidget(self.label("diagnostics_hint"))
-        layout.addWidget(self.button("refresh", self.refresh_diagnostics))
-        layout.addWidget(self.button("export_report", self.export_report))
+        layout.setContentsMargins(0, 6, 0, 0)
+        layout.setSpacing(10)
+        diag_hint = self.label("diagnostics_hint")
+        diag_hint.setObjectName("subtleHint")
+        layout.addWidget(diag_hint)
+        actions = QHBoxLayout()
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.setSpacing(8)
+        refresh_btn = self.button("refresh", self.refresh_diagnostics)
+        export_btn = self.button("export_report", self.export_report)
+        refresh_btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        export_btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        actions.addWidget(refresh_btn)
+        actions.addWidget(export_btn)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+        diag_title = self.label("diagnostics")
+        diag_title.setObjectName("drawerHeading")
+        layout.addWidget(diag_title)
         self.diagnostic_text = QPlainTextEdit()
         self.diagnostic_text.setReadOnly(True)
         layout.addWidget(self.diagnostic_text, 2)
-        layout.addWidget(self.label("events"))
+        events_title = self.label("events")
+        events_title.setObjectName("drawerHeading")
+        layout.addWidget(events_title)
         self.logs = QPlainTextEdit()
         self.logs.setReadOnly(True)
         self.logs.document().setMaximumBlockCount(250)
@@ -1199,7 +1236,10 @@ class MainWindow(QMainWindow):
             self.refresh_conversations()
 
     def eventFilter(self, watched, event):
-        if (
+        if watched is getattr(self, "sidebar", None) and event.type() == QEvent.Resize:
+            self._sync_history_toolbar()
+            self._sync_sidebar_nav_labels()
+        elif (
             watched is getattr(self, "history_search", None)
             and event.type() in (QEvent.ShortcutOverride, QEvent.KeyPress)
             and event.key() == Qt.Key_Escape
@@ -1215,10 +1255,20 @@ class MainWindow(QMainWindow):
         agent_mode = self.agent_panel.mode.currentData() == "agent"
         open_settings = self.context_button.isChecked()
         self.context_controls.setVisible(open_settings)
+        if self.context_controls.layout():
+            self.context_controls.layout().activate()
         self.agent_panel.settings_toggle.blockSignals(True)
         self.agent_panel.settings_toggle.setChecked(open_settings and agent_mode)
         self.agent_panel.settings_toggle.blockSignals(False)
         self.agent_panel.visibility()
+        if self.agent_panel.layout():
+            self.agent_panel.layout().activate()
+        if (
+            getattr(self, "pages", None)
+            and self.pages.currentWidget()
+            and self.pages.currentWidget().layout()
+        ):
+            self.pages.currentWidget().layout().activate()
         tip = (
             self.agent_panel.settings_toggle.text() if agent_mode else self.tr("context_configure")
         )
@@ -1249,28 +1299,63 @@ class MainWindow(QMainWindow):
     def _scaled(self, value: int) -> int:
         return max(1, round(value * self.config.ui_scale / 100))
 
+    def _sync_chat_icons(self):
+        if not hasattr(self, "context_button"):
+            return
+        fg, accent, accent_text = self._theme_colors
+        icon_px = self._scaled(16)
+        ctx_color = accent if self.context_button.isChecked() else fg
+        self.context_button.setIcon(app_icon("sliders", ctx_color, icon_px))
+        self.context_button.setIconSize(QSize(icon_px, icon_px))
+        self.chat_refresh.setIcon(app_icon("refresh", fg, icon_px))
+        self.chat_refresh.setIconSize(QSize(icon_px, icon_px))
+        if hasattr(self, "send_button"):
+            btn_icon = self._scaled(14)
+            self.send_button.setIcon(app_icon("send", accent_text, btn_icon))
+            self.send_button.setIconSize(QSize(btn_icon, btn_icon))
+        if hasattr(self, "stop_button"):
+            danger = self._tokens.danger if hasattr(self, "_tokens") else "#f07078"
+            btn_icon = self._scaled(14)
+            self.stop_button.setIcon(app_icon("stop", danger, btn_icon))
+            self.stop_button.setIconSize(QSize(btn_icon, btn_icon))
+        if hasattr(self, "model_actions"):
+            menu_icon = self._scaled(15)
+            self.model_actions.setIcon(app_icon("menu", fg, menu_icon))
+            self.model_actions.setIconSize(QSize(menu_icon, menu_icon))
+
     def _apply_scaled_metrics(self):
         icon_btn = self._scaled(34)
-        icon_font = self._scaled(16)
-        icon_style = f"padding: 0; text-align: center; font-size: {icon_font}px;"
         for widget in (
             self.context_button,
             self.chat_refresh,
         ):
             widget.setFixedSize(icon_btn, icon_btn)
-            widget.setStyleSheet(icon_style)
-        self.agent_panel.mode.setFixedWidth(self._scaled(108))
+        mode_fm = self.agent_panel.mode.fontMetrics()
+        widest_mode = max(
+            (
+                mode_fm.horizontalAdvance(self.agent_panel.mode.itemText(i))
+                for i in range(self.agent_panel.mode.count())
+            ),
+            default=0,
+        )
+        mode_w = max(self._scaled(124), widest_mode + self._scaled(64))
+        self.agent_panel.mode.setFixedWidth(mode_w)
         self.agent_panel.mode.setFixedHeight(self._scaled(34))
         self.model_combo.setFixedHeight(self._scaled(34))
         self.model_actions.setFixedSize(self._scaled(32), self._scaled(32))
         self._sync_model_combo_width()
-        self.composer_wrap.setMaximumWidth(self._scaled(840))
-        self.agent_panel.setMaximumWidth(self._scaled(840))
+        self.context_controls.setMaximumWidth(self._scaled(860))
+        self.composer_wrap.setMaximumWidth(self._scaled(860))
+        self.agent_panel.setMaximumWidth(self._scaled(860))
+        if self.transcript.widget():
+            self.transcript.widget().setMaximumWidth(self._scaled(860))
         self.settings_container.setMaximumWidth(self._scaled(850))
         self.context_meter.setMaximumWidth(self._scaled(90))
         self.body_layout.setContentsMargins(
-            self._scaled(24), self._scaled(16), self._scaled(24), self._scaled(16)
+            self._scaled(18), self._scaled(12), self._scaled(18), self._scaled(12)
         )
+        self._sync_chat_icons()
+        self.body_layout.setSpacing(self._scaled(10))
 
     def _sync_model_combo_width(self):
         if not hasattr(self, "model_combo"):
@@ -1279,7 +1364,8 @@ class MainWindow(QMainWindow):
         expanded_w = self._scaled(getattr(self.config, "sidebar_width", 260))
         sidebar_w = compact_w if self.config.sidebar_compact else expanded_w
         pane_w = max(self._scaled(420), self.width() - sidebar_w - self._scaled(56))
-        reserved = self._scaled(108 + 34 + 34 + 150)
+        mode_w = self.agent_panel.mode.width() or self._scaled(124)
+        reserved = mode_w + self._scaled(34 + 34 + 150)
         available = max(self._scaled(160), pane_w - reserved)
         max_cap = min(self._scaled(640), available)
         fm = self.model_combo.fontMetrics()
@@ -1300,9 +1386,47 @@ class MainWindow(QMainWindow):
         if hasattr(self, "model_combo"):
             self.model_combo.setToolTip(self.model_combo.currentText() or "")
 
+    def _sync_history_toolbar(self):
+        if self.config.sidebar_compact or not hasattr(self, "history_search_toggle"):
+            return
+        margin_h = self._scaled(10)
+        header_btn = self._scaled(32)
+        header_icon = self._scaled(15)
+        row_gap = self._scaled(6)
+        cfg_w = max(200, min(360, self.config.sidebar_width))
+        actual_w = self.sidebar.width()
+        sidebar_w = min(cfg_w, actual_w) if actual_w >= 180 else cfg_w
+        toolbar_avail = max(header_btn, sidebar_w - 2 * margin_h - header_btn - row_gap - 6)
+        btn = self.history_search_toggle
+        btn.setMinimumSize(header_btn, header_btn)
+        btn.setMaximumSize(16777215, header_btn)
+        btn.setFixedHeight(header_btn)
+        label = self.tr("search_short")
+        btn.setText(label)
+        btn.ensurePolished()
+        fm_need = header_icon + self._scaled(28) + btn.fontMetrics().horizontalAdvance(label)
+        if max(btn.minimumSizeHint().width(), fm_need) > toolbar_avail:
+            btn.setText("")
+
+    def _sync_sidebar_nav_labels(self):
+        if self.config.sidebar_compact or not hasattr(self, "nav"):
+            return
+        cfg_w = max(200, min(360, self.config.sidebar_width))
+        actual_w = self.sidebar.width()
+        effective_w = min(cfg_w, actual_w) if actual_w >= 180 else cfg_w
+        max_text_w = max(48, effective_w - self._scaled(76))
+        for button, key in zip(
+            (self.new_button, *self.nav),
+            ("new_chat", "conversations_nav", "models", "settings", "diagnostics"),
+            strict=True,
+        ):
+            button.ensurePolished()
+            button.setText(sidebar_text(self.tr(key), button.fontMetrics(), max_text_w))
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._sync_model_combo_width()
+        self._sync_history_toolbar()
 
     def _sync_backend_pid(self):
         proc = getattr(self.session, "process", None)
@@ -1327,7 +1451,10 @@ class MainWindow(QMainWindow):
             self.resource_monitor_btn.setText(format_resource_summary(snap, self.tr))
             self.resource_monitor_btn.setToolTip(self.tr("resources_tooltip"))
             self.resource_monitor_btn.setAccessibleName(self.tr("resources_label"))
+            self.resource_monitor_btn.adjustSize()
             self.resource_monitor_btn.updateGeometry()
+            if hasattr(self, "topbar") and self.topbar.layout():
+                self.topbar.layout().activate()
         if hasattr(self, "resource_details_label"):
             self.resource_details_label.setText(format_resource_details(snap, self.tr))
 
@@ -1364,63 +1491,55 @@ class MainWindow(QMainWindow):
         compact = self.config.sidebar_compact
         compact_width = self._scaled(60)
         btn_size = self._scaled(38)
-        icon_px = self._scaled(19 if compact else 14)
+        icon_px = self._scaled(19 if compact else 15)
         fg, accent, accent_text = self._theme_colors
-        margin_h = max(4, (compact_width - 1 - btn_size) // 2) if compact else self._scaled(8)
+        margin_h = max(4, (compact_width - 1 - btn_size) // 2) if compact else self._scaled(10)
         margin_v = self._scaled(10 if compact else 12)
         self.side_layout.setContentsMargins(margin_h, margin_v, margin_h, margin_v)
         self.side_layout.setSpacing(self._scaled(6))
         self.sidebar.setProperty("compact", compact)
         self.sidebar.style().unpolish(self.sidebar)
         self.sidebar.style().polish(self.sidebar)
+        self.sidebar_header.setContentsMargins(
+            0 if compact else self._scaled(2), 0, 0, self._scaled(4)
+        )
         self.sidebar_header.setSpacing(0 if compact else self._scaled(6))
         self.side_layout.setAlignment(
             self.sidebar_header, Qt.AlignHCenter if compact else Qt.Alignment()
         )
-        toggle_size = btn_size if compact else self._scaled(32)
-        toggle_icon = self._scaled(19 if compact else 16)
+        brand_px = self._scaled(16)
+        self.brand_mark.setPixmap(app_icon("brand", accent, brand_px).pixmap(brand_px, brand_px))
+        self.brand_mark.setVisible(not compact)
+        self.brand.setVisible(not compact)
+
+        toggle_size = btn_size if compact else self._scaled(26)
+        toggle_icon = self._scaled(19 if compact else 14)
         header_btn = self._scaled(32)
         header_icon = self._scaled(15)
         row_gap = self._scaled(6)
-        sidebar_w = compact_width if compact else max(200, min(360, self.config.sidebar_width))
         self.history_toolbar.setSpacing(row_gap)
         self.history_toolbar.setContentsMargins(0, 0, 0, self._scaled(4))
-        self.history_search_toggle.setIcon(sidebar_icon("search", fg, header_icon))
+        self.history_search_toggle.setIcon(app_icon("search", fg, header_icon))
         self.history_search_toggle.setIconSize(QSize(header_icon, header_icon))
-        self.history_refresh.setFixedSize(header_btn, header_btn)
-        self.history_refresh.setText("")
-        self.history_refresh.setIcon(sidebar_icon("refresh", fg, header_icon))
-        self.history_refresh.setIconSize(QSize(header_icon, header_icon))
         self.history_menu_btn.setFixedSize(header_btn, header_btn)
+        self.history_menu_btn.setText("")
+        self.history_menu_btn.setIcon(app_icon("menu", fg, header_icon))
+        self.history_menu_btn.setIconSize(QSize(header_icon, header_icon))
         self.history_search_close.setFixedSize(header_btn, header_btn)
-        self.history_search.setFixedHeight(self._scaled(34))
-        if not compact:
-            toolbar_avail = max(
-                header_btn, sidebar_w - 2 * margin_h - 2 * header_btn - 2 * row_gap - 2
-            )
-            self.history_search_toggle.setMinimumSize(header_btn, header_btn)
-            self.history_search_toggle.setMaximumSize(16777215, header_btn)
-            self.history_search_toggle.setFixedHeight(header_btn)
-            self.history_search_toggle.setText(self.tr("search_short"))
-            self.history_search_toggle.ensurePolished()
-            if self.history_search_toggle.minimumSizeHint().width() > toolbar_avail:
-                self.history_search_toggle.setText("")
+        self.history_search_close.setText("")
+        self.history_search_close.setIcon(app_icon("close", fg, header_icon))
+        self.history_search_close.setIconSize(QSize(header_icon, header_icon))
+        self.history_search.setFixedHeight(header_btn)
+        self._sync_history_toolbar()
         search_open = not compact and self._history_search_open
-        self.nav[0].setVisible(compact or not search_open)
         self.history_search_toggle.setVisible(not compact and not search_open)
-        self.history_toolbar_spacer.setVisible(not compact and search_open)
-        self.history_refresh.setVisible(not compact)
-        self.history_menu_btn.setVisible(not compact)
+        self.history_menu_btn.setVisible(not compact and not search_open)
         self.history_search.setVisible(search_open)
         self.history_search_close.setVisible(search_open)
-        self.conversations_row.setSpacing(0 if compact else self._scaled(4))
-        self.conversations_row.setAlignment(Qt.AlignHCenter if compact else Qt.Alignment())
         self.sidebar_toggle.setFixedSize(toggle_size, toggle_size)
         self.sidebar_toggle.setStyleSheet("")
         self.sidebar_toggle.setText("")
-        self.sidebar_toggle.setIcon(
-            sidebar_icon("expand" if compact else "collapse", fg, toggle_icon)
-        )
+        self.sidebar_toggle.setIcon(app_icon("expand" if compact else "collapse", fg, toggle_icon))
         self.sidebar_toggle.setIconSize(QSize(toggle_icon, toggle_icon))
         self._sync_model_combo_width()
         self.sidebar.setSizePolicy(
@@ -1434,18 +1553,16 @@ class MainWindow(QMainWindow):
             width = compact_width if compact else max(200, min(360, self.config.sidebar_width))
             self.shell.setSizes([width, max(1, self.width() - width - handle_w)])
             self.shell.handle(1).setEnabled(not compact)
-        self.brand.setVisible(not compact)
         self.sidebar_toggle.setToolTip(self.tr("sidebar_expand" if compact else "sidebar_collapse"))
         self.sidebar_width.setToolTip(self.tr("sidebar_width"))
         self.history_search_toggle.setToolTip(self.tr("search_history"))
         self.history_search_toggle.setAccessibleName(self.tr("search_history"))
         self.history_search_close.setToolTip(self.tr("cancel"))
         self.history_search_close.setAccessibleName(self.tr("cancel"))
-        self.history_refresh.setToolTip(self.tr("refresh"))
-        self.history_refresh.setAccessibleName(self.tr("refresh"))
         self.history_menu_btn.setToolTip(self.tr("history_menu"))
         self.history_menu_btn.setAccessibleName(self.tr("history_menu"))
         self.history_panel.setVisible(not compact)
+        self.nav_footer_divider.setVisible(not compact)
         self.compact_spacer.setVisible(compact)
         for button, key in zip(
             (self.new_button, *self.nav),
@@ -1453,7 +1570,7 @@ class MainWindow(QMainWindow):
             strict=True,
         ):
             icon_color = accent_text if key == "new_chat" else accent if button.isChecked() else fg
-            button.setIcon(sidebar_icon(key, icon_color, icon_px))
+            button.setIcon(app_icon(key, icon_color, icon_px))
             button.setIconSize(QSize(icon_px, icon_px))
             button.setToolTip(self.tr(key))
             button.setAccessibleName(self.tr(key))
@@ -1461,38 +1578,13 @@ class MainWindow(QMainWindow):
                 button.setFixedSize(btn_size, btn_size)
                 button.setStyleSheet("")
                 button.setText("")
-                if button is not self.nav[0]:
-                    self.side_layout.setAlignment(button, Qt.AlignHCenter)
+                self.side_layout.setAlignment(button, Qt.AlignHCenter)
             else:
                 button.setMinimumSize(0, 0)
                 button.setMaximumSize(16777215, 16777215)
                 button.setStyleSheet("")
-                if button is not self.nav[0]:
-                    self.side_layout.setAlignment(button, Qt.Alignment())
-                button.ensurePolished()
-                if button is self.nav[0]:
-                    avail_nav0 = max(48, sidebar_w - 2 * margin_h - 4)
-                    label_text = self.tr(key)
-                    button.setText(label_text)
-                    hint_w = button.minimumSizeHint().width()
-                    if hint_w > avail_nav0:
-                        text_budget = max(
-                            16,
-                            button.fontMetrics().horizontalAdvance(label_text)
-                            - (hint_w - avail_nav0)
-                            - 2,
-                        )
-                        button.setText(
-                            button.fontMetrics().elidedText(label_text, Qt.ElideRight, text_budget)
-                        )
-                else:
-                    button.setText(
-                        sidebar_text(
-                            self.tr(key),
-                            button.fontMetrics(),
-                            max(48, sidebar_w - self._scaled(48)),
-                        )
-                    )
+                self.side_layout.setAlignment(button, Qt.Alignment())
+        self._sync_sidebar_nav_labels()
 
     def navigate(self, index):
         self.pages.setCurrentIndex(index)
@@ -1627,470 +1719,52 @@ class MainWindow(QMainWindow):
         self.apply_theme()
 
     def apply_theme(self):
-        dark = self.config.theme not in {"system", "light"} or (
+        from PySide6.QtGui import QPalette
+
+        system_dark = (
             self.config.theme == "system"
             and QApplication.instance().styleHints().colorScheme() == Qt.ColorScheme.Dark
         )
-        bg, panel, field, fg, muted, border = palette(self.config.theme, dark)
-        accent = {
-            "ocean": "#59a8e8",
-            "forest": "#65b780",
-            "graphite": "#a2a2b5",
-            "oled": "#a99bff",
-        }.get(self.config.theme, "#8b80f9" if dark else "#6957d9")
-        accent = self.config.accent or accent
-        button_accent = accent
-        accent_text = max(("#000000", "#ffffff"), key=lambda color: contrast_ratio(color, accent))
-        accent = readable_accent(accent, fg, (bg, panel, field))
-        down_icon = ensure_arrow_icon("down", fg)
-        down_muted = ensure_arrow_icon("down", muted)
-        up_icon = ensure_arrow_icon("up", fg)
-        up_muted = ensure_arrow_icon("up", muted)
-        from PySide6.QtGui import QPalette
-
+        t = resolve_theme_tokens(self.config.theme, system_dark, self.config.accent)
+        arrows = {
+            "down": ensure_arrow_icon("down", t.fg),
+            "down_muted": ensure_arrow_icon("down", t.muted),
+            "up": ensure_arrow_icon("up", t.fg),
+            "up_muted": ensure_arrow_icon("up", t.muted),
+        }
         qt_palette = QPalette()
         for role, hex_color in (
-            (QPalette.Window, bg),
-            (QPalette.WindowText, fg),
-            (QPalette.Base, panel),
-            (QPalette.AlternateBase, field),
-            (QPalette.Text, fg),
-            (QPalette.Button, field),
-            (QPalette.ButtonText, fg),
-            (QPalette.Highlight, field),
-            (QPalette.HighlightedText, accent),
-            (QPalette.ToolTipBase, panel),
-            (QPalette.ToolTipText, fg),
-            (QPalette.PlaceholderText, muted),
+            (QPalette.Window, t.bg),
+            (QPalette.WindowText, t.fg),
+            (QPalette.Base, t.panel),
+            (QPalette.AlternateBase, t.field),
+            (QPalette.Text, t.fg),
+            (QPalette.Button, t.field),
+            (QPalette.ButtonText, t.fg),
+            (QPalette.Highlight, t.field),
+            (QPalette.HighlightedText, t.accent),
+            (QPalette.ToolTipBase, t.elevated),
+            (QPalette.ToolTipText, t.fg),
+            (QPalette.PlaceholderText, t.muted),
         ):
             qt_palette.setColor(role, QColor(hex_color))
         for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText):
-            qt_palette.setColor(QPalette.Disabled, role, QColor(muted))
+            qt_palette.setColor(QPalette.Disabled, role, QColor(t.muted))
         QApplication.instance().setPalette(qt_palette)
-        stylesheet = f"""
-            QMainWindow,
-            QDialog, QMessageBox, QMenu, QWidget {{ background: {bg};
-                color: {fg};
-                font: 14px 'Sans Serif';
-                }}
-            QFrame#sidebar {{ background: {panel};
-                border-right: 1px solid {border};
-                }}
-            QLabel {{ background: transparent;
-                }}
-            QLabel#brand {{ font-size: 20px;
-                font-weight: 700;
-                color: {accent};
-                }}
-            QWidget#compactSpacer {{ background: transparent;
-                }}
-            QLabel#title {{ font-size: 24px;
-                font-weight: 650;
-                padding: 2px 0;
-                }}
-            QLabel#chatTitle {{ font-size: 16px;
-                font-weight: 600;
-                }}
-            QLabel#mutedMeta {{ color: {muted};
-                font-size: 12px;
-                }}
-            QFrame#contextCard, QFrame#agentCard, QFrame#settingsCard {{ background: {panel};
-                border: 1px solid {border};
-                border-radius: 12px;
-                }}
-            QFrame#composerBox {{ background: {panel};
-                border: 1px solid {border};
-                border-radius: 14px;
-                }}
-            QFrame#composerBox QPlainTextEdit#composer {{ background: transparent;
-                border: none;
-                padding: 2px 4px;
-                }}
-            QPushButton#compactToggle {{ background: transparent;
-                border: 1px solid {border};
-                border-radius: 7px;
-                padding: 4px 10px;
-                font-size: 12px;
-                color: {muted};
-                }}
-            QPushButton#compactToggle:hover, QPushButton#compactToggle:checked {{
-                color: {accent};
-                border-color: {accent};
-                }}
-            QLabel#badge {{ color: {accent};
-                padding: 8px 12px;
-                background: {field};
-                border-radius: 12px;
-                }}
-            QFrame#noticeCard {{ background: {field};
-                border: 1px solid {border};
-                border-left: 3px solid {accent};
-                border-radius: 8px;
-                padding: 4px;
-                }}
-            QFrame#noticeCard[kind="error"] {{
-                border-left: 3px solid #d9534f;
-                }}
-            QLabel#notice {{ background: transparent;
-                border: none;
-                padding: 0px;
-                color: {fg};
-                }}
-            QPushButton#errorDetailsToggle, QPushButton#resourceMonitorBtn {{
-                background: {panel};
-                color: {muted};
-                border: 1px solid {border};
-                border-radius: 6px;
-                padding: 4px 10px;
-                font-size: {self._scaled(12)}px;
-                }}
-            QPushButton#errorDetailsToggle:hover, QPushButton#resourceMonitorBtn:hover {{
-                color: {fg};
-                border-color: {accent};
-                }}
-            QPushButton#errorDetailsToggle:checked, QPushButton#resourceMonitorBtn:checked {{
-                color: {fg};
-                border-color: {accent};
-                background: {field};
-                }}
-            QToolButton#noticeClose {{
-                background: transparent;
-                border: none;
-                color: {muted};
-                padding: 2px 6px;
-                font-size: {self._scaled(14)}px;
-                }}
-            QToolButton#noticeClose:hover {{
-                color: {fg};
-                }}
-            QFrame#errorCard {{
-                background: {panel};
-                border: 1px solid {border};
-                border-left: 3px solid #d9534f;
-                border-radius: 8px;
-                padding: 8px 10px;
-                }}
-            QFrame#errorDetailsBox, QFrame#messageStatsDetails, QFrame#resourceDetails {{
-                background: {panel};
-                border: 1px solid {border};
-                border-radius: 6px;
-                padding: 6px 10px;
-                }}
-            QLabel#agentRunError {{
-                color: {fg};
-                font-weight: 600;
-                }}
-            QPushButton {{ background: {field};
-                border: 1px solid {border};
-                border-radius: 9px;
-                padding: 10px 14px;
-                font-weight: 550;
-                }}
-            QWidget#historyGroupRow {{ background: {panel}; border-radius: 6px; }}
-            QWidget#historyTitleRow {{ background: {panel}; border-radius: 6px; }}
-            QWidget#historyTitleRow[selected="true"] {{ background: {field}; }}
-            QPushButton#historyHeaderButton {{
-                background: transparent; border: 1px solid {border};
-                border-radius: 8px; padding: 0; color: {muted}; }}
-            QPushButton#historyHeaderButton:hover {{ background: {field}; border-color: {accent};
-                color: {fg}; }}
-            QPushButton#historySearchTrigger {{
-                background: {field}; border: 1px solid {border}; border-radius: 8px;
-                padding: 0 8px; color: {muted}; text-align: left; font-weight: 450; }}
-            QPushButton#historySearchTrigger:hover {{ border-color: {accent}; color: {fg}; }}
-            QLineEdit#historySearch {{
-                background: {field}; border: 1px solid {border}; border-radius: 8px;
-                padding: 4px 10px; min-height: 0; color: {fg}; }}
-            QFrame#contextDivider {{
-                background: {border}; border: none; max-height: 1px;
-                min-height: 1px; margin: 2px 0; }}
-            QLabel#historyItemTitle {{ background: transparent; color: {fg}; }}
-            QLabel#historyItemTitle[selected="true"] {{ color: {accent}; }}
-            QPushButton#historyHeading {{ background: transparent; border: none;
-                border-radius: 5px; padding: 4px 6px; text-align: left; font-size: 11px;
-                font-weight: 600; color: {muted}; }}
-            QPushButton#historyHeading:hover {{ color: {fg}; }}
-            QPushButton#historyHeading:focus {{ border: 2px solid {accent}; }}
-            QToolButton {{ background: {field}; border: 1px solid {border}; border-radius: 6px; }}
-            QToolButton:hover {{ border-color: {accent}; }}
-            QToolButton:focus {{ border: 2px solid {accent}; }}
-            QToolButton:disabled {{ color: {muted}; }}
-            QPushButton:hover {{ border-color: {accent};
-                }}
-            QPushButton:pressed {{ background: {border};
-                }}
-            QPushButton:disabled {{ color: {muted};
-                }}
-            QPushButton#primary {{ background: {button_accent};
-                color: {accent_text};
-                border-color: {accent};
-                }}
-            QPushButton#primary:disabled {{ background: {field};
-                color: {muted};
-                border-color: {border};
-                }}
-            QFrame#sidebar QPushButton#primary {{ padding: 9px 8px; }}
-            QPushButton#sidebarToggle {{ background: transparent;
-                border: 1px solid transparent;
-                border-radius: 9px;
-                padding: 0;
-                }}
-            QPushButton#sidebarToggle:hover {{ background: {field};
-                border-color: {border};
-                }}
-            QPushButton#nav {{ text-align: left;
-                padding: 9px 8px;
-                border: 1px solid transparent;
-                border-radius: 9px;
-                background: transparent;
-                }}
-            QPushButton#nav:hover {{ background: {field};
-                border-color: {border};
-                }}
-            QPushButton#nav:checked {{ color: {accent};
-                background: {field};
-                border-color: {border};
-                }}
-            QFrame#sidebar[compact="true"] QPushButton#nav,
-            QFrame#sidebar[compact="true"] QPushButton#primary,
-            QFrame#sidebar[compact="true"] QPushButton#sidebarToggle {{ padding: 0;
-                border-radius: 9px;
-                text-align: center;
-                }}
-            QFrame#sidebar[compact="true"] QPushButton#nav:checked {{ border-color: {accent};
-                }}
-            QComboBox#agentMode {{ border-color: {accent};
-                font-weight: 600;
-                }}
-            QLineEdit, QPlainTextEdit, QTextBrowser, QListWidget, QTableWidget,
-            QColorDialog {{
-                background: {panel};
-                border: 1px solid {border};
-                border-radius: 9px;
-                padding: 8px;
-                selection-background-color: {accent};
-                }}
-            QComboBox, QSpinBox, QDoubleSpinBox {{
-                background: {panel};
-                color: {fg};
-                border: 1px solid {border};
-                border-radius: 9px;
-                min-height: 20px;
-                selection-background-color: {accent};
-                selection-color: {accent_text};
-                }}
-            QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {{
-                background: {field};
-                color: {muted};
-                }}
-            QComboBox {{
-                padding: 6px 32px 6px 10px;
-                }}
-            QComboBox::drop-down {{
-                subcontrol-origin: border;
-                subcontrol-position: top right;
-                width: 26px;
-                border: none;
-                border-left: 1px solid {border};
-                border-top-right-radius: 8px;
-                border-bottom-right-radius: 8px;
-                background: transparent;
-                }}
-            QComboBox::drop-down:hover {{
-                background: {field};
-                }}
-            QComboBox::down-arrow {{
-                image: url("{down_icon}");
-                width: 12px;
-                height: 12px;
-                }}
-            QComboBox::down-arrow:disabled {{
-                image: url("{down_muted}");
-                }}
-            QComboBoxPrivateContainer {{
-                background: {panel};
-                border: 1px solid {border};
-                border-radius: 8px;
-                }}
-            QComboBox QAbstractItemView, QListView {{
-                background: {panel};
-                color: {fg};
-                border: 1px solid {border};
-                border-radius: 8px;
-                padding: 4px;
-                selection-background-color: {field};
-                selection-color: {accent};
-                outline: none;
-                }}
-            QComboBox QAbstractItemView::item, QListView::item {{
-                padding: 6px 10px;
-                min-height: 22px;
-                background: transparent;
-                color: {fg};
-                border-radius: 5px;
-                }}
-            QComboBox QAbstractItemView::item:hover,
-            QComboBox QAbstractItemView::item:selected,
-            QListView::item:hover,
-            QListView::item:selected {{
-                background: {field};
-                color: {accent};
-                }}
-            QSpinBox, QDoubleSpinBox {{
-                padding: 6px 28px 6px 10px;
-                }}
-            QSpinBox::up-button, QDoubleSpinBox::up-button {{
-                subcontrol-origin: border;
-                subcontrol-position: top right;
-                width: 22px;
-                border: none;
-                border-left: 1px solid {border};
-                border-bottom: 1px solid {border};
-                border-top-right-radius: 8px;
-                background: transparent;
-                }}
-            QSpinBox::down-button, QDoubleSpinBox::down-button {{
-                subcontrol-origin: border;
-                subcontrol-position: bottom right;
-                width: 22px;
-                border: none;
-                border-left: 1px solid {border};
-                border-bottom-right-radius: 8px;
-                background: transparent;
-                }}
-            QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
-            QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
-                background: {field};
-                }}
-            QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
-                image: url("{up_icon}");
-                width: 10px;
-                height: 10px;
-                }}
-            QSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:disabled {{
-                image: url("{up_muted}");
-                }}
-            QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
-                image: url("{down_icon}");
-                width: 10px;
-                height: 10px;
-                }}
-            QSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:disabled {{
-                image: url("{down_muted}");
-                }}
-            QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QPushButton:focus,
-            QSpinBox:focus, QDoubleSpinBox:focus, QCheckBox:focus,
-            QListWidget:focus, QTableWidget:focus, QTextBrowser:focus {{
-                border: 2px solid {accent};
-                }}
-            QFrame#assistantBubble {{ background: transparent; border: none; }}
-            QFrame#userBubble {{ background: {field}; border: 1px solid {border};
-                border-radius: 14px; }}
-            QTextBrowser#messageText {{ background: transparent; border: none; padding: 0; }}
-            QLabel#messageAuthor {{ color: {accent}; font-weight: 700; }}
-            QLabel#messageStats {{ color: {muted}; font-size: 11px; }}
-            QPlainTextEdit#codeBlock {{ font-family: monospace; background: {bg}; }}
-            QListWidget::item {{ padding: 12px 8px;
-                border-radius: 6px;
-                }}
-            QListWidget#conversations {{ background: {panel};
-                border: none;
-                padding: 0;
-                outline: none;
-                }}
-            QListWidget#conversations::item {{ padding: 0;
-                border-radius: 6px;
-                margin: 0;
-                background: transparent;
-                }}
-            QListWidget#conversations::item:selected {{ background: transparent; }}
-            QListWidget::item:selected, QTableWidget::item:selected {{ background: {field};
-                color: {accent};
-                }}
-            QHeaderView::section {{ background: {field};
-                color: {muted};
-                border: none;
-                padding: 10px;
-                }}
-            QTabWidget::pane {{ border: none;
-                }}
-            QTabBar::tab {{ padding: 12px 20px;
-                background: {bg};
-                color: {muted};
-                border-bottom: 2px solid {border};
-                }}
-            QTabBar::tab:selected {{ color: {accent};
-                border-bottom-color: {accent};
-                }}
-            QScrollArea {{ border: none;
-                }}
-            QScrollBar:vertical {{ width: 10px;
-                background: {bg};
-                }}
-            QScrollBar::handle:vertical {{ background: {border};
-                border-radius: 5px;
-                min-height: 32px;
-                }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0;
-                }}
-            QScrollBar:horizontal {{ height: 10px;
-                background: {bg};
-                }}
-            QScrollBar::handle:horizontal {{ background: {border};
-                border-radius: 5px;
-                min-width: 32px;
-                }}
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0;
-                }}
-            QProgressBar {{ border: 1px solid {border};
-                border-radius: 7px;
-                text-align: center;
-                min-height: 22px;
-                }}
-            QProgressBar#contextMeter {{ min-height: 6px; max-height: 8px; border-radius: 3px; }}
-            QProgressBar::chunk {{ background: {accent};
-                border-radius: 6px;
-                }}
-            QStatusBar {{ color: {muted};
-                }}
-            QSplitter::handle {{ background: {border};
-                width: 1px;
-                }}
-            QToolTip {{ background: {panel};
-                color: {fg};
-                border: 1px solid {border};
-                border-radius: 6px;
-                padding: 4px 8px;
-                }}
-            QMenu {{ background: {panel};
-                color: {fg};
-                border: 1px solid {border};
-                border-radius: 8px;
-                padding: 4px;
-                }}
-            QMenu::item {{ padding: 6px 14px;
-                border-radius: 6px;
-                }}
-            QMenu::item:disabled {{ color: {muted};
-                }}
-            QMenu::item:selected {{ background: {field};
-                color: {accent};
-                }}
-        """
         # Only logical font/control sizes: Qt applies the screen DPR once. Never multiply by
         # devicePixelRatio or modify QT_SCALE_FACTOR / the platform's DPI policy.
         scale = self.config.ui_scale / 100
-        stylesheet = re.sub(
-            r"(?P<size>\d+)px",
-            lambda m: (
-                m.group(0) if int(m["size"]) <= 3 else f"{max(1, round(int(m['size']) * scale))}px"
-            ),
-            stylesheet,
-        )
-        self._theme_colors = (fg, accent, accent_text)
+        stylesheet = build_stylesheet(t, arrows, scale)
+        prev_dark = getattr(self, "_theme_dark", None)
+        self._theme_dark = t.dark
+        self._tokens = t
+        self._theme_colors = (t.fg, t.accent, t.accent_text)
         self.setStyleSheet(stylesheet)
         self._apply_scaled_metrics()
         self._apply_sidebar()
+        if prev_dark is not None and prev_dark != t.dark and getattr(self, "transcript", None):
+            self.transcript.locale = None
+            self.render_messages()
         if self.conversations:
             self._fill_conversations()
         self.ui_scale.setToolTip(self.tr("ui_scale_hint"))
@@ -2112,7 +1786,9 @@ class MainWindow(QMainWindow):
         self._connection_key = "connected"
         self.welcome_import.setEnabled(True)
         self.pages.setEnabled(True)
+        self.reconnect_button.hide()
         self.connection.setText(self.tr("connected"))
+        polish_property(self.connection, "tone", "ok")
         self.statusBar().showMessage(self.tr("ready"))
         self.log_event("connected")
         self._health_pending = {"models", "conversations", "settings"}
@@ -2199,6 +1875,8 @@ class MainWindow(QMainWindow):
             self.is_connected = False
             self._connection_key = "unauthorized" if code == "unauthorized" else "disconnected"
             self.connection.setText(self.tr(self._connection_key))
+            polish_property(self.connection, "tone", "error")
+            self.reconnect_button.show()
         text = self.tr.catalog.get(safe_code) or self.tr("operation_error", code=safe_code)
         self.notify_error_card(text, safe_code, component=component, target=target)
 
@@ -2258,7 +1936,7 @@ class MainWindow(QMainWindow):
             viewport_w if viewport_w > 60 else max(60, self.config.sidebar_width - self._scaled(24))
         )
         elide_width = max(60, avail_w - self._scaled(24))
-        heading_width = max(48, avail_w - self._scaled(20))
+        heading_width = max(48, avail_w - self._scaled(8))
         for group, records in grouped_history(self.conversations).items():
             for index, record in enumerate(records):
                 title = record["title"] or self.tr("untitled")
@@ -2303,12 +1981,14 @@ class MainWindow(QMainWindow):
                     title_row.setVisible(not collapsed)
                     row.ensurePolished()
                     column.activate()
-                    row_h = max(row.minimumSizeHint().height(), row.sizeHint().height())
+                    row_h = max(
+                        row.minimumSizeHint().height(), row.sizeHint().height()
+                    ) + self._scaled(2)
                     item.setSizeHint(QSize(0, row_h))
                     self.conversation_list.setItemWidget(item, row)
                 else:
                     title_row = self._build_history_title_row(title, selected, elide_width)
-                    item.setSizeHint(QSize(0, title_row.height()))
+                    item.setSizeHint(QSize(0, title_row.height() + self._scaled(2)))
                     self.conversation_list.setItemWidget(item, title_row)
                 if index > 0 and group in self.config.collapsed_history:
                     item.setHidden(True)
@@ -3441,6 +3121,14 @@ class MainWindow(QMainWindow):
                 item = QTableWidgetItem(value)
                 item.setToolTip(escape(value))
                 item.setData(Qt.UserRole, record["id"])
+                if column == 3 and hasattr(self, "_tokens"):
+                    compat_color = {
+                        "compatible": self._tokens.success,
+                        "tight": self._tokens.warning,
+                        "incompatible": self._tokens.danger,
+                    }.get(record.get("compatibility"))
+                    if compat_color:
+                        item.setForeground(QColor(compat_color))
                 self.model_table.setItem(row, column, item)
             if selected and selected["id"] == record["id"]:
                 selected_row = row
@@ -4163,6 +3851,7 @@ class MainWindow(QMainWindow):
         self.is_connected = False
         self._connection_key = "connecting"
         self.connection.setText(self.tr("connecting"))
+        polish_property(self.connection, "tone", "warn")
         self.session.reconnect()
 
     def export_report(self):

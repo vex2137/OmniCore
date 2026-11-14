@@ -4,8 +4,8 @@ import json
 import math
 import re
 
-from PySide6.QtCore import QPointF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF, QTextDocument
+from PySide6.QtCore import QEvent, QPointF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap, QPolygonF, QTextDocument
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from omnicore.desktop.errors import describe_error
+from omnicore.desktop.styles import app_icon, make_divider
 
 
 def _stat_pixmap(kind, color, size=14):
@@ -178,11 +179,19 @@ class SafeMarkdown(QTextBrowser):
         super().resizeEvent(event)
         self.fit()
 
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() in (QEvent.StyleChange, QEvent.FontChange):
+            self.fit()
+
     def fit(self, *_):
         self.document().setTextWidth(max(80, self.viewport().width()))
         height = math.ceil(self.document().size().height()) + 18
         if self.height() != height:
             self.setFixedHeight(height)
+            parent = self.parentWidget()
+            if parent is not None and parent.layout() is not None:
+                parent.layout().invalidate()
 
 
 class MessageCard(QFrame):
@@ -204,7 +213,8 @@ class MessageCard(QFrame):
         self._grant_folder = grant_folder
         self._continue_run = continue_run
         self.layout_ = QVBoxLayout(self)
-        self.layout_.setContentsMargins(18, 10, 18, 16)
+        self.layout_.setContentsMargins(18, 12, 18, 14)
+        self.layout_.setSpacing(8)
         header = QHBoxLayout()
         name = (
             tr("you") if message["role"] == "user" else message.get("model_name") or tr("assistant")
@@ -354,9 +364,18 @@ class MessageCard(QFrame):
             self.layout_.addWidget(stats_frame)
 
     def icon_action(self, button, name, fallback, label):
-        button.setIcon(QIcon.fromTheme(name, self.style().standardIcon(fallback)))
-        button.setIconSize(QSize(16, 16))
-        button.setFixedSize(32, 32)
+        kind_map = {
+            "edit-copy": "copy",
+            "view-refresh": "refresh",
+            "dialog-information": "info",
+        }
+        button.setObjectName("cardAction")
+        button.setCursor(Qt.PointingHandCursor)
+        color = self.palette().color(self.palette().ColorRole.WindowText).name()
+        kind = kind_map.get(name)
+        button.setIcon(app_icon(kind, color, 15) if kind else self.style().standardIcon(fallback))
+        button.setIconSize(QSize(15, 15))
+        button.setFixedSize(28, 28)
         button.setToolTip(label)
         button.setAccessibleName(label)
 
@@ -546,15 +565,37 @@ class MessageCard(QFrame):
 
         def flush_code():
             text = "".join(code).rstrip("\n")
+            container = QFrame(self)
+            container.setObjectName("codeContainer")
+            c_layout = QVBoxLayout(container)
+            c_layout.setSizeConstraint(QVBoxLayout.SetMinimumSize)
+            c_layout.setContentsMargins(0, 0, 0, 0)
+            c_layout.setSpacing(0)
+            top = QHBoxLayout()
+            top.setContentsMargins(12, 6, 8, 6)
+            top.setSpacing(8)
+            lang = (fence or "").strip() or "code"
+            lang_lbl = QLabel(lang.lstrip("`~").strip() or "code")
+            lang_lbl.setObjectName("mutedMeta")
+            lang_lbl.setTextFormat(Qt.PlainText)
+            button = QPushButton(tr("copy_code"))
+            button.setObjectName("compactToggle")
+            button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            button.setCursor(Qt.PointingHandCursor)
+            button.clicked.connect(lambda: QApplication.clipboard().setText(text))
+            top.addWidget(lang_lbl)
+            top.addStretch(1)
+            top.addWidget(button)
+            c_layout.addLayout(top)
+            c_layout.addWidget(make_divider("subtleDivider"))
             box = QPlainTextEdit(text)
             box.setReadOnly(True)
             box.setObjectName("codeBlock")
             box.setLineWrapMode(QPlainTextEdit.NoWrap)
-            box.setFixedHeight(min(280, max(60, len(code) * 21 + 22)))
-            button = QPushButton(tr("copy_code"))
-            button.clicked.connect(lambda: QApplication.clipboard().setText(text))
-            self.layout_.addWidget(button, alignment=Qt.AlignRight)
-            self.layout_.addWidget(box)
+            line_h = max(21, box.fontMetrics().lineSpacing() + 4)
+            box.setFixedHeight(min(280, max(60, len(code) * line_h + 22)))
+            c_layout.addWidget(box)
+            self.layout_.addWidget(container)
             code.clear()
 
         for line in lines:
@@ -593,17 +634,21 @@ class ChatTranscript(QScrollArea):
         self.setAlignment(Qt.AlignHCenter)
         container = QWidget()
         container.setObjectName("transcriptColumn")
-        container.setMaximumWidth(840)
+        container.setMaximumWidth(860)
         self.column = QVBoxLayout(container)
         self.column.setContentsMargins(12, 12, 12, 12)
         self.column.setSpacing(14)
         self.limit = 60
         self.more = QPushButton()
+        self.more.setObjectName("compactToggle")
         self.more.clicked.connect(self.expand_history)
-        self.column.addWidget(self.more)
+        self.column.addWidget(self.more, 0, Qt.AlignHCenter)
         self.hint = QLabel()
+        self.hint.setObjectName("emptyState")
+        self.hint.setAlignment(Qt.AlignCenter)
+        self.hint.setMaximumWidth(600)
         self.hint.setWordWrap(True)
-        self.column.addWidget(self.hint)
+        self.column.addWidget(self.hint, 0, Qt.AlignHCenter)
         self.column.addStretch()
         self.setWidget(container)
         self.cards, self.messages, self.locale = [], [], None
@@ -665,6 +710,8 @@ class ChatTranscript(QScrollArea):
             card.deleteLater()
         self.messages, self.locale = messages, locale
         self._previous_can_regenerate = self.can_regenerate
+        if self.widget() and self.widget().layout():
+            self.widget().layout().activate()
         if at_bottom:
             self.scroll_timer.start(0)
 

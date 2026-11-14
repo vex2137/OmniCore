@@ -297,18 +297,18 @@ def format_summary(snapshot: ResourceSnapshot, tr) -> str:
     sep = tr("decimal_separator")
     dash = "—"
     cpu_pct = f"{snapshot.cpu_percent:.0f}%" if snapshot.cpu_percent is not None else dash
-    cpu_temp = f" ({snapshot.cpu_temp_c:.0f}°C)" if snapshot.cpu_temp_c is not None else ""
+    cpu_temp = f"/{snapshot.cpu_temp_c:.0f}°C" if snapshot.cpu_temp_c is not None else ""
     ram_txt = (
         f"{_fmt_gb(snapshot.ram_used_bytes, sep, dash)}/"
-        f"{_fmt_gb(snapshot.ram_total_bytes, sep, dash)} GB"
+        f"{_fmt_gb(snapshot.ram_total_bytes, sep, dash)}G"
         if snapshot.ram_total_bytes is not None
         else dash
     )
     gpu_pct = f"{snapshot.gpu_util_percent:.0f}%" if snapshot.gpu_util_percent is not None else dash
-    gpu_temp = f" ({snapshot.gpu_temp_c:.0f}°C)" if snapshot.gpu_temp_c is not None else ""
+    gpu_temp = f"/{snapshot.gpu_temp_c:.0f}°C" if snapshot.gpu_temp_c is not None else ""
     vram_txt = (
         f"{_fmt_gb(snapshot.vram_used_bytes, sep, dash)}/"
-        f"{_fmt_gb(snapshot.vram_total_bytes, sep, dash)} GB"
+        f"{_fmt_gb(snapshot.vram_total_bytes, sep, dash)}G"
         if snapshot.vram_total_bytes is not None
         else dash
     )

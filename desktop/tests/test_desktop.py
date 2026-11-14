@@ -110,11 +110,11 @@ def test_settings_locale_theme_persist_and_restart(desktop, qtbot):
     w = desktop
     w.language.setCurrentIndex(w.language.findData("en-US"))
     assert w.new_button.text() == "New chat"
-    w.theme.setCurrentIndex(w.theme.findData("dark"))
+    w.theme.setCurrentIndex(w.theme.findData("midnight"))
     dark_styles = w.styleSheet()
-    assert "#10151f" in dark_styles
+    assert "#0d1118" in dark_styles
     w.theme.setCurrentIndex(w.theme.findData("light"))
-    assert "#f5f6fa" in w.styleSheet()
+    assert "#f4f6fa" in w.styleSheet()
     w.theme.setCurrentIndex(w.theme.findData("system"))
     w.parameter_inputs["max_tokens"].setValue(37)
     w.save_settings()
@@ -484,8 +484,10 @@ def test_long_history_is_incremental_and_earlier_messages_remain_accessible(qtbo
 def test_model_tabs_separate_transfers(desktop):
     tabs = desktop.model_tabs
     assert tabs.count() == 3
-    assert desktop.download_list.parentWidget() is tabs.widget(2)
-    assert desktop.download_button.parentWidget() is not tabs.widget(2)
+    assert tabs.widget(2).isAncestorOf(desktop.download_list)
+    assert not tabs.widget(2).isAncestorOf(desktop.download_button)
+    assert tabs.widget(1).isAncestorOf(desktop.download_button)
+    assert not tabs.widget(1).isAncestorOf(desktop.download_list)
 
 
 def test_desktop_theme_variants_survive_reload(desktop, tmp_path):
@@ -872,12 +874,17 @@ def test_history_header_search_toggles_focuses_and_filters(desktop, qtbot):
     w.refresh_conversations()
     qtbot.waitUntil(lambda: len(w.conversations) == 2)
     assert w.nav[0].isVisible()
+    assert w.history_search_toggle.isVisible()
+    assert w.history_menu_btn.isVisible()
     assert not w.history_search.isVisible()
 
     qtbot.mouseClick(w.history_search_toggle, Qt.LeftButton)
     qtbot.wait(20)
-    assert not w.nav[0].isVisible()
+    assert w.nav[0].isVisible()
+    assert not w.history_search_toggle.isVisible()
+    assert not w.history_menu_btn.isVisible()
     assert w.history_search.isVisible()
+    assert w.history_search_close.isVisible()
     assert w.history_search.hasFocus()
 
     w.history_search.setText("needle_in_message_body")
@@ -886,6 +893,8 @@ def test_history_header_search_toggles_focuses_and_filters(desktop, qtbot):
     qtbot.keyClick(w.history_search, Qt.Key_Escape)
     qtbot.waitUntil(lambda: len(w.conversations) == 2)
     assert w.nav[0].isVisible()
+    assert w.history_search_toggle.isVisible()
+    assert w.history_menu_btn.isVisible()
     assert not w.history_search.isVisible()
     assert w.history_search.text() == ""
     assert first["id"] in {c["id"] for c in w.conversations}
@@ -901,33 +910,27 @@ def test_history_toolbar_controls_fit_narrow_and_expanded_widths(desktop, qtbot)
         w.sidebar_width.setValue(width)
         w.resize_sidebar(width)
         qtbot.wait(25)
-        for btn in (w.nav[0], w.history_search_toggle, w.history_refresh, w.history_menu_btn):
+        for btn in (w.nav[0], w.history_search_toggle, w.history_menu_btn):
             assert btn.isVisible()
             assert btn.width() >= btn.minimumSizeHint().width()
         if width >= 260 and scale <= 120:
             assert w.history_search_toggle.text() != ""
-        # Dedicated toolbar sits below the Conversations button without overlapping it.
-        toolbar_top = w.history_panel.geometry().top() + w.history_search_toggle.geometry().top()
-        assert w.nav[0].geometry().bottom() <= toolbar_top
-        # No horizontal overlap between search trigger, refresh, and menu controls.
-        assert w.history_search_toggle.geometry().right() < w.history_refresh.geometry().left()
-        assert w.history_refresh.geometry().right() < w.history_menu_btn.geometry().left()
-        assert w.history_menu_btn.geometry().right() <= w.sidebar.width()
+        # Search toolbar sits inside history_panel without crowding beside Conversations nav button.
+        assert w.nav[0].geometry().bottom() <= w.history_panel.geometry().top()
+        # No horizontal overlap between search trigger and overflow menu controls.
+        assert w.history_search_toggle.geometry().right() < w.history_menu_btn.geometry().left()
+        assert w.history_menu_btn.geometry().right() <= w.history_panel.width()
 
-        # Open compact search row and verify height, focus, and right-aligned utility buttons.
+        # Open compact search row and verify height, focus, and nav stability.
         w.open_history_search()
         qtbot.wait(25)
         assert w.history_search.isVisible()
         assert w.history_search_close.isVisible()
         assert not w.history_search_toggle.isVisible()
-        assert not w.nav[0].isVisible()
+        assert w.nav[0].isVisible()
         assert w.history_search.height() >= 26
         assert w.history_search.geometry().right() < w.history_search_close.geometry().left()
-        assert w.history_search_close.geometry().right() <= w.sidebar.width()
-        assert w.history_panel.geometry().top() >= w.history_search.geometry().bottom()
-        assert w.history_refresh.geometry().right() < w.history_menu_btn.geometry().left()
-        assert w.history_menu_btn.geometry().right() <= w.history_panel.width()
-        assert w.history_refresh.geometry().left() >= w.history_toolbar_spacer.geometry().right()
+        assert w.history_search_close.geometry().right() <= w.history_panel.width()
 
         # Closing search restores the search trigger cleanly.
         w.close_history_search()
