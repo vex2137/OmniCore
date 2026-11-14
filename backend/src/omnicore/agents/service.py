@@ -198,9 +198,13 @@ class Agents:
             "w moim folderze",
             "w tym folderze",
             "w tym katalogu",
-            "na komputerze",
-            "na dysku",
-            "na pulpicie",
+            "pliki na komputerze",
+            "plików na komputerze",
+            "foldery na komputerze",
+            "pliki na dysku",
+            "plików na dysku",
+            "pliki na pulpicie",
+            "plików na pulpicie",
             "lokalne pliki",
             "lokalnych plików",
             "lokalnym folderze",
@@ -209,7 +213,7 @@ class Agents:
             "lista plików",
             "wylistuj pliki",
             "wyświetl pliki",
-            "wyświetl nazwy",
+            "nazwy plików",
             "pokaż pliki",
             "jakie pliki",
             "wszystkich plików",
@@ -237,16 +241,24 @@ class Agents:
             "read file",
             "find files",
             "search files",
+            "create file",
+            "write file",
+            "save file",
             "in folder",
             "in directory",
             "in the folder",
             "in my folder",
             "my downloads",
+            "files in",
+            "what files",
+            "contents of",
         )
         action_context = (
             "plik",
             "folder",
             "katalog",
+            "dysk",
+            "ścieżk",
             "wyświetl",
             "pokaż",
             "sprawdź",
@@ -257,6 +269,9 @@ class Agents:
             "znajdź",
             "zapisz",
             "utwórz",
+            "co jest w",
+            "co mam w",
+            "zawartość",
             "list",
             "show",
             "check",
@@ -264,20 +279,32 @@ class Agents:
             "find",
             "open",
             "search",
+            "write",
+            "create",
             "directory",
             "files",
             "file",
-            "w ",
-            "z ",
-            "na ",
-            "do ",
-            "in ",
-            "from ",
+            "path",
+            "contents",
         )
         has_phrase = any(p in lower for p in file_phrases)
         has_known_target = bool(suggested and any(ctx in lower for ctx in action_context))
         intent = bool(requested_path or has_known_target or has_phrase)
         return intent, suggested, requested_path
+
+    @staticmethod
+    def _mentions_filesystem_noun(text: str) -> bool:
+        lower = (text or "").casefold()
+        return bool(
+            re.search(
+                r"(?<![:/\w])(~/(?:[^\s\"'`<>|()[\]{},;?!]+)|/(?:home|mnt|media|tmp|var|opt|srv|root)/[^\s\"'`<>|()[\]{},;?!]+)",
+                text or "",
+            )
+            or re.search(
+                r"\b(plik\w*|folder\w*|katalog\w*|dysk\w*|pulpit\w*|pobrane|dokument\w*|file\w*|folder\w*|director(?:y|ies)|path\w*|downloads?|documents?|desktop)\b",
+                lower,
+            )
+        )
 
     @classmethod
     def _detect_folder_intent(cls, text: str) -> tuple[bool, str | None]:
@@ -351,16 +378,19 @@ class Agents:
             phrase in lower
             for phrase in (
                 "grant_id",
-                "udostępni",
-                "uprawnie",
-                "brak dostępu",
-                "nie mam dostępu",
-                "dostępu do folderu",
-                "dostępu do katalogu",
+                "brak dostępu do folderu",
+                "brak dostępu do katalogu",
+                "nie mam dostępu do folderu",
+                "nie mam dostępu do katalogu",
+                "nie mam uprawnień do folderu",
+                "nie mam uprawnień do katalogu",
+                "udostępnij folder",
+                "udostępnij katalog",
                 "granted folder",
-                "no folder",
-                "folder access",
-                "permission",
+                "no folder access",
+                "no granted folder",
+                "folder has not been granted",
+                "directory access required",
             )
         )
 
@@ -392,16 +422,26 @@ class Agents:
             conversation = self.service.history.get(conversation_id)
             model = self.store.model(request.model_id or conversation.model_id)
             parameters = request.parameters or conversation.parameters
-            if request.parameters is None and "desktop_context" in model.metadata:
-                parameters = parameters.model_copy(
-                    update={
-                        "context_size": context_settings(
-                            model,
-                            device=parameters.device,
-                            gpu_offload_mode=parameters.gpu_offload_mode,
-                        )["effective_tokens"]
+            if request.parameters is None:
+                saved_gpu = model.metadata.get("desktop_gpu")
+                if isinstance(saved_gpu, dict):
+                    gpu_update = {
+                        k: saved_gpu[k]
+                        for k in ("device", "gpu_offload_mode", "gpu_layers")
+                        if k in saved_gpu and saved_gpu[k] is not None
                     }
-                )
+                    if gpu_update:
+                        parameters = parameters.model_copy(update=gpu_update)
+                if "desktop_context" in model.metadata:
+                    parameters = parameters.model_copy(
+                        update={
+                            "context_size": context_settings(
+                                model,
+                                device=parameters.device,
+                                gpu_offload_mode=parameters.gpu_offload_mode,
+                            )["effective_tokens"]
+                        }
+                    )
             support = capability(self.service, model)
             if support["status"] == "unsupported" and settings.protocol == "auto":
                 raise TextError("agent_model_unsupported", 422)
@@ -443,6 +483,7 @@ class Agents:
                     conversation_id, "user", request.content, model_id=model.id
                 )
             intent, suggested_folder, requested_path = self._extract_folder_target(request.content)
+            fs_hint = intent or self._mentions_filesystem_noun(request.content)
             record = {
                 "id": uuid.uuid4().hex,
                 "conversation_id": conversation_id,
@@ -466,6 +507,7 @@ class Agents:
                 step_limit=settings.max_steps,
                 web_access=settings.web_access,
                 folder_intent=intent,
+                _request_fs_hint=fs_hint,
                 suggested_folder_name=suggested_folder,
                 requested_folder_path=requested_path,
                 needs_folder_grant=False,
@@ -608,6 +650,7 @@ class Agents:
                     "_gpu_total_layers",
                     "_final_text",
                     "folder_intent",
+                    "_request_fs_hint",
                 ):
                     record.pop(k, None)
                 self.save(record)
@@ -681,6 +724,7 @@ class Agents:
                     )
             final_text = record.pop("_final_text", "")
             record.pop("folder_intent", None)
+            request_fs_hint = bool(record.pop("_request_fs_hint", False))
             perm_codes = {
                 "agent_folder_not_granted",
                 "agent_invalid_grant",
@@ -693,7 +737,10 @@ class Agents:
                     not grants
                     and not record["steps"]
                     and record["state"] == "completed"
-                    and (folder_intent or self._mentions_missing_folder(final_text))
+                    and (
+                        folder_intent
+                        or (request_fs_hint and self._mentions_missing_folder(final_text))
+                    )
                 )
             ):
                 record["needs_folder_grant"] = True

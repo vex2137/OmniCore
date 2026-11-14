@@ -774,3 +774,109 @@ def test_agent_folder_grant_read_only_and_subfolders_and_revoke(tmp_path):
         await agents.service.generations.close()
 
     asyncio.run(exercise())
+
+
+def test_casual_prompts_skip_folder_grant_while_fs_requests_prompt(tmp_path):
+    async def run_prompt(agents, conv_id, prompt):
+        rec = await agents.submit(conv_id, AgentRequest(content=prompt))
+        task = agents.tasks.get(rec["id"])
+        if task is not None:
+            await task
+        return agents.record(rec["id"])
+
+    async def exercise():
+        downloads = tmp_path / "Pobrane"
+        downloads.mkdir()
+        (downloads / "raport.pdf").write_text("demo", encoding="utf-8")
+        other_file = tmp_path / "other" / "not-granted-file.txt"
+        other_file.parent.mkdir()
+        other_file.write_text("secret", encoding="utf-8")
+
+        replies = [
+            json.dumps({"kind": "final", "text": "Wszystko dobrze, w czym mogę pomóc?"}),
+            json.dumps(
+                {
+                    "kind": "final",
+                    "text": (
+                        "Spoko, rozmawiamy normalnie — nie trzeba nic udostępniać "
+                        "ani dawać uprawnień."
+                    ),
+                }
+            ),
+            json.dumps({"kind": "final", "text": "2 + 2 = 4."}),
+            json.dumps(
+                {
+                    "kind": "final",
+                    "text": (
+                        "Super hobby! Nie mam co prawda uprawnień do folderów, "
+                        "ale możemy porozmawiać o muzyce."
+                    ),
+                }
+            ),
+            json.dumps({"kind": "final", "text": "I'm doing great! How can I help you today?"}),
+            json.dumps({"kind": "final", "text": "Decorators wrap functions cleanly."}),
+            # After granting Pobrane:
+            tool("list_files", path="."),
+            json.dumps({"kind": "final", "text": "Pliki: raport.pdf"}),
+            # Runtime read_text attempt on an ungranted external path when prompt asks for a file:
+            tool("read_text", path=str(other_file)),
+        ]
+        agents, conv, engine = setup(tmp_path, replies)
+
+        casual_prompts = [
+            "co tam",
+            "co tam słychać?",
+            "oblicz 2+2",
+            "lubię słuchać muzyki na komputerze",
+            "hello, how are you?",
+            "explain Python decorators",
+        ]
+        for idx, prompt in enumerate(casual_prompts, start=1):
+            run = await run_prompt(agents, conv.id, prompt)
+            assert run["state"] == "completed", (prompt, run)
+            assert not run.get("needs_folder_grant"), (prompt, run)
+            assert run.get("error_code") is None
+            assert len(engine.messages) == idx
+
+        # Real filesystem request without grants asks for access before calling model.
+        before_calls = len(engine.messages)
+        fs_run = await run_prompt(agents, conv.id, "wyświetl pliki w folderze Pobrane")
+        assert fs_run["state"] == "failed"
+        assert fs_run["error_code"] == "agent_folder_not_granted"
+        assert fs_run["needs_folder_grant"] is True
+        assert len(engine.messages) == before_calls
+
+        # Another explicit English filesystem request without grants also requires authorization.
+        en_fs_run = await run_prompt(agents, conv.id, "list files in Downloads")
+        assert en_fs_run["state"] == "failed"
+        assert en_fs_run["error_code"] == "agent_folder_not_granted"
+        assert en_fs_run["needs_folder_grant"] is True
+        assert len(engine.messages) == before_calls
+
+        # Grant folder and retry -> model lists files and completes cleanly.
+        agents.grant_folder(conv.id, str(downloads))
+        retried = await agents.retry(fs_run["id"])
+        task = agents.tasks.get(retried["id"])
+        if task is not None:
+            await task
+        completed_fs = agents.record(retried["id"])
+        assert completed_fs["state"] == "completed"
+        assert not completed_fs.get("needs_folder_grant")
+
+        # Pre-flight detects an explicit external path outside current grants (expand grant).
+        outside_path_run = await run_prompt(agents, conv.id, f"odczytaj plik {other_file}")
+        assert outside_path_run["state"] == "failed"
+        assert outside_path_run["error_code"] == "agent_folder_not_granted"
+        assert outside_path_run["needs_folder_grant"] is True
+        assert outside_path_run["expand_grant"] is True
+
+        # Runtime tool permission denial on an ungranted path also flags needs_folder_grant.
+        runtime_denied_run = await run_prompt(agents, conv.id, "odczytaj plik w folderze Pobrane")
+        assert runtime_denied_run["state"] == "failed"
+        assert runtime_denied_run["error_code"] == "agent_permission_denied"
+        assert runtime_denied_run["needs_folder_grant"] is True
+
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())

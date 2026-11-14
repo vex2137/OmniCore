@@ -595,3 +595,85 @@ def test_context_settings_uses_vram_for_gpu_and_preserves_manual_and_cpu(monkeyp
     }
     manual_res = ctx_mod.context_settings(manual, device="auto", gpu_offload_mode="auto")
     assert manual_res["effective_tokens"] == 8192
+
+
+def test_per_model_gpu_offload_endpoint_persists_resists_rescan_and_drives_llama_args(text_app):
+    class RecordingEngine(ProtocolTestEngine):
+        def __init__(self):
+            super().__init__()
+            self.loaded_parameters = []
+
+        async def load(self, path, parameters, file_descriptor=None):
+            await super().load(path, parameters, file_descriptor=file_descriptor)
+            self.loaded_parameters.append(parameters)
+
+    app, path = text_app
+    engine = RecordingEngine()
+    app.state.text.engines["llama.cpp"] = engine
+    with TestClient(app, base_url="http://localhost") as client:
+        model, conversation = create_chat(client, path)
+
+        initial_ctx = client.get(f"/api/v1/text/models/{model['id']}/context")
+        assert initial_ctx.status_code == 200
+        assert initial_ctx.json()["gpu"]["configured"] is False
+        assert initial_ctx.json()["gpu"]["gpu_offload_mode"] == "auto"
+
+        saved_manual = client.put(
+            f"/api/v1/text/models/{model['id']}/gpu",
+            json={"gpu_offload_mode": "manual", "gpu_layers": 21, "device": "auto"},
+        )
+        assert saved_manual.status_code == 200
+        assert saved_manual.json()["metadata"]["desktop_gpu"] == {
+            "gpu_offload_mode": "manual",
+            "gpu_layers": 21,
+            "device": "auto",
+        }
+        manual_gpu = client.get(f"/api/v1/text/models/{model['id']}/context").json()["gpu"]
+        assert manual_gpu["configured"] is True
+        assert manual_gpu["gpu_offload_mode"] == "manual"
+        assert manual_gpu["gpu_layers"] == 21
+        assert manual_gpu["device"] == "auto"
+
+        # Rescan / re-import must preserve desktop_gpu metadata.
+        reimported = client.post("/api/v1/text/models/import", json={"path": str(path)})
+        assert reimported.status_code == 201
+        assert app.state.text.store.model(model["id"]).metadata["desktop_gpu"] == {
+            "gpu_offload_mode": "manual",
+            "gpu_layers": 21,
+            "device": "auto",
+        }
+
+        gen_manual = client.post(
+            f"/api/v1/text/conversations/{conversation['id']}/generations",
+            json={"content": "Test GPU manual", "request_key": "gpu-manual-key"},
+        )
+        assert gen_manual.status_code == 202
+        assert wait_job(client, gen_manual.json()["id"])["state"] == "completed"
+        assert engine.loaded_parameters[-1].gpu_offload_mode == "manual"
+        assert engine.loaded_parameters[-1].gpu_layers == 21
+        assert engine.loaded_parameters[-1].device == "auto"
+
+        saved_cpu = client.put(
+            f"/api/v1/text/models/{model['id']}/gpu",
+            json={"gpu_offload_mode": "cpu", "gpu_layers": 0, "device": "cpu"},
+        )
+        assert saved_cpu.status_code == 200
+        assert saved_cpu.json()["metadata"]["desktop_gpu"] == {
+            "gpu_offload_mode": "cpu",
+            "gpu_layers": 0,
+            "device": "cpu",
+        }
+        cpu_gpu = client.get(f"/api/v1/text/models/{model['id']}/context").json()["gpu"]
+        assert cpu_gpu["gpu_offload_mode"] == "cpu"
+        assert cpu_gpu["gpu_layers"] == 0
+        assert cpu_gpu["device"] == "cpu"
+
+        gen_cpu = client.post(
+            f"/api/v1/text/conversations/{conversation['id']}/generations",
+            json={"content": "Test GPU cpu", "request_key": "gpu-cpu-key"},
+        )
+        assert gen_cpu.status_code == 202
+        assert wait_job(client, gen_cpu.json()["id"])["state"] == "completed"
+        assert engine.loaded_parameters[-1].gpu_offload_mode == "cpu"
+        assert engine.loaded_parameters[-1].gpu_layers == 0
+        assert engine.loaded_parameters[-1].device == "cpu"

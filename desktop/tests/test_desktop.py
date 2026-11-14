@@ -904,6 +904,8 @@ def test_history_toolbar_controls_fit_narrow_and_expanded_widths(desktop, qtbot)
         for btn in (w.nav[0], w.history_search_toggle, w.history_refresh, w.history_menu_btn):
             assert btn.isVisible()
             assert btn.width() >= btn.minimumSizeHint().width()
+        if width >= 260 and scale <= 120:
+            assert w.history_search_toggle.text() != ""
         # Dedicated toolbar sits below the Conversations button without overlapping it.
         toolbar_top = w.history_panel.geometry().top() + w.history_search_toggle.geometry().top()
         assert w.nav[0].geometry().bottom() <= toolbar_top
@@ -911,6 +913,27 @@ def test_history_toolbar_controls_fit_narrow_and_expanded_widths(desktop, qtbot)
         assert w.history_search_toggle.geometry().right() < w.history_refresh.geometry().left()
         assert w.history_refresh.geometry().right() < w.history_menu_btn.geometry().left()
         assert w.history_menu_btn.geometry().right() <= w.sidebar.width()
+
+        # Open compact search row and verify height, focus, and right-aligned utility buttons.
+        w.open_history_search()
+        qtbot.wait(25)
+        assert w.history_search.isVisible()
+        assert w.history_search_close.isVisible()
+        assert not w.history_search_toggle.isVisible()
+        assert not w.nav[0].isVisible()
+        assert w.history_search.height() >= 26
+        assert w.history_search.geometry().right() < w.history_search_close.geometry().left()
+        assert w.history_search_close.geometry().right() <= w.sidebar.width()
+        assert w.history_panel.geometry().top() >= w.history_search.geometry().bottom()
+        assert w.history_refresh.geometry().right() < w.history_menu_btn.geometry().left()
+        assert w.history_menu_btn.geometry().right() <= w.history_panel.width()
+        assert w.history_refresh.geometry().left() >= w.history_toolbar_spacer.geometry().right()
+
+        # Closing search restores the search trigger cleanly.
+        w.close_history_search()
+        qtbot.wait(25)
+        assert not w.history_search.isVisible()
+        assert w.history_search_toggle.isVisible()
 
     w.toggle_sidebar()
     qtbot.wait(20)
@@ -1352,3 +1375,166 @@ def test_gpu_offload_mode_controls_and_preserves_context(desktop, qtbot):
     w.render_messages()
     assert "GPU 27/32" in w.context_usage.text()
     assert "auto (27/32)" in w.context_details.text()
+
+
+def test_no_duplicate_folder_permission_cards_in_transcript_render(desktop, qtbot):
+    from omnicore.desktop.transcript import MessageCard
+
+    w = desktop
+    w.resize(1100, 760)
+    w.show()
+    qtbot.waitExposed(w)
+    w.current_id = "conv-dedup"
+    run = {
+        "id": "run-folder-1",
+        "conversation_id": "conv-dedup",
+        "request_message_id": "msg-user-1",
+        "response_message_id": "msg-ast-1",
+        "state": "failed",
+        "error_code": "agent_folder_not_granted",
+        "needs_folder_grant": True,
+        "steps": [],
+    }
+    w.agent_panel.runs = [run]
+    w.messages = [
+        {"id": "msg-user-1", "role": "user", "content": "wyświetl pliki w folderze Pobrane"},
+        {"id": "msg-ast-1", "role": "assistant", "content": "", "status": "completed"},
+    ]
+    w.render_messages()
+    grant_cards = [
+        card
+        for card in w.transcript.findChildren(MessageCard)
+        if card.agent_grant_button is not None
+    ]
+    assert len(grant_cards) == 1
+
+    # Casual message without a grant-requiring run renders zero folder permission buttons.
+    w.agent_panel.runs = [
+        {
+            "id": "run-chat-1",
+            "conversation_id": "conv-dedup",
+            "request_message_id": "msg-user-2",
+            "response_message_id": "msg-ast-2",
+            "state": "completed",
+            "needs_folder_grant": False,
+            "steps": [],
+        }
+    ]
+    w.messages = [
+        {"id": "msg-user-2", "role": "user", "content": "co tam"},
+        {
+            "id": "msg-ast-2",
+            "role": "assistant",
+            "content": "Wszystko dobrze!",
+            "status": "completed",
+        },
+    ]
+    w.render_messages()
+    grant_cards_chat = [
+        card
+        for card in w.transcript.findChildren(MessageCard)
+        if card.agent_grant_button is not None
+    ]
+    assert len(grant_cards_chat) == 0
+
+
+def test_expanded_chat_panel_exposes_per_model_gpu_settings_and_reload_indicator(desktop, qtbot):
+    from omnicore.desktop.resources import ResourceSnapshot
+
+    w = desktop
+    w.resize(1280, 720)
+    w.show()
+    qtbot.waitExposed(w)
+
+    models_dir = data_path() / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    gguf_path = models_dir / "gpu-ui-test.gguf"
+    gguf_path.write_bytes(fixture_gguf("GPU UI Model"))
+    imported = request(w, "POST", "/api/v1/text/models/import", {"path": str(gguf_path)})
+    w.refresh_models()
+    qtbot.waitUntil(lambda: any(m["id"] == imported["id"] for m in w.models))
+    idx = next(
+        i for i in range(w.model_combo.count()) if w.model_combo.itemData(i) == imported["id"]
+    )
+    w.model_combo.setCurrentIndex(idx)
+
+    qtbot.mouseClick(w.context_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: w.context_controls.isVisible())
+
+    for scale in (100, 150):
+        w.ui_scale.setValue(scale)
+        qtbot.wait(25)
+        assert w.context_controls.isVisible()
+        assert w.chat_gpu_label.isVisible()
+        assert w.chat_gpu_mode.isVisible()
+        assert w.chat_gpu_layers.isVisible()
+        assert w.chat_gpu_save.isVisible()
+        assert w.chat_gpu_status.isVisible()
+        assert w.chat_gpu_mode.geometry().top() >= w.context_status.geometry().bottom()
+        assert w.chat_gpu_mode.geometry().right() < w.chat_gpu_layers.geometry().left()
+        assert w.chat_gpu_layers.geometry().right() < w.chat_gpu_save.geometry().left()
+        assert w.chat_gpu_save.geometry().right() <= w.context_controls.width()
+
+    w.ui_scale.setValue(100)
+    qtbot.wait(25)
+    assert [w.chat_gpu_mode.itemData(i) for i in range(w.chat_gpu_mode.count())] == [
+        "auto",
+        "max",
+        "manual",
+        "cpu",
+    ]
+    assert not w.chat_gpu_layers.isEnabled()
+
+    w.chat_gpu_mode.setCurrentIndex(w.chat_gpu_mode.findData("manual"))
+    assert w.chat_gpu_layers.isEnabled()
+    w.chat_gpu_layers.setValue(21)
+    qtbot.mouseClick(w.chat_gpu_save, Qt.LeftButton)
+    qtbot.waitUntil(
+        lambda: (
+            not w._gpu_saving
+            and w.model_contexts.get(imported["id"], {}).get("gpu", {}).get("gpu_layers") == 21
+        )
+    )
+    assert (
+        request(w, "GET", f"/api/v1/text/models/{imported['id']}/context")["gpu"]["gpu_layers"]
+        == 21
+    )
+
+    params = w._parameters_for_model(w.selected_model())
+    assert params["gpu_offload_mode"] == "manual"
+    assert params["gpu_layers"] == 21
+    assert params["device"] == "auto"
+
+    # Resource monitor VRAM telemetry and applied-vs-configured reload indicator show in status.
+    w._apply_resource_snapshot(
+        ResourceSnapshot(
+            cpu_percent=12.0,
+            cpu_temp_c=None,
+            ram_used_bytes=4 * 1024**3,
+            ram_total_bytes=16 * 1024**3,
+            gpu_name="RTX 4060",
+            gpu_util_percent=30.0,
+            vram_used_bytes=2048 * 1024**2,
+            vram_total_bytes=8188 * 1024**2,
+            app_ram_bytes=100 * 1024**2,
+            engine_ram_bytes=200 * 1024**2,
+            engine_vram_bytes=1024 * 1024**2,
+        )
+    )
+    ctx_snapshot = dict(w.model_contexts[imported["id"]])
+    ctx_snapshot["gpu"] = {
+        **ctx_snapshot["gpu"],
+        "vram_total_bytes": None,
+        "vram_free_bytes": None,
+        "applied_mode": "auto",
+        "applied_requested_layers": 15,
+        "applied_offloaded_layers": 15,
+        "applied_total_layers": 32,
+        "applied_device": "cuda",
+    }
+    w.model_contexts[imported["id"]] = ctx_snapshot
+    w._render_model_gpu()
+    status_text = w.chat_gpu_status.text()
+    assert "15/32" in status_text
+    assert "VRAM" in status_text
+    assert w.tr("context_reload") in status_text

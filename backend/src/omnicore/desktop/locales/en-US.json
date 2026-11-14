@@ -417,8 +417,17 @@
   "gpu_offload_mode": "GPU offload mode",
   "offload_auto": "Auto (recommended)",
   "offload_max": "Maximum GPU",
-  "offload_manual": "Manual",
+  "offload_manual": "Manual GPU layers",
   "offload_cpu": "CPU only",
   "search_short": "Search…",
-  "stats_prompt_time": "Prompt processing"
+  "stats_prompt_time": "Prompt processing",
+  "gpu_section_label": "GPU offload",
+  "gpu_saved": "GPU offload preference saved.",
+  "gpu_status_configured": "Configured: {mode}",
+  "gpu_status_layers_arg": " ({layers} layers)",
+  "gpu_status_req_actual": "Requested: {requested} · Actual: {actual} layers ({device})",
+  "gpu_status_req_layers": "Requested: {requested} layers",
+  "gpu_status_vram": "VRAM: {free} / {total} GB free",
+  "gpu_status_vram_total": "VRAM: {total} GB",
+  "gpu_status_cpu_only": "CPU / engine-managed"
 }

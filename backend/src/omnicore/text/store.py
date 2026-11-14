@@ -200,6 +200,8 @@ class TextStore:
                 record.parameters = previous.parameters
                 if "desktop_context" in previous.metadata:
                     record.metadata["desktop_context"] = previous.metadata["desktop_context"]
+                if "desktop_gpu" in previous.metadata:
+                    record.metadata["desktop_gpu"] = previous.metadata["desktop_gpu"]
                 connection.execute(
                     "UPDATE text_models SET record=?,device=?,inode=? WHERE id=?",
                     (record.model_dump_json(), device, inode, record.id),

@@ -298,6 +298,8 @@ class MainWindow(QMainWindow):
         self.model_contexts = {}
         self._context_saving = False
         self._context_dirty = False
+        self._gpu_saving = False
+        self._gpu_dirty = False
         self._context_generation = 0
         self.engines = []
         self.is_connected = False
@@ -415,6 +417,7 @@ class MainWindow(QMainWindow):
         self.conversations_row.setSpacing(4)
         self.conversations_row.addWidget(self.nav[0], 1)
         self.history_search = QLineEdit()
+        self.history_search.setObjectName("historySearch")
         self.history_search.setMaxLength(256)
         self.history_search.setClearButtonEnabled(True)
         self.history_search.installEventFilter(self)
@@ -581,7 +584,11 @@ class MainWindow(QMainWindow):
         self.history_menu_btn.setObjectName("historyHeaderButton")
         self.history_menu_btn.setCursor(Qt.PointingHandCursor)
         self.history_menu_btn.clicked.connect(self.open_history_menu)
+        self.history_toolbar_spacer = QWidget()
+        self.history_toolbar_spacer.setStyleSheet("background: transparent;")
+        self.history_toolbar_spacer.hide()
         self.history_toolbar.addWidget(self.history_search_toggle, 1)
+        self.history_toolbar.addWidget(self.history_toolbar_spacer, 1)
         self.history_toolbar.addWidget(self.history_refresh)
         self.history_toolbar.addWidget(self.history_menu_btn)
         left.addLayout(self.history_toolbar)
@@ -677,6 +684,36 @@ class MainWindow(QMainWindow):
         self.context_tokens.valueChanged.connect(self.sync_context_slider)
         context_layout.addWidget(self.context_slider)
         context_layout.addWidget(self.context_status)
+        self.context_gpu_divider = QFrame()
+        self.context_gpu_divider.setObjectName("contextDivider")
+        self.context_gpu_divider.setFrameShape(QFrame.HLine)
+        context_layout.addWidget(self.context_gpu_divider)
+        self.chat_gpu_label = self.label("gpu_section_label")
+        self.chat_gpu_mode = QComboBox()
+        self.chat_gpu_mode.setAccessibleName(self.tr("gpu_offload_mode"))
+        for key in ("auto", "max", "manual", "cpu"):
+            self.chat_gpu_mode.addItem(self.tr("offload_" + key), key)
+        self.chat_gpu_mode.currentIndexChanged.connect(self._chat_gpu_mode_changed)
+        self.chat_gpu_mode.currentIndexChanged.connect(self._chat_gpu_edited)
+        self.chat_gpu_layers = QSpinBox()
+        self.chat_gpu_layers.setRange(0, 999)
+        self.chat_gpu_layers.setValue(99)
+        self.chat_gpu_layers.setAccessibleName(self.tr("gpu_layers"))
+        self.chat_gpu_layers.valueChanged.connect(self._chat_gpu_edited)
+        self.chat_gpu_save = self.button("save", self.save_model_gpu)
+        context_layout.addLayout(
+            self.row(
+                self.chat_gpu_label,
+                self.chat_gpu_mode,
+                self.chat_gpu_layers,
+                self.chat_gpu_save,
+            )
+        )
+        self.chat_gpu_status = QLabel()
+        self.chat_gpu_status.setObjectName("mutedMeta")
+        self.chat_gpu_status.setTextFormat(Qt.PlainText)
+        self.chat_gpu_status.setWordWrap(True)
+        context_layout.addWidget(self.chat_gpu_status)
         self.agent_panel = AgentPanel(self)
         self.agent_panel.setMaximumWidth(840)
         self.chat_header.insertWidget(2, self.agent_panel.mode)
@@ -1217,10 +1254,6 @@ class MainWindow(QMainWindow):
         icon_font = self._scaled(16)
         icon_style = f"padding: 0; text-align: center; font-size: {icon_font}px;"
         for widget in (
-            self.history_search_toggle,
-            self.history_refresh,
-            self.history_menu_btn,
-            self.history_search_close,
             self.context_button,
             self.chat_refresh,
         ):
@@ -1302,6 +1335,9 @@ class MainWindow(QMainWindow):
         if self._closing or not isinstance(snapshot, ResourceSnapshot):
             return
         self._render_resource_widgets(snapshot)
+        if hasattr(self, "chat_gpu_status") and getattr(self, "context_controls", None):
+            if self.context_controls.isVisible() and not self._gpu_dirty:
+                self._render_model_gpu()
 
     def _format_notice_details(
         self, code: str, *, component: str | None = None, target: str | None = None
@@ -1343,7 +1379,7 @@ class MainWindow(QMainWindow):
         )
         toggle_size = btn_size if compact else self._scaled(32)
         toggle_icon = self._scaled(19 if compact else 16)
-        header_btn = self._scaled(30)
+        header_btn = self._scaled(32)
         header_icon = self._scaled(15)
         row_gap = self._scaled(6)
         sidebar_w = compact_width if compact else max(200, min(360, self.config.sidebar_width))
@@ -1357,23 +1393,22 @@ class MainWindow(QMainWindow):
         self.history_refresh.setIconSize(QSize(header_icon, header_icon))
         self.history_menu_btn.setFixedSize(header_btn, header_btn)
         self.history_search_close.setFixedSize(header_btn, header_btn)
+        self.history_search.setFixedHeight(self._scaled(34))
         if not compact:
             toolbar_avail = max(
                 header_btn, sidebar_w - 2 * margin_h - 2 * header_btn - 2 * row_gap - 2
             )
-            self.history_search_toggle.setMinimumSize(0, 0)
+            self.history_search_toggle.setMinimumSize(header_btn, header_btn)
             self.history_search_toggle.setMaximumSize(16777215, header_btn)
             self.history_search_toggle.setFixedHeight(header_btn)
             self.history_search_toggle.setText(self.tr("search_short"))
             self.history_search_toggle.ensurePolished()
             if self.history_search_toggle.minimumSizeHint().width() > toolbar_avail:
                 self.history_search_toggle.setText("")
-                self.history_search_toggle.setFixedSize(header_btn, header_btn)
-            else:
-                self.history_search_toggle.setMinimumWidth(header_btn)
         search_open = not compact and self._history_search_open
         self.nav[0].setVisible(compact or not search_open)
         self.history_search_toggle.setVisible(not compact and not search_open)
+        self.history_toolbar_spacer.setVisible(not compact and search_open)
         self.history_refresh.setVisible(not compact)
         self.history_menu_btn.setVisible(not compact)
         self.history_search.setVisible(search_open)
@@ -1491,6 +1526,11 @@ class MainWindow(QMainWindow):
         self.context_mode.setItemText(1, self.tr("context_manual"))
         if hasattr(self, "context_preset"):
             self._populate_context_presets(self.context_tokens.maximum())
+        if hasattr(self, "chat_gpu_mode"):
+            for index, key in enumerate(("auto", "max", "manual", "cpu")):
+                self.chat_gpu_mode.setItemText(index, self.tr("offload_" + key))
+            self.chat_gpu_mode.setAccessibleName(self.tr("gpu_offload_mode"))
+            self.chat_gpu_layers.setAccessibleName(self.tr("gpu_layers"))
         self._render_model_context()
         self.model_actions.setToolTip(self.tr("model_actions"))
         self.model_actions.setAccessibleName(self.tr("model_actions"))
@@ -1756,8 +1796,14 @@ class MainWindow(QMainWindow):
                 color: {fg}; }}
             QPushButton#historySearchTrigger {{
                 background: {field}; border: 1px solid {border}; border-radius: 8px;
-                padding: 4px 10px; color: {muted}; text-align: left; font-weight: 450; }}
+                padding: 0 8px; color: {muted}; text-align: left; font-weight: 450; }}
             QPushButton#historySearchTrigger:hover {{ border-color: {accent}; color: {fg}; }}
+            QLineEdit#historySearch {{
+                background: {field}; border: 1px solid {border}; border-radius: 8px;
+                padding: 4px 10px; min-height: 0; color: {fg}; }}
+            QFrame#contextDivider {{
+                background: {border}; border: none; max-height: 1px;
+                min-height: 1px; margin: 2px 0; }}
             QLabel#historyItemTitle {{ background: transparent; color: {fg}; }}
             QLabel#historyItemTitle[selected="true"] {{ color: {accent}; }}
             QPushButton#historyHeading {{ background: transparent; border: none;
@@ -1783,7 +1829,7 @@ class MainWindow(QMainWindow):
                 color: {muted};
                 border-color: {border};
                 }}
-            QFrame#sidebar QPushButton#primary {{ padding: 9px 6px; }}
+            QFrame#sidebar QPushButton#primary {{ padding: 9px 8px; }}
             QPushButton#sidebarToggle {{ background: transparent;
                 border: 1px solid transparent;
                 border-radius: 9px;
@@ -1793,7 +1839,7 @@ class MainWindow(QMainWindow):
                 border-color: {border};
                 }}
             QPushButton#nav {{ text-align: left;
-                padding: 10px 6px;
+                padding: 9px 8px;
                 border: 1px solid transparent;
                 border-radius: 9px;
                 background: transparent;
@@ -2529,6 +2575,7 @@ class MainWindow(QMainWindow):
         self._sync_model_combo_width()
         self.render_messages()
         self._context_dirty = False
+        self._gpu_dirty = False
         self._render_model_context()
         self._refresh_model_context()
         if self.current_id and self.model_combo.currentData() and not self.active_job:
@@ -2615,12 +2662,201 @@ class MainWindow(QMainWindow):
             and not self._context_saving
         )
 
-    def _context_params_kwargs(self):
-        params = self.config.parameters if isinstance(self.config.parameters, dict) else {}
-        return {
-            "device": params.get("device"),
-            "gpu_offload_mode": params.get("gpu_offload_mode"),
+    def _model_gpu_config(self, model=None):
+        params = dict(self.config.parameters) if isinstance(self.config.parameters, dict) else {}
+        cfg = {
+            "device": params.get("device", "auto"),
+            "gpu_offload_mode": params.get("gpu_offload_mode", "auto"),
+            "gpu_layers": params.get("gpu_layers", 99),
         }
+        if not model:
+            return cfg
+        if model.get("backend") == "ollama":
+            return {"device": "cpu", "gpu_offload_mode": "cpu", "gpu_layers": 0}
+        saved_gpu = (model.get("metadata") or {}).get("desktop_gpu")
+        if isinstance(saved_gpu, dict) and saved_gpu:
+            if saved_gpu.get("device"):
+                cfg["device"] = saved_gpu["device"]
+            if saved_gpu.get("gpu_offload_mode"):
+                cfg["gpu_offload_mode"] = saved_gpu["gpu_offload_mode"]
+            if isinstance(saved_gpu.get("gpu_layers"), int):
+                cfg["gpu_layers"] = saved_gpu["gpu_layers"]
+        return cfg
+
+    def _context_params_kwargs(self, model=None):
+        target = model if model is not None else self._selected_chat_model()
+        cfg = self._model_gpu_config(target)
+        return {
+            "device": cfg.get("device"),
+            "gpu_offload_mode": cfg.get("gpu_offload_mode"),
+        }
+
+    def _chat_gpu_edited(self, *_):
+        self._gpu_dirty = True
+
+    def _chat_gpu_mode_changed(self, *_):
+        if not hasattr(self, "chat_gpu_mode"):
+            return
+        model = self._selected_chat_model()
+        is_llama = bool(model and model.get("backend") == "llama.cpp")
+        mode = self.chat_gpu_mode.currentData()
+        if mode == "cpu":
+            self.chat_gpu_layers.blockSignals(True)
+            self.chat_gpu_layers.setValue(0)
+            self.chat_gpu_layers.blockSignals(False)
+        elif mode == "manual" and self.chat_gpu_layers.value() == 0:
+            self.chat_gpu_layers.blockSignals(True)
+            self.chat_gpu_layers.setValue(99)
+            self.chat_gpu_layers.blockSignals(False)
+        busy = bool(self._gpu_saving or self.active_job or self.agent_panel.active)
+        self.chat_gpu_layers.setEnabled(is_llama and mode == "manual" and not busy)
+
+    def _render_model_gpu(self):
+        if not hasattr(self, "chat_gpu_mode"):
+            return
+        model = self._selected_chat_model()
+        is_llama = bool(model and model.get("backend") == "llama.cpp")
+        busy = bool(self._gpu_saving or self.active_job or self.agent_panel.active)
+        self.chat_gpu_mode.setEnabled(is_llama and not busy)
+        self.chat_gpu_save.setEnabled(is_llama and not busy)
+        if not model:
+            self.chat_gpu_layers.setEnabled(False)
+            self.chat_gpu_status.setText(self.tr("context_choose_model"))
+            return
+        if not is_llama:
+            self.chat_gpu_mode.blockSignals(True)
+            self.chat_gpu_mode.setCurrentIndex(self.chat_gpu_mode.findData("cpu"))
+            self.chat_gpu_mode.blockSignals(False)
+            self.chat_gpu_layers.blockSignals(True)
+            self.chat_gpu_layers.setValue(0)
+            self.chat_gpu_layers.blockSignals(False)
+            self.chat_gpu_layers.setEnabled(False)
+            self.chat_gpu_status.setText(self.tr("gpu_status_cpu_only"))
+            return
+        cfg = self._model_gpu_config(model)
+        ctx_data = self.model_contexts.get(model["id"], {})
+        gpu_info = ctx_data.get("gpu") if isinstance(ctx_data.get("gpu"), dict) else {}
+        if not self._gpu_dirty:
+            mode = gpu_info.get("gpu_offload_mode") or cfg["gpu_offload_mode"]
+            layers = gpu_info.get("gpu_layers")
+            if not isinstance(layers, int):
+                layers = cfg["gpu_layers"]
+            self.chat_gpu_mode.blockSignals(True)
+            idx = self.chat_gpu_mode.findData(mode)
+            self.chat_gpu_mode.setCurrentIndex(idx if idx >= 0 else 0)
+            self.chat_gpu_mode.blockSignals(False)
+            self.chat_gpu_layers.blockSignals(True)
+            self.chat_gpu_layers.setValue(0 if mode == "cpu" else layers)
+            self.chat_gpu_layers.blockSignals(False)
+        self._chat_gpu_mode_changed()
+
+        cur_mode = self.chat_gpu_mode.currentData()
+        cur_layers = self.chat_gpu_layers.value()
+        mode_text = self.tr("offload_" + cur_mode)
+        if cur_mode == "manual":
+            mode_text += self.tr("gpu_status_layers_arg", layers=cur_layers)
+        parts = [self.tr("gpu_status_configured", mode=mode_text)]
+        applied_mode = gpu_info.get("applied_mode")
+        if applied_mode is not None:
+            req_l = gpu_info.get("applied_requested_layers")
+            off_l = gpu_info.get("applied_offloaded_layers")
+            tot_l = gpu_info.get("applied_total_layers")
+            dev = gpu_info.get("applied_device") or "cpu"
+            if off_l is not None and tot_l:
+                actual_str = f"{off_l}/{tot_l}"
+            elif off_l is not None:
+                actual_str = str(off_l)
+            else:
+                actual_str = "-"
+            if req_l is not None:
+                parts.append(
+                    self.tr(
+                        "gpu_status_req_actual",
+                        requested=req_l,
+                        actual=actual_str,
+                        device=dev,
+                    )
+                )
+        else:
+            if cur_mode == "manual":
+                parts.append(self.tr("gpu_status_req_layers", requested=cur_layers))
+            parts.append(self.tr("context_on_start"))
+
+        vram_free = gpu_info.get("vram_free_bytes")
+        vram_total = gpu_info.get("vram_total_bytes")
+        if vram_total is None and hasattr(self, "resource_monitor"):
+            snap = getattr(self.resource_monitor, "latest", None)
+            if snap and snap.vram_total_bytes:
+                vram_total = snap.vram_total_bytes
+                if snap.vram_used_bytes is not None:
+                    vram_free = max(0, snap.vram_total_bytes - snap.vram_used_bytes)
+        if vram_total:
+            if vram_free is not None:
+                parts.append(
+                    self.tr(
+                        "gpu_status_vram",
+                        free=f"{vram_free / (1024**3):.1f}",
+                        total=f"{vram_total / (1024**3):.1f}",
+                    )
+                )
+            else:
+                parts.append(
+                    self.tr("gpu_status_vram_total", total=f"{vram_total / (1024**3):.1f}")
+                )
+
+        if applied_mode is not None and (
+            applied_mode != cur_mode
+            or (
+                cur_mode == "manual"
+                and gpu_info.get("applied_requested_layers") is not None
+                and gpu_info.get("applied_requested_layers") != cur_layers
+            )
+        ):
+            parts.append(self.tr("context_reload"))
+        self.chat_gpu_status.setText(" · ".join(parts))
+
+    def save_model_gpu(self):
+        if self.agent_panel.active:
+            self.show_error("conversation_busy")
+            return
+        model = self._selected_chat_model()
+        if not model or self._gpu_saving or self.active_job or model.get("backend") != "llama.cpp":
+            return
+        model_id = model["id"]
+        mode = self.chat_gpu_mode.currentData()
+        layers = 0 if mode == "cpu" else self.chat_gpu_layers.value()
+        base_dev = self._model_gpu_config(model).get("device", "auto")
+        if mode == "cpu":
+            dev = "cpu"
+        elif base_dev == "cpu" or not base_dev:
+            dev = "auto"
+        else:
+            dev = base_dev
+        body = {"gpu_offload_mode": mode, "gpu_layers": layers, "device": dev}
+        self._gpu_saving = True
+        self.chat_gpu_save.setEnabled(False)
+        self.chat_gpu_mode.setEnabled(False)
+        self.chat_gpu_layers.setEnabled(False)
+
+        def saved(record):
+            self._gpu_saving = False
+            self._gpu_dirty = False
+            self.models = [record if item["id"] == model_id else item for item in self.models]
+            self.model_contexts[model_id] = context_settings(
+                record, **self._context_params_kwargs(record)
+            )
+            self._refresh_model_context()
+            self._render_model_context()
+            self.notify(self.tr("gpu_saved"))
+
+        def failed(code):
+            self._gpu_saving = False
+            self._render_model_gpu()
+            self.show_error(code)
+
+        self.api.request(
+            "PUT", TEXT + f"/models/{model_id}/gpu", body, success=saved, failure=failed
+        )
 
     def _render_model_context(self):
         if not hasattr(self, "context_mode"):
@@ -2634,12 +2870,14 @@ class MainWindow(QMainWindow):
         if not model:
             self.context_tokens.setEnabled(False)
             self.context_status.setText(self.tr("context_choose_model"))
+            self._render_model_gpu()
             return
         if self._context_dirty:
             self._context_mode_changed()
+            self._render_model_gpu()
             return
         saved = self.model_contexts.get(model["id"]) or context_settings(
-            model, **self._context_params_kwargs()
+            model, **self._context_params_kwargs(model)
         )
         self._populate_context_presets(saved["maximum"])
         self.context_mode.blockSignals(True)
@@ -2664,6 +2902,7 @@ class MainWindow(QMainWindow):
         if saved.get("memory_warning"):
             text += " · " + self.tr("context_memory_warning")
         self.context_status.setText(text)
+        self._render_model_gpu()
 
     def _refresh_model_context(self):
         model = self._selected_chat_model()
@@ -2726,8 +2965,25 @@ class MainWindow(QMainWindow):
     def _parameters_for_model(self, model):
         parameters = dict(self.config.parameters)
         if model:
+            gpu_cfg = self._model_gpu_config(model)
+            if (
+                self._gpu_dirty
+                and self.model_combo.currentData() == model["id"]
+                and hasattr(self, "chat_gpu_mode")
+                and model.get("backend") == "llama.cpp"
+            ):
+                sel_mode = self.chat_gpu_mode.currentData()
+                gpu_cfg["gpu_offload_mode"] = sel_mode
+                gpu_cfg["gpu_layers"] = 0 if sel_mode == "cpu" else self.chat_gpu_layers.value()
+                if sel_mode == "cpu":
+                    gpu_cfg["device"] = "cpu"
+                elif gpu_cfg.get("device") in (None, "", "cpu"):
+                    gpu_cfg["device"] = "auto"
+            parameters.update(gpu_cfg)
             saved = self.model_contexts.get(model["id"]) or context_settings(
-                model, **self._context_params_kwargs()
+                model,
+                device=gpu_cfg.get("device"),
+                gpu_offload_mode=gpu_cfg.get("gpu_offload_mode"),
             )
             if (
                 self._context_dirty
@@ -2739,9 +2995,11 @@ class MainWindow(QMainWindow):
                 else:
                     parameters["context_size"] = saved.get(
                         "automatic_tokens",
-                        context_settings(model, **self._context_params_kwargs())[
-                            "effective_tokens"
-                        ],
+                        context_settings(
+                            model,
+                            device=gpu_cfg.get("device"),
+                            gpu_offload_mode=gpu_cfg.get("gpu_offload_mode"),
+                        )["effective_tokens"],
                     )
             else:
                 parameters["context_size"] = saved["effective_tokens"]
@@ -2755,7 +3013,13 @@ class MainWindow(QMainWindow):
     def send_message(self):
         if self.agent_panel.active or self.agent_panel.compatibility_busy:
             return
-        if self.active_job or self._submitting or self._context_saving or not self.is_connected:
+        if (
+            self.active_job
+            or self._submitting
+            or self._context_saving
+            or self._gpu_saving
+            or not self.is_connected
+        ):
             return
         if not self.current_id:
             self.show_error("no_conversation")
@@ -2907,6 +3171,7 @@ class MainWindow(QMainWindow):
                 req_id = run.get("request_message_id")
                 if req_id and req_id not in by_request:
                     by_request[req_id] = run
+            attached_grant_runs = set()
             for idx, msg in enumerate(messages):
                 msg_id = msg.get("id")
                 if msg.get("role") == "assistant":
@@ -2922,7 +3187,11 @@ class MainWindow(QMainWindow):
                     next_is_assistant = (
                         idx + 1 < len(messages) and messages[idx + 1].get("role") == "assistant"
                     )
-                    if (
+                    next_has_run = next_is_assistant and (
+                        messages[idx + 1].get("id") == req_run.get("response_message_id")
+                        or req_run.get("state") == "completed"
+                    )
+                    if not next_has_run and (
                         not next_is_assistant
                         or req_run.get("state") != "completed"
                         or req_run.get("needs_folder_grant")
@@ -2937,6 +3206,12 @@ class MainWindow(QMainWindow):
                     )
                     msg["has_granted_folder"] = has_granted_folder
                     msg["folder_grant_cancelled"] = run_obj.get("id") in cancelled_grants
+                    if run_obj.get("needs_folder_grant"):
+                        rid = run_obj.get("id")
+                        if rid and rid in attached_grant_runs:
+                            msg["suppress_folder_prompt"] = True
+                        elif rid:
+                            attached_grant_runs.add(rid)
         self.transcript.can_regenerate = bool(
             self.is_connected
             and self.model_combo.currentData()

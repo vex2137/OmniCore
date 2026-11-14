@@ -487,6 +487,7 @@ class MessageCard(QFrame):
             not isinstance(run, dict)
             or not run.get("needs_folder_grant")
             or run.get("continued_by")
+            or self.message.get("suppress_folder_prompt")
         ):
             return
         has_folder = bool(self.message.get("has_granted_folder"))

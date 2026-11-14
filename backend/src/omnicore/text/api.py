@@ -53,6 +53,15 @@ class ModelContext(WireModel):
     manual_tokens: int = Field(default=2048, ge=128, le=1_000_000)
 
 
+class ModelGpuSettings(WireModel):
+    gpu_offload_mode: Literal["auto", "max", "manual", "cpu"] = "auto"
+    gpu_layers: int = Field(default=99, ge=0, le=999)
+    device: str = Field(
+        default="auto",
+        pattern=r"^(cpu|auto|[A-Za-z0-9][A-Za-z0-9_.:-]{0,63})$",
+    )
+
+
 class ConversationCreate(WireModel):
     title: str = Field(default="", max_length=256)
     model_id: str | None = None
@@ -268,23 +277,57 @@ def routes(service: TextService):
         return service.store.model(model_id)
 
     @router.get("/models/{model_id}/context")
-    def get_model_context(
+    async def get_model_context(
         model_id: str,
         device: str | None = None,
         gpu_offload_mode: str | None = None,
     ):
-        record = service.store.model(model_id)
-        settings = context_settings(record, device=device, gpu_offload_mode=gpu_offload_mode)
+        from omnicore.text import nvidia
+
+        record = await run_in_threadpool(service.store.model, model_id)
+        saved_gpu = record.metadata.get("desktop_gpu")
+        has_saved_gpu = isinstance(saved_gpu, dict) and bool(saved_gpu)
+        eff_device = (
+            saved_gpu.get("device") if has_saved_gpu and saved_gpu.get("device") else device
+        ) or record.parameters.get("device", "auto")
+        eff_mode = (
+            saved_gpu.get("gpu_offload_mode")
+            if has_saved_gpu and saved_gpu.get("gpu_offload_mode")
+            else gpu_offload_mode
+        ) or record.parameters.get("gpu_offload_mode", "auto")
+        raw_layers = (
+            saved_gpu.get("gpu_layers")
+            if has_saved_gpu and isinstance(saved_gpu.get("gpu_layers"), int)
+            else record.parameters.get("gpu_layers", 99)
+        )
+        if record.backend == "ollama":
+            eff_device, eff_mode, raw_layers = "cpu", "cpu", 0
+        settings = context_settings(record, device=eff_device, gpu_offload_mode=eff_mode)
         engine = service.llama
-        settings["applied_tokens"] = (
-            engine.parameters[1]
-            if record.backend == "llama.cpp"
+        active = bool(
+            record.backend == "llama.cpp"
             and engine.model == record.location
             and engine.parameters
             and engine.process
             and engine.process.returncode is None
-            else None
         )
+        settings["applied_tokens"] = engine.parameters[1] if active else None
+        devs = await nvidia.devices()
+        vram_total = max((d["total_bytes"] for d in devs), default=None) if devs else None
+        vram_free = max((d["free_bytes"] for d in devs), default=None) if devs else None
+        settings["gpu"] = {
+            "configured": has_saved_gpu,
+            "gpu_offload_mode": eff_mode,
+            "gpu_layers": 0 if eff_mode == "cpu" else raw_layers,
+            "device": "cpu" if eff_mode == "cpu" else eff_device,
+            "vram_total_bytes": vram_total,
+            "vram_free_bytes": vram_free,
+            "applied_mode": engine.offload_mode if active else None,
+            "applied_requested_layers": engine.parameters[2] if active else None,
+            "applied_offloaded_layers": engine.offloaded_layers if active else None,
+            "applied_total_layers": engine.total_layers if active else None,
+            "applied_device": engine.execution_device if active else None,
+        }
         return settings
 
     @router.put("/models/{model_id}/context", response_model=ModelRecord)
@@ -292,10 +335,44 @@ def routes(service: TextService):
         async with service.generations.submission_lock:
             service.require_idle(model_id=model_id)
             record = await run_in_threadpool(service.store.model, model_id)
-            maximum = context_settings(record)["maximum"]
+            saved_gpu = record.metadata.get("desktop_gpu")
+            eff_dev = (
+                saved_gpu.get("device") if isinstance(saved_gpu, dict) else None
+            ) or record.parameters.get("device")
+            eff_mode = (
+                saved_gpu.get("gpu_offload_mode") if isinstance(saved_gpu, dict) else None
+            ) or record.parameters.get("gpu_offload_mode")
+            maximum = context_settings(record, device=eff_dev, gpu_offload_mode=eff_mode)["maximum"]
             if body.mode == "manual" and body.manual_tokens > maximum:
                 raise TextError("context_limit_exceeded", 422)
             record.metadata["desktop_context"] = body.model_dump(mode="json")
+            return await run_in_threadpool(service.store.update_model, record)
+
+    @router.put("/models/{model_id}/gpu", response_model=ModelRecord)
+    async def set_model_gpu(model_id: str, body: ModelGpuSettings):
+        async with service.generations.submission_lock:
+            service.require_idle(model_id=model_id)
+            record = await run_in_threadpool(service.store.model, model_id)
+            if record.backend == "ollama":
+                normalized = {"gpu_offload_mode": "cpu", "gpu_layers": 0, "device": "cpu"}
+            elif body.gpu_offload_mode == "cpu" or body.device == "cpu":
+                normalized = {"gpu_offload_mode": "cpu", "gpu_layers": 0, "device": "cpu"}
+            else:
+                if (
+                    body.gpu_offload_mode == "manual"
+                    and body.gpu_layers == 0
+                    and body.device != "auto"
+                ):
+                    raise TextError("gpu_layers_required", 422)
+                normalized = {
+                    "gpu_offload_mode": body.gpu_offload_mode,
+                    "gpu_layers": body.gpu_layers,
+                    "device": body.device,
+                }
+            record.metadata["desktop_gpu"] = normalized
+            merged = dict(record.parameters or {})
+            merged.update(normalized)
+            record.parameters = merged
             return await run_in_threadpool(service.store.update_model, record)
 
     @router.put("/models/{model_id}/parameters", response_model=ModelRecord)
