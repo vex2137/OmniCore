@@ -413,5 +413,10 @@
   "delete_selected_conversation": "Usuń wybraną rozmowę",
   "delete_all_conversations": "Usuń wszystkie rozmowy",
   "delete_all_conversations_confirm": "Usunąć wszystkie rozmowy, wiadomości i zadania agenta? Lokalne modele GGUF, ustawienia oraz pliki użytkownika nie zostaną usunięte.",
-  "all_conversations_deleted": "Usunięto wszystkie rozmowy."
+  "all_conversations_deleted": "Usunięto wszystkie rozmowy.",
+  "gpu_offload_mode": "Tryb odciążenia GPU",
+  "offload_auto": "Auto (zalecane)",
+  "offload_max": "Maksimum GPU",
+  "offload_manual": "Ręcznie",
+  "offload_cpu": "Tylko CPU"
 }

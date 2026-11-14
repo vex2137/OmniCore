@@ -413,5 +413,10 @@
   "delete_selected_conversation": "Delete selected conversation",
   "delete_all_conversations": "Delete all conversations",
   "delete_all_conversations_confirm": "Delete all conversations, messages, and agent runs? Local GGUF models, settings, and user files will not be deleted.",
-  "all_conversations_deleted": "All conversations deleted."
+  "all_conversations_deleted": "All conversations deleted.",
+  "gpu_offload_mode": "GPU offload mode",
+  "offload_auto": "Auto (recommended)",
+  "offload_max": "Maximum GPU",
+  "offload_manual": "Manual",
+  "offload_cpu": "CPU only"
 }

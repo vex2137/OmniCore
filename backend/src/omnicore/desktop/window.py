@@ -275,6 +275,10 @@ class MainWindow(QMainWindow):
         self.api, self.session, self.config = api, session, config
         self.config.parameters.setdefault("device", "auto")
         self.config.parameters.setdefault(
+            "gpu_offload_mode",
+            "cpu" if self.config.parameters["device"] == "cpu" else "auto",
+        )
+        self.config.parameters.setdefault(
             "gpu_layers", 99 if self.config.parameters["device"] != "cpu" else 0
         )
         self.tr = Translator(config.locale)
@@ -989,6 +993,17 @@ class MainWindow(QMainWindow):
             self.device.addItem(selected, selected)
         self.device.setCurrentIndex(self.device.findData(selected))
         engine_form.addRow(self.label("execution_mode"), self.device)
+        self.gpu_offload_mode = QComboBox()
+        for key in ("auto", "max", "manual", "cpu"):
+            self.gpu_offload_mode.addItem(self.tr("offload_" + key), key)
+        offload_selected = self.config.parameters.get(
+            "gpu_offload_mode",
+            "cpu" if selected == "cpu" else "auto",
+        )
+        if self.gpu_offload_mode.findData(offload_selected) < 0:
+            offload_selected = "auto"
+        self.gpu_offload_mode.setCurrentIndex(self.gpu_offload_mode.findData(offload_selected))
+        engine_form.addRow(self.label("gpu_offload_mode"), self.gpu_offload_mode)
         self.engine_summary = self.label("detecting_engines")
         engine_form.addRow(self.engine_summary)
         self.advanced_toggle = self.button("advanced_settings", lambda: None)
@@ -1067,6 +1082,8 @@ class MainWindow(QMainWindow):
             form.addRow(self.label(key), box)
             self.parameter_inputs[key] = box
         self.device.currentIndexChanged.connect(self.execution_mode_changed)
+        self.gpu_offload_mode.currentIndexChanged.connect(self.offload_mode_changed)
+        self._sync_offload_controls()
         self.thinking = QCheckBox(self.tr("thinking"))
         self.thinking.setChecked(self.config.parameters.get("thinking", False))
         self._texts.append((self.thinking, "thinking"))
@@ -1468,6 +1485,8 @@ class MainWindow(QMainWindow):
             self.theme.setItemText(index, self.tr(key))
         for index, key in enumerate(("auto", "cpu", "cuda")):
             self.device.setItemText(index, self.tr("mode_" + key))
+        for index, key in enumerate(("auto", "max", "manual", "cpu")):
+            self.gpu_offload_mode.setItemText(index, self.tr("offload_" + key))
         self.connection.setText(self.tr(self._connection_key))
         info = build_info()
         self.about.setText(
@@ -2666,7 +2685,7 @@ class MainWindow(QMainWindow):
             else:
                 parameters["context_size"] = saved["effective_tokens"]
             if model["backend"] == "ollama":
-                parameters.update(device="cpu", gpu_layers=0)
+                parameters.update(device="cpu", gpu_layers=0, gpu_offload_mode="cpu")
         return parameters
 
     def request_parameters(self):
@@ -2887,7 +2906,14 @@ class MainWindow(QMainWindow):
         self.context_usage.setToolTip("")
         device = latest.get("execution_device")
         if device:
-            actual = "GPU" if latest.get("gpu_offloaded_layers", 0) else "CPU"
+            off_layers = latest.get("gpu_offloaded_layers") or 0
+            tot_layers = latest.get("gpu_total_layers")
+            if off_layers and tot_layers:
+                actual = f"GPU {off_layers}/{tot_layers}"
+            elif off_layers:
+                actual = f"GPU {off_layers}"
+            else:
+                actual = "CPU"
             self.context_usage.setText(self.context_usage.text() + " · " + actual)
             self.context_usage.setToolTip(str(device))
 
@@ -3583,12 +3609,42 @@ class MainWindow(QMainWindow):
         if path:
             self.llama_path.setText(path)
 
+    def _sync_offload_controls(self):
+        layers = self.parameter_inputs["gpu_layers"]
+        layers.setEnabled(self.gpu_offload_mode.currentData() == "manual")
+
     def execution_mode_changed(self):
         layers = self.parameter_inputs["gpu_layers"]
-        if self.device.currentData() == "cpu":
-            layers.setValue(0)
-        elif layers.value() == 0:
-            layers.setValue(99)
+        self.gpu_offload_mode.blockSignals(True)
+        try:
+            if self.device.currentData() == "cpu":
+                layers.setValue(0)
+                self.gpu_offload_mode.setCurrentIndex(self.gpu_offload_mode.findData("cpu"))
+            else:
+                if layers.value() == 0:
+                    layers.setValue(99)
+                if self.gpu_offload_mode.currentData() == "cpu":
+                    self.gpu_offload_mode.setCurrentIndex(self.gpu_offload_mode.findData("auto"))
+        finally:
+            self.gpu_offload_mode.blockSignals(False)
+        self._sync_offload_controls()
+
+    def offload_mode_changed(self):
+        mode = self.gpu_offload_mode.currentData()
+        layers = self.parameter_inputs["gpu_layers"]
+        self.device.blockSignals(True)
+        try:
+            if mode == "cpu":
+                self.device.setCurrentIndex(self.device.findData("cpu"))
+                layers.setValue(0)
+            else:
+                if self.device.currentData() == "cpu":
+                    self.device.setCurrentIndex(self.device.findData("auto"))
+                if layers.value() == 0:
+                    layers.setValue(99)
+        finally:
+            self.device.blockSignals(False)
+        self._sync_offload_controls()
 
     def choose_llama_cuda(self):
         path, _ = QFileDialog.getOpenFileName(self, self.tr("llama_cuda_server"))
@@ -3639,9 +3695,15 @@ class MainWindow(QMainWindow):
         self.config.parameters.update(
             system_prompt=self.system_prompt.toPlainText(),
             device=self.device.currentData(),
+            gpu_offload_mode=self.gpu_offload_mode.currentData(),
             thinking=self.thinking.isChecked(),
         )
-        if self.config.parameters["device"] == "cpu":
+        if (
+            self.config.parameters["device"] == "cpu"
+            or self.config.parameters["gpu_offload_mode"] == "cpu"
+        ):
+            self.config.parameters["device"] = "cpu"
+            self.config.parameters["gpu_offload_mode"] = "cpu"
             self.config.parameters["gpu_layers"] = 0
         from omnicore.text.types import GenerationParameters
 

@@ -22,6 +22,7 @@ class GenerationParameters(WireModel):
     seed: int = Field(default=0, ge=0, le=2**31 - 1)
     system_prompt: str = Field(default="", max_length=16384)
     gpu_layers: int = Field(default=0, ge=0, le=999)
+    gpu_offload_mode: Literal["auto", "max", "manual", "cpu"] | None = None
     thinking: bool = False
     device: str = Field(default="cpu", pattern=r"^(cpu|auto|[A-Za-z0-9][A-Za-z0-9_.:-]{0,63})$")
 

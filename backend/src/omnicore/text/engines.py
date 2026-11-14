@@ -21,6 +21,15 @@ from omnicore.config import is_loopback
 from omnicore.schemas import BackendInfo, Capability, ResourceUsage
 from omnicore.text import nvidia
 from omnicore.text.native import engine_candidates
+from omnicore.text.offload import (
+    MAX_OOM_RETRIES,
+    estimate_auto_gpu_layers,
+    inspect_gguf_layout,
+    is_cuda_oom_log,
+    next_stepdown_layers,
+    parse_startup_layers,
+    resolve_offload_mode,
+)
 from omnicore.text.reasoning import normalize_stream, sse_data
 from omnicore.text.types import EngineModel, GenerationParameters, TextChunk, TextError, TextMessage
 
@@ -325,8 +334,12 @@ class LlamaEngine:
         self._cpu_executable = self.executable
         self.candidates = []
         self.offloaded_layers = None
+        self.total_layers = None
+        self.offload_mode = None
+        self.offload_reason = None
         self.execution_device = None
         self.fallback_reason = None
+        self._last_startup_log = ""
         self.startup_timeout = startup_timeout
         self.chat_template = chat_template
         self.request_timeout = request_timeout
@@ -458,13 +471,50 @@ class LlamaEngine:
             else []
         )
 
+    async def _available_vram_bytes(self, selected_device: str) -> int | None:
+        if not selected_device or selected_device == "cpu":
+            return None
+        with suppress(Exception):
+            gpu_list = await nvidia.devices()
+            if not gpu_list:
+                return None
+            match = re.search(r"(\d+)$", selected_device)
+            target_index = int(match[1]) if match else 0
+            entry = next(
+                (g for g in gpu_list if g.get("index") == target_index),
+                gpu_list[0],
+            )
+            free = entry.get("free_bytes")
+            if isinstance(free, int) and free > 0:
+                return free
+            total = entry.get("total_bytes")
+            if isinstance(total, int) and total > 0:
+                return int(total * 0.85)
+        return None
+
     async def load(self, path: Path, parameters: GenerationParameters, file_descriptor=None):
         async with self._lock:
-            # Fast path: reuse a running engine without probing hardware.
-            wants_gpu = parameters.gpu_layers > 0 and parameters.device != "cpu"
-            requested_device = parameters.device
+            mode = resolve_offload_mode(parameters)
+            explicit_cpu_zero = (
+                parameters.gpu_offload_mode is None
+                and parameters.device == "auto"
+                and not parameters.gpu_layers
+            )
+            wants_gpu = (
+                mode != "cpu"
+                and not explicit_cpu_zero
+                and (
+                    mode in {"auto", "max"}
+                    or (parameters.gpu_layers > 0 and parameters.device != "cpu")
+                )
+            )
+            requested_device = "cpu" if (mode == "cpu" or explicit_cpu_zero) else parameters.device
 
-            if not parameters.gpu_layers and requested_device not in {"cpu", "auto"}:
+            if (
+                mode == "manual"
+                and not parameters.gpu_layers
+                and requested_device not in {"cpu", "auto"}
+            ):
                 raise TextError("gpu_layers_required", 422)
 
             if requested_device in {"cuda", "CUDA"}:
@@ -475,9 +525,6 @@ class LlamaEngine:
             elif requested_device == "auto":
                 requested_device = self.devices[0] if wants_gpu and self.devices else "cpu"
 
-            if not parameters.gpu_layers:
-                requested_device = "cpu"
-
             if (
                 self.process is not None
                 and self.process.returncode is None
@@ -486,32 +533,43 @@ class LlamaEngine:
             ):
                 selected = self._device_executables.get(requested_device, self._cpu_executable)
                 fallback = "gpu_unavailable" if wants_gpu and requested_device == "cpu" else None
-                layers = parameters.gpu_layers if requested_device != "cpu" else 0
-                desired = (
-                    str(path),
-                    parameters.context_size,
-                    layers,
-                    requested_device,
-                    str(selected),
-                )
-
-                if selected is not None and self.parameters == desired:
-                    await self._load_selected(
-                        path,
+                if requested_device == "cpu":
+                    fast_layers = 0
+                elif mode == "manual":
+                    fast_layers = parameters.gpu_layers
+                elif (
+                    self.offload_mode == mode
+                    and self.parameters[0] == str(path)
+                    and self.parameters[1] == parameters.context_size
+                ):
+                    fast_layers = self.parameters[2]
+                else:
+                    fast_layers = None
+                if selected is not None and fast_layers is not None:
+                    desired = (
+                        str(path),
                         parameters.context_size,
-                        selected,
+                        fast_layers,
                         requested_device,
-                        layers,
-                        fallback,
-                        file_descriptor,
+                        str(selected),
                     )
-                    return
+                    if self.parameters == desired:
+                        await self._load_selected(
+                            path,
+                            parameters.context_size,
+                            selected,
+                            requested_device,
+                            fast_layers,
+                            fallback,
+                            file_descriptor,
+                        )
+                        return
 
             _result = await self.probe()
             if not _result.available:
                 raise TextError("engine_unavailable", 503)
-            wants_gpu = parameters.gpu_layers > 0 and parameters.device != "cpu"
-            selected_device = parameters.device
+
+            selected_device = "cpu" if (mode == "cpu" or explicit_cpu_zero) else parameters.device
             if selected_device in {"cuda", "CUDA"}:
                 selected_device = next((d for d in self.devices if d.startswith("CUDA")), "CUDA0")
             if selected_device == "auto":
@@ -519,41 +577,99 @@ class LlamaEngine:
             if selected_device not in {"cpu", *self.devices}:
                 error = next((c["error_code"] for c in self.candidates if c["error_code"]), None)
                 raise TextError(error or "gpu_unavailable", 422)
-            if not parameters.gpu_layers:
+            if mode == "max" and selected_device == "cpu":
+                raise TextError("gpu_unavailable", 422)
+            if mode == "manual" and not parameters.gpu_layers:
                 if parameters.device not in {"cpu", "auto"}:
                     raise TextError("gpu_layers_required", 422)
                 selected_device = "cpu"
             selected = self._device_executables.get(selected_device, self._cpu_executable)
             if not selected:
                 raise TextError("engine_unavailable", 503)
+
             fallback = "gpu_unavailable" if wants_gpu and selected_device == "cpu" else None
-            layers = parameters.gpu_layers if selected_device != "cpu" else 0
-            try:
-                await self._load_selected(
+            est_total = None
+            if selected_device == "cpu" or mode == "cpu":
+                layers = 0
+                reason = "cpu_mode" if mode == "cpu" else "gpu_unavailable"
+            elif mode == "max":
+                layout = inspect_gguf_layout(path)
+                est_total = layout.get("block_count") if layout else None
+                layers = est_total or 999
+                reason = "max_gpu"
+            elif mode == "manual":
+                layers = parameters.gpu_layers
+                reason = "manual_layers"
+            else:
+                layout = inspect_gguf_layout(path)
+                free_vram = await self._available_vram_bytes(selected_device)
+                layers, est_total, reason = estimate_auto_gpu_layers(
                     path,
                     parameters.context_size,
-                    selected,
-                    selected_device,
-                    layers,
-                    fallback,
-                    file_descriptor,
+                    parameters.gpu_layers,
+                    free_vram,
+                    layout,
                 )
-            except TextError as exc:
-                if (
-                    parameters.device != "auto"
-                    or selected_device == "cpu"
-                    or not self._cpu_executable
-                ):
+
+            self.offload_mode = mode
+            self.offload_reason = reason
+            self.total_layers = est_total
+            attempts = 0
+            while True:
+                try:
+                    await self._load_selected(
+                        path,
+                        parameters.context_size,
+                        selected,
+                        selected_device,
+                        layers,
+                        fallback,
+                        file_descriptor,
+                    )
+                    self.offload_mode = mode
+                    self.offload_reason = reason
+                    if self.total_layers is None and est_total is not None:
+                        self.total_layers = est_total
+                    return
+                except TextError as exc:
+                    if (
+                        exc.code == "out_of_memory"
+                        and mode == "auto"
+                        and selected_device != "cpu"
+                        and attempts < MAX_OOM_RETRIES
+                    ):
+                        _, detected_total = parse_startup_layers(self._last_startup_log)
+                        known_total = detected_total or est_total
+                        if known_total is not None:
+                            est_total = known_total
+                        nxt = next_stepdown_layers(layers, known_total)
+                        if nxt is not None and nxt < layers:
+                            attempts += 1
+                            layers = nxt
+                            reason = f"oom_retry_{attempts}"
+                            continue
+                    if (
+                        exc.code == "gpu_offload_unverified"
+                        and mode == "auto"
+                        and parameters.device == "auto"
+                        and selected_device != "cpu"
+                        and self._cpu_executable
+                    ):
+                        self.offload_mode = mode
+                        self.offload_reason = exc.code
+                        await self._load_selected(
+                            path,
+                            parameters.context_size,
+                            self._cpu_executable,
+                            "cpu",
+                            0,
+                            exc.code,
+                            file_descriptor,
+                        )
+                        self.offload_mode = mode
+                        self.offload_reason = exc.code
+                        return
                     raise
-                await self._load_selected(
-                    path,
-                    parameters.context_size,
-                    self._cpu_executable,
-                    "cpu",
-                    0,
-                    exc.code,
-                    file_descriptor,
-                )
 
     async def _load_selected(
         self, path, context_size, selected, selected_device, layers, fallback, file_descriptor
@@ -591,6 +707,7 @@ class LlamaEngine:
         if self.chat_template:
             arguments += ["--chat-template", self.chat_template]
         try:
+            self._last_startup_log = ""
             self._log = tempfile.TemporaryFile()
             self.process = await asyncio.create_subprocess_exec(
                 *self._guarded_command(*arguments[1:], executable=selected),
@@ -610,9 +727,13 @@ class LlamaEngine:
                             startup_log = os.pread(self._log.fileno(), 131072, 0).decode(
                                 errors="replace"
                             )
-                            offload = re.search(r"offloaded (\d+)/(\d+) layers", startup_log)
-                            self.offloaded_layers = int(offload[1]) if offload else 0
+                            self._last_startup_log = startup_log
+                            parsed_off, parsed_total = parse_startup_layers(startup_log)
+                            self.offloaded_layers = parsed_off if parsed_off is not None else 0
+                            if parsed_total is not None:
+                                self.total_layers = parsed_total
                             if selected_device != "cpu" and not self.offloaded_layers:
+                                await self.unload()
                                 raise TextError("gpu_offload_unverified", 503)
                             self.execution_device = selected_device
                             self.fallback_reason = fallback
@@ -622,14 +743,12 @@ class LlamaEngine:
                     await asyncio.sleep(0.1)
             self._log.seek(0, 2)
             size = self._log.tell()
-            self._log.seek(max(0, size - 16384))
-            log = self._log.read().lower()
-            code = (
-                "out_of_memory"
-                if b"out of memory" in log or b"insufficient memory" in log
-                else "model_load_failed"
-            )
-            raise TextError(code, 502)
+            self._log.seek(max(0, size - 32768))
+            raw_log = self._log.read()
+            self._last_startup_log = raw_log.decode("utf-8", errors="replace")
+            code = "out_of_memory" if is_cuda_oom_log(raw_log) else "model_load_failed"
+            await self.unload()
+            raise TextError(code, 503 if code == "out_of_memory" else 502)
         except (OSError, TimeoutError):
             await self.unload()
             raise TextError("model_load_failed", 502) from None
@@ -735,6 +854,7 @@ class LlamaEngine:
                     os.killpg(process.pid, signal.SIGKILL)
                 await process.wait()
         self.execution_device, self.offloaded_layers = None, None
+        self.total_layers, self.offload_mode, self.offload_reason = None, None, None
         self.model, self.parameters = None, None
         self._verified_text_models.clear()
         if self._log:

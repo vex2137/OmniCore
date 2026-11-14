@@ -1250,3 +1250,73 @@ def test_history_menu_delete_all_conversations_with_confirmation(desktop, qtbot,
     assert w.notice.text() == w.tr("all_conversations_deleted")
     assert gguf_path.exists()
     assert any(m["id"] == imported["id"] for m in w.models)
+
+
+def test_gpu_offload_mode_controls_and_preserves_context(desktop, qtbot):
+    w = desktop
+    w.navigate(2)
+
+    modes = [w.gpu_offload_mode.itemData(i) for i in range(w.gpu_offload_mode.count())]
+    assert modes == ["auto", "max", "manual", "cpu"]
+
+    # Default auto disables manual gpu_layers spinbox.
+    assert w.gpu_offload_mode.currentData() == "auto"
+    assert not w.parameter_inputs["gpu_layers"].isEnabled()
+
+    # Manual enables spinbox and persists explicit layer count.
+    w.gpu_offload_mode.setCurrentIndex(w.gpu_offload_mode.findData("manual"))
+    assert w.parameter_inputs["gpu_layers"].isEnabled()
+    w.parameter_inputs["gpu_layers"].setValue(24)
+    w.save_settings()
+    saved = DesktopConfig.load().parameters
+    assert saved["gpu_offload_mode"] == "manual"
+    assert saved["gpu_layers"] == 24
+
+    # Manual model context is preserved regardless of gpu_offload_mode.
+    fake_gguf = {"id": "gguf-1", "backend": "llama.cpp", "metadata": {"context_length": 32768}}
+    w.model_contexts["gguf-1"] = {
+        "mode": "manual",
+        "effective_tokens": 16384,
+        "automatic_tokens": 8192,
+    }
+    params_manual = w._parameters_for_model(fake_gguf)
+    assert params_manual["context_size"] == 16384
+    assert params_manual["gpu_offload_mode"] == "manual"
+
+    # Max GPU mode disables spinbox and saves max mode while preserving context.
+    w.gpu_offload_mode.setCurrentIndex(w.gpu_offload_mode.findData("max"))
+    assert not w.parameter_inputs["gpu_layers"].isEnabled()
+    w.save_settings()
+    saved = DesktopConfig.load().parameters
+    assert saved["gpu_offload_mode"] == "max"
+    assert w._parameters_for_model(fake_gguf)["context_size"] == 16384
+
+    # CPU mode syncs processing device and sets gpu_layers to 0.
+    w.gpu_offload_mode.setCurrentIndex(w.gpu_offload_mode.findData("cpu"))
+    assert w.device.currentData() == "cpu"
+    assert w.parameter_inputs["gpu_layers"].value() == 0
+    w.save_settings()
+    saved = DesktopConfig.load().parameters
+    assert saved["device"] == "cpu"
+    assert saved["gpu_offload_mode"] == "cpu"
+    assert saved["gpu_layers"] == 0
+
+    # Context usage header displays GPU offloaded/total layers when present.
+    w.messages = [
+        {"role": "user", "content": "Hi"},
+        {
+            "role": "assistant",
+            "content": "Hello",
+            "statistics": {
+                "context_used_tokens": 128,
+                "context_limit_tokens": 8192,
+                "execution_device": "CUDA0",
+                "gpu_offloaded_layers": 27,
+                "gpu_total_layers": 32,
+                "gpu_offload_mode": "auto",
+            },
+        },
+    ]
+    w.render_messages()
+    assert "GPU 27/32" in w.context_usage.text()
+    assert "auto (27/32)" in w.context_details.text()

@@ -135,7 +135,17 @@ def read_gguf(stream) -> dict:
                 "tokenizer.chat_template",
                 "split.count",
             }
-            keep |= key.endswith(".context_length")
+            keep |= key.endswith(
+                (
+                    ".context_length",
+                    ".block_count",
+                    ".attention.head_count",
+                    ".attention.head_count_kv",
+                    ".attention.key_length",
+                    ".attention.value_length",
+                    ".embedding_length",
+                )
+            )
             item = value(scalar("I"), keep)
             if keep and isinstance(item, (str, int, float, bool)):
                 if isinstance(item, float) and not math.isfinite(item):

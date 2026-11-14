@@ -410,3 +410,196 @@ def test_llama_fast_path_reprobes_on_context_change_or_dead_process(tmp_path, mo
         probe.assert_awaited_once()
 
     asyncio.run(exercise())
+
+
+def test_auto_offload_estimation_and_gguf_layout(tmp_path):
+    import struct
+
+    from omnicore.text.offload import (
+        estimate_auto_gpu_layers,
+        inspect_gguf_layout,
+        is_cuda_oom_log,
+        next_stepdown_layers,
+        parse_startup_layers,
+    )
+
+    def write_test_gguf(path: Path) -> Path:
+        def pack_str(val: str) -> bytes:
+            raw = val.encode("utf-8")
+            return struct.pack("<Q", len(raw)) + raw
+
+        entries = [
+            ("general.architecture", 8, pack_str("llama")),
+            ("general.alignment", 4, struct.pack("<I", 32)),
+            ("llama.block_count", 4, struct.pack("<I", 32)),
+            ("llama.context_length", 4, struct.pack("<I", 32768)),
+            ("llama.embedding_length", 4, struct.pack("<I", 4096)),
+            ("llama.attention.head_count", 4, struct.pack("<I", 32)),
+            ("llama.attention.head_count_kv", 4, struct.pack("<I", 8)),
+        ]
+        buf = bytearray(b"GGUF")
+        buf += struct.pack("<IQQ", 3, 1, len(entries))
+        for key, kind, val in entries:
+            buf += pack_str(key)
+            buf += struct.pack("<I", kind)
+            buf += val
+        # One minimal F32 tensor header + alignment + 4-byte tensor payload.
+        buf += pack_str("w")
+        buf += struct.pack("<IQ", 1, 1)
+        buf += struct.pack("<IQ", 0, 0)
+        pad = (-len(buf)) % 32
+        buf += b"\x00" * pad + b"\x00" * 32
+        path.write_bytes(bytes(buf))
+        return path
+
+    gguf_file = write_test_gguf(tmp_path / "layout.gguf")
+    layout = inspect_gguf_layout(gguf_file)
+    assert layout is not None
+    assert layout["block_count"] == 32
+    assert layout["head_count_kv"] == 8
+
+    # Small file + 32 layers fits completely inside 7 GiB free VRAM.
+    layers, total, reason = estimate_auto_gpu_layers(
+        gguf_file,
+        context_size=8192,
+        fallback_layers=99,
+        free_vram_bytes=7 * 1024**3,
+        layout=layout,
+    )
+    assert (layers, total, reason) == (32, 32, "fits_in_vram")
+
+    # Simulate a 5.63 GiB model + 8192 context on 6.2 GiB available VRAM -> partial offload.
+    large_layout = {
+        "file_size_bytes": int(5.63 * 1024**3),
+        "block_count": 40,
+        "head_count_kv": 8,
+        "key_length": 128,
+        "value_length": 128,
+    }
+    p_layers, p_total, p_reason = estimate_auto_gpu_layers(
+        gguf_file,
+        context_size=8192,
+        fallback_layers=99,
+        free_vram_bytes=int(6.2 * 1024**3),
+        layout=large_layout,
+    )
+    assert p_total == 40
+    assert 1 <= p_layers < 40
+    assert p_reason == "vram_partial_offload"
+
+    assert is_cuda_oom_log("cudaMalloc failed: out of memory\n")
+    assert not is_cuda_oom_log("offloaded 20/32 layers to GPU\n")
+    assert parse_startup_layers("load_tensors: offloaded 24/32 layers to GPU") == (24, 32)
+    assert next_stepdown_layers(32, 32) < 32
+    assert next_stepdown_layers(1, 32) is None
+
+
+def test_llama_oom_bounded_retry_and_no_silent_cpu_fallback(tmp_path, monkeypatch):
+    from omnicore.text.offload import MAX_OOM_RETRIES
+
+    cpu, cuda = tmp_path / "cpu-server", tmp_path / "cuda-server"
+    cpu_log = tmp_path / "cpu.invoked"
+    attempts_log = tmp_path / "cuda.attempts.json"
+    fail_until = tmp_path / "fail.count"
+
+    cpu.write_text(
+        f"#!{sys.executable}\n"
+        f"CPU_LOG={str(cpu_log)!r}\n"
+        + """
+import sys
+from pathlib import Path
+if '--version' in sys.argv:
+    print('cpu-test'); sys.exit(0)
+if '--list-devices' in sys.argv:
+    print('Available devices:'); sys.exit(0)
+Path(CPU_LOG).write_text('invoked')
+sys.exit(1)
+"""
+    )
+    cpu.chmod(0o700)
+
+    cuda.write_text(
+        f"#!{sys.executable}\n"
+        f"ATTEMPTS_LOG={str(attempts_log)!r}\n"
+        f"FAIL_UNTIL={str(fail_until)!r}\n"
+        + """
+import argparse, json, sys
+from pathlib import Path
+from http.server import BaseHTTPRequestHandler, HTTPServer
+if '--version' in sys.argv:
+    print('cuda-test'); sys.exit(0)
+if '--list-devices' in sys.argv:
+    print('Available devices:\\n  CUDA0: RTX 4060'); sys.exit(0)
+p = argparse.ArgumentParser()
+p.add_argument('--port', type=int)
+p.add_argument('--gpu-layers', type=int)
+p.add_argument('--ctx-size', type=int)
+args, _ = p.parse_known_args()
+history = json.loads(Path(ATTEMPTS_LOG).read_text()) if Path(ATTEMPTS_LOG).exists() else []
+history.append({'layers': args.gpu_layers, 'ctx': args.ctx_size})
+Path(ATTEMPTS_LOG).write_text(json.dumps(history))
+limit = int(Path(FAIL_UNTIL).read_text()) if Path(FAIL_UNTIL).exists() else 0
+if len(history) <= limit:
+    print('llama_model_load: n_layer = 32', file=sys.stderr, flush=True)
+    print('cudaMalloc failed: out of memory', file=sys.stderr, flush=True)
+    sys.exit(1)
+print(f'offloaded {args.gpu_layers}/32 layers to GPU', file=sys.stderr, flush=True)
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200); self.end_headers(); self.wfile.write(b'{}')
+    def log_message(self, *a): pass
+HTTPServer(('127.0.0.1', args.port), Handler).serve_forever()
+"""
+    )
+    cuda.chmod(0o700)
+
+    async def exercise():
+        engine = LlamaEngine(cpu, cuda_executable=cuda, startup_timeout=5)
+        monkeypatch.setattr(
+            engine, "_available_vram_bytes", lambda _dev: asyncio.sleep(0, 7 * 1024**3)
+        )
+        assert (await engine.probe()).available
+        model = tmp_path / "model.gguf"
+
+        # Case 1: OOM twice then succeed on 3rd attempt (retry #2) keeping ctx_size=8192.
+        fail_until.write_text("2")
+        await engine.load(
+            model,
+            GenerationParameters(device="auto", gpu_offload_mode="auto", context_size=8192),
+        )
+        history = json.loads(attempts_log.read_text())
+        assert len(history) == 3
+        assert all(item["ctx"] == 8192 for item in history)
+        assert history[0]["layers"] > history[1]["layers"] > history[2]["layers"] > 0
+        assert engine.execution_device == "CUDA0"
+        assert engine.offloaded_layers == history[-1]["layers"]
+        assert engine.total_layers == 32
+        assert not cpu_log.exists()
+        await engine.stop()
+
+        # Case 2: Persistent OOM stops after MAX_OOM_RETRIES without CPU fallback.
+        attempts_log.unlink()
+        fail_until.write_text("99")
+        with pytest.raises(TextError) as exc_info:
+            await engine.load(
+                model,
+                GenerationParameters(device="auto", gpu_offload_mode="auto", context_size=8192),
+            )
+        assert exc_info.value.code == "out_of_memory"
+        history = json.loads(attempts_log.read_text())
+        assert len(history) == 1 + MAX_OOM_RETRIES
+        assert not cpu_log.exists()
+
+        # Case 3: Explicit max mode fails immediately without retries or CPU fallback.
+        attempts_log.unlink()
+        fail_until.write_text("99")
+        with pytest.raises(TextError) as max_exc:
+            await engine.load(
+                model,
+                GenerationParameters(device="auto", gpu_offload_mode="max", context_size=8192),
+            )
+        assert max_exc.value.code == "out_of_memory"
+        assert len(json.loads(attempts_log.read_text())) == 1
+        assert not cpu_log.exists()
+
+    asyncio.run(exercise())
