@@ -462,9 +462,13 @@ class MainWindow(QMainWindow):
         self.resource_monitor_btn.setCursor(Qt.PointingHandCursor)
         self.resource_monitor_btn.setToolTip(self.tr("resources_tooltip"))
         self.resource_monitor_btn.setAccessibleName(self.tr("resources_label"))
-        self.resource_monitor_btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        header.insertWidget(header.indexOf(self.connection), self.resource_monitor_btn)
+        self.resource_monitor_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         body.addLayout(header)
+        resource_row = QHBoxLayout()
+        resource_row.setContentsMargins(0, 0, 0, 0)
+        resource_row.addWidget(self.resource_monitor_btn)
+        resource_row.addStretch(1)
+        body.addLayout(resource_row)
         self.resource_details_frame = QFrame()
         self.resource_details_frame.setObjectName("resourceDetails")
         self.resource_details_frame.hide()
@@ -1278,6 +1282,7 @@ class MainWindow(QMainWindow):
             self.resource_monitor_btn.setText(format_resource_summary(snap, self.tr))
             self.resource_monitor_btn.setToolTip(self.tr("resources_tooltip"))
             self.resource_monitor_btn.setAccessibleName(self.tr("resources_label"))
+            self.resource_monitor_btn.updateGeometry()
         if hasattr(self, "resource_details_label"):
             self.resource_details_label.setText(format_resource_details(snap, self.tr))
 
@@ -1326,8 +1331,10 @@ class MainWindow(QMainWindow):
         )
         toggle_size = btn_size if compact else self._scaled(32)
         toggle_icon = self._scaled(19 if compact else 16)
-        header_btn = self._scaled(30)
-        header_icon = self._scaled(15)
+        header_btn = self._scaled(24)
+        header_icon = self._scaled(14)
+        row_gap = self._scaled(2)
+        sidebar_w = compact_width if compact else max(200, min(360, self.config.sidebar_width))
         self.history_search_toggle.setFixedSize(header_btn, header_btn)
         self.history_search_toggle.setIcon(sidebar_icon("search", fg, header_icon))
         self.history_search_toggle.setIconSize(QSize(header_icon, header_icon))
@@ -1341,7 +1348,7 @@ class MainWindow(QMainWindow):
         self.history_menu_btn.setVisible(not compact and not search_open)
         self.history_search.setVisible(search_open)
         self.history_search_close.setVisible(search_open)
-        self.conversations_row.setSpacing(0 if compact else self._scaled(2))
+        self.conversations_row.setSpacing(0 if compact else row_gap)
         self.conversations_row.setAlignment(Qt.AlignHCenter if compact else Qt.Alignment())
         self.sidebar_toggle.setFixedSize(toggle_size, toggle_size)
         self.sidebar_toggle.setStyleSheet("")
@@ -1399,28 +1406,30 @@ class MainWindow(QMainWindow):
                     self.side_layout.setAlignment(button, Qt.Alignment())
                 button.ensurePolished()
                 if button is self.nav[0]:
-                    button.setStyleSheet(f"padding: {self._scaled(6)}px {self._scaled(8)}px;")
+                    button.setStyleSheet(f"padding: {self._scaled(6)}px {self._scaled(6)}px;")
                     button.ensurePolished()
-                    max_label_w = max(
-                        24,
-                        self.config.sidebar_width - self._scaled(108),
+                    avail_nav0 = max(
+                        48, sidebar_w - 2 * margin_h - 3 * header_btn - 3 * row_gap - 4
                     )
                     label_text = self.tr(key)
-                    if (
-                        len(label_text.split()) == 1
-                        and button.fontMetrics().horizontalAdvance(label_text) > max_label_w
-                    ):
-                        button.setText(
-                            button.fontMetrics().elidedText(label_text, Qt.ElideRight, max_label_w)
+                    button.setText(label_text)
+                    hint_w = button.minimumSizeHint().width()
+                    if hint_w > avail_nav0:
+                        text_budget = max(
+                            16,
+                            button.fontMetrics().horizontalAdvance(label_text)
+                            - (hint_w - avail_nav0)
+                            - 2,
                         )
-                    else:
-                        button.setText(sidebar_text(label_text, button.fontMetrics(), max_label_w))
+                        button.setText(
+                            button.fontMetrics().elidedText(label_text, Qt.ElideRight, text_budget)
+                        )
                 else:
                     button.setText(
                         sidebar_text(
                             self.tr(key),
                             button.fontMetrics(),
-                            max(48, self.config.sidebar_width - self._scaled(48)),
+                            max(48, sidebar_w - self._scaled(48)),
                         )
                     )
 

@@ -313,10 +313,7 @@ def format_summary(snapshot: ResourceSnapshot, tr) -> str:
         else dash
     )
     return (
-        f"CPU: {cpu_pct}{cpu_temp}  ·  "
-        f"RAM: {ram_txt}  ·  "
-        f"GPU: {gpu_pct}{gpu_temp}  ·  "
-        f"VRAM: {vram_txt}"
+        f"CPU: {cpu_pct}{cpu_temp} · RAM: {ram_txt} · GPU: {gpu_pct}{gpu_temp} · VRAM: {vram_txt}"
     )
 
 

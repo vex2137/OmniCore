@@ -21,6 +21,24 @@
       "title": "Gpu Layers",
       "type": "integer"
     },
+    "gpu_offload_mode": {
+      "anyOf": [
+        {
+          "enum": [
+            "auto",
+            "max",
+            "manual",
+            "cpu"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Gpu Offload Mode"
+    },
     "max_tokens": {
       "default": 256,
       "maximum": 32768,

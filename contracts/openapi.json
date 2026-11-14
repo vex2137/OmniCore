@@ -699,6 +699,11 @@
       "FolderGrant": {
         "additionalProperties": false,
         "properties": {
+          "allow_write": {
+            "default": true,
+            "title": "Allow Write",
+            "type": "boolean"
+          },
           "confirmed": {
             "default": false,
             "title": "Confirmed",
@@ -714,6 +719,16 @@
             "minLength": 1,
             "title": "Path",
             "type": "string"
+          },
+          "persistent": {
+            "default": false,
+            "title": "Persistent",
+            "type": "boolean"
+          },
+          "subfolders": {
+            "default": true,
+            "title": "Subfolders",
+            "type": "boolean"
           }
         },
         "required": [
@@ -744,6 +759,23 @@
             "minimum": 0.0,
             "title": "Gpu Layers",
             "type": "integer"
+          },
+          "gpu_offload_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "auto",
+                  "max",
+                  "manual",
+                  "cpu"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Offload Mode"
           },
           "max_tokens": {
             "default": 256,
@@ -805,6 +837,18 @@
       "GenerationRecord": {
         "additionalProperties": false,
         "properties": {
+          "agent_steps": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Steps"
+          },
           "content": {
             "default": "",
             "title": "Content",
@@ -938,6 +982,30 @@
             ],
             "title": "Generation Seconds"
           },
+          "gpu_offload_mode": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Offload Mode"
+          },
+          "gpu_offload_reason": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Offload Reason"
+          },
           "gpu_offloaded_layers": {
             "anyOf": [
               {
@@ -949,6 +1017,18 @@
               }
             ],
             "title": "Gpu Offloaded Layers"
+          },
+          "gpu_total_layers": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Total Layers"
           },
           "id": {
             "title": "Id",
@@ -1045,6 +1125,54 @@
             ],
             "title": "Tokens Per Second"
           },
+          "tool_calls": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Calls"
+          },
+          "tool_execution_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Execution Seconds"
+          },
+          "total_task_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Task Seconds"
+          },
+          "total_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Tokens"
+          },
           "ttft_seconds": {
             "anyOf": [
               {
@@ -1121,6 +1249,18 @@
       "GenerationStatistics": {
         "additionalProperties": false,
         "properties": {
+          "agent_steps": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Steps"
+          },
           "context_limit_tokens": {
             "anyOf": [
               {
@@ -1230,6 +1370,30 @@
             ],
             "title": "Generation Seconds"
           },
+          "gpu_offload_mode": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Offload Mode"
+          },
+          "gpu_offload_reason": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Offload Reason"
+          },
           "gpu_offloaded_layers": {
             "anyOf": [
               {
@@ -1241,6 +1405,18 @@
               }
             ],
             "title": "Gpu Offloaded Layers"
+          },
+          "gpu_total_layers": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Total Layers"
           },
           "input_tokens": {
             "anyOf": [
@@ -1289,6 +1465,54 @@
               }
             ],
             "title": "Tokens Per Second"
+          },
+          "tool_calls": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Calls"
+          },
+          "tool_execution_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Execution Seconds"
+          },
+          "total_task_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Task Seconds"
+          },
+          "total_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Tokens"
           },
           "ttft_seconds": {
             "anyOf": [
@@ -4885,6 +5109,156 @@
       }
     },
     "/api/v1/text/conversations": {
+      "delete": {
+        "operationId": "delete_all_conversations_api_v1_text_conversations_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "integer"
+                      }
+                    ]
+                  },
+                  "title": "Response Delete All Conversations Api V1 Text Conversations Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Method Not Allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "summary": "Delete All Conversations",
+        "tags": [
+          "Text AI"
+        ]
+      },
       "get": {
         "operationId": "conversations_api_v1_text_conversations_get",
         "parameters": [
