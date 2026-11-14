@@ -2445,12 +2445,9 @@ class MainWindow(QMainWindow):
             elif job.get("content") or job.get("reasoning_content"):
                 messages.append(replacement)
         runs = getattr(getattr(self, "agent_panel", None), "runs", None) or []
-        has_granted_folder = bool(
-            getattr(getattr(self, "agent_panel", None), "granted_folders", None)
-        )
-        cancelled_grants = getattr(
-            getattr(self, "agent_panel", None), "folder_grant_cancelled_runs", set()
-        )
+        panel = getattr(self, "agent_panel", None)
+        granted_folders = getattr(panel, "granted_folders", None) or []
+        cancelled_grants = getattr(panel, "folder_grant_cancelled_runs", set())
         if runs:
             by_response = {}
             by_request = {}
@@ -2478,11 +2475,21 @@ class MainWindow(QMainWindow):
                     next_is_assistant = (
                         idx + 1 < len(messages) and messages[idx + 1].get("role") == "assistant"
                     )
-                    if not next_is_assistant or req_run.get("state") != "completed":
+                    if (
+                        not next_is_assistant
+                        or req_run.get("state") != "completed"
+                        or req_run.get("needs_folder_grant")
+                    ):
                         msg["agent_run"] = req_run
                 if msg.get("agent_run"):
+                    run_obj = msg["agent_run"]
+                    has_granted_folder = (
+                        panel.grant_satisfies_run(run_obj, granted_folders)
+                        if panel and hasattr(panel, "grant_satisfies_run")
+                        else bool(granted_folders)
+                    )
                     msg["has_granted_folder"] = has_granted_folder
-                    msg["folder_grant_cancelled"] = msg["agent_run"].get("id") in cancelled_grants
+                    msg["folder_grant_cancelled"] = run_obj.get("id") in cancelled_grants
         self.transcript.can_regenerate = bool(
             self.is_connected
             and self.model_combo.currentData()

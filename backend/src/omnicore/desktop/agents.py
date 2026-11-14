@@ -202,6 +202,65 @@ class AgentPanel(QWidget):
         self.tree.setHeaderLabels([tr("agent_tool"), tr("agent_state"), "ms"])
         self.refresh_compatibility()
 
+    @staticmethod
+    def grant_satisfies_run(run: dict | None, granted_folders: list[dict]) -> bool:
+        if not isinstance(run, dict) or not granted_folders:
+            return False
+        requested = (run.get("requested_folder_path") or "").strip()
+        suggested = (run.get("suggested_folder_name") or "").strip().casefold()
+        alias_groups = {
+            "pobrane": {"pobrane", "pobranych", "pobranym", "downloads"},
+            "downloads": {"pobrane", "pobranych", "pobranym", "downloads"},
+            "dokumenty": {"dokumenty", "dokumentów", "dokumentach", "documents"},
+            "documents": {"dokumenty", "dokumentów", "dokumentach", "documents"},
+            "pulpit": {"pulpit", "pulpicie", "pulpitu", "desktop"},
+            "desktop": {"pulpit", "pulpicie", "pulpitu", "desktop"},
+            "obrazy": {"obrazy", "obrazów", "obrazach", "pictures"},
+            "pictures": {"obrazy", "obrazów", "obrazach", "pictures"},
+            "muzyka": {"muzyka", "muzyki", "muzyce", "music"},
+            "music": {"muzyka", "muzyki", "muzyce", "music"},
+            "wideo": {"wideo", "videos"},
+            "videos": {"wideo", "videos"},
+        }
+        if requested:
+            expanded = (
+                Path.home() / requested[2:] if requested.startswith("~/") else Path(requested)
+            )
+            for grant in granted_folders:
+                gpath_raw = str(grant.get("path", "")).rstrip("/")
+                if not gpath_raw:
+                    continue
+                gpath = Path(gpath_raw)
+                if expanded.is_absolute():
+                    if expanded == gpath or (grant.get("subfolders") and gpath in expanded.parents):
+                        return True
+                elif requested.lstrip("./").casefold() == gpath.name.casefold():
+                    return True
+            if not suggested:
+                return False
+        if suggested:
+            aliases = alias_groups.get(suggested, {suggested})
+            for grant in granted_folders:
+                gpath_raw = str(grant.get("path", "")).rstrip("/")
+                if not gpath_raw:
+                    continue
+                gpath = Path(gpath_raw)
+                if gpath.name.casefold() in aliases:
+                    return True
+                if grant.get("subfolders") and gpath.is_dir():
+                    try:
+                        if any(
+                            child.is_dir() and child.name.casefold() in aliases
+                            for child in gpath.iterdir()
+                        ):
+                            return True
+                    except OSError:
+                        pass
+            return False
+        prior_ids = set(run.get("grants_at_failure") or [])
+        current_ids = {g.get("id") for g in granted_folders if g.get("id")}
+        return bool(current_ids - prior_ids) if prior_ids else bool(current_ids)
+
     def visibility(self):
         enabled = self.mode.currentData() == "agent"
         settings_open = enabled and self.settings_toggle.isChecked()
@@ -214,8 +273,17 @@ class AgentPanel(QWidget):
             and not self.active
             and (
                 not retry_run
-                or retry_run.get("state") in {"failed", "cancelled", "interrupted"}
-                or (retry_run.get("needs_folder_grant") and bool(self.granted_folders))
+                or (
+                    not retry_run.get("continued_by")
+                    and (
+                        retry_run.get("needs_folder_grant")
+                        and self.grant_satisfies_run(retry_run, self.granted_folders)
+                        or (
+                            not retry_run.get("needs_folder_grant")
+                            and retry_run.get("state") in {"failed", "cancelled", "interrupted"}
+                        )
+                    )
+                )
             )
         )
         show_details = settings_open or (bool(self.active) and has_activity)
@@ -302,13 +370,17 @@ class AgentPanel(QWidget):
                     self.timer.start()
                     break
             self.render(records)
-            if records and records[0]["state"] in {"failed", "cancelled", "interrupted"}:
-                self.retry_id = records[0]["id"]
-                self.retry_button.setText(self.main.tr("agent_retry"))
-                self.visibility()
-            elif records and records[0].get("needs_folder_grant"):
+            if (
+                records
+                and records[0].get("needs_folder_grant")
+                and not records[0].get("continued_by")
+            ):
                 self.retry_id = records[0]["id"]
                 self.retry_button.setText(self.main.tr("agent_continue_task"))
+                self.visibility()
+            elif records and records[0]["state"] in {"failed", "cancelled", "interrupted"}:
+                self.retry_id = records[0]["id"]
+                self.retry_button.setText(self.main.tr("agent_retry"))
                 self.visibility()
 
         self.api.request("GET", BASE + f"/conversations/{conversation}/runs", success=history)
@@ -431,7 +503,11 @@ class AgentPanel(QWidget):
         if not self.retry_id or self.active or self.settings_saving:
             return
         target = next((r for r in self.runs if r.get("id") == self.retry_id), None)
-        if target and target.get("needs_folder_grant") and self.granted_folders:
+        if (
+            target
+            and target.get("needs_folder_grant")
+            and self.grant_satisfies_run(target, self.granted_folders)
+        ):
             self.continue_run(target)
             return
         if (
@@ -508,6 +584,23 @@ class AgentPanel(QWidget):
             has_folders = bool(records)
             self.folders.setVisible(has_folders)
             self.revoke.setVisible(has_folders)
+            pending_grant_run = next(
+                (r for r in self.runs if r.get("needs_folder_grant") and not r.get("continued_by")),
+                None,
+            )
+            if (
+                pending_grant_run
+                and not self.active
+                and self.grant_satisfies_run(pending_grant_run, self.granted_folders)
+            ):
+                self.retry_id = pending_grant_run["id"]
+                self.retry_button.setText(self.main.tr("agent_continue_task"))
+            elif (
+                pending_grant_run
+                and self.retry_id == pending_grant_run["id"]
+                and not self.grant_satisfies_run(pending_grant_run, self.granted_folders)
+            ):
+                self.retry_id = None
             if getattr(self.main, "messages", None):
                 self.main.render_messages()
             self.visibility()
@@ -711,12 +804,12 @@ class AgentPanel(QWidget):
                 self.busy(False)
                 if self.dialog:
                     self.dialog.reject()
-                if record["state"] in {"failed", "cancelled", "interrupted"}:
-                    self.retry_id = record["id"]
-                    self.retry_button.setText(self.main.tr("agent_retry"))
-                elif record.get("needs_folder_grant"):
+                if record.get("needs_folder_grant") and not record.get("continued_by"):
                     self.retry_id = record["id"]
                     self.retry_button.setText(self.main.tr("agent_continue_task"))
+                elif record["state"] in {"failed", "cancelled", "interrupted"}:
+                    self.retry_id = record["id"]
+                    self.retry_button.setText(self.main.tr("agent_retry"))
                 else:
                     self.retry_id = None
                 self.render([record])
@@ -732,8 +825,12 @@ class AgentPanel(QWidget):
 
     def stop(self):
         if self.active:
+            self.main.stop_button.setEnabled(False)
             self.api.request(
-                "POST", BASE + f"/runs/{self.active}/cancel", success=lambda _: self.poll()
+                "POST",
+                BASE + f"/runs/{self.active}/cancel",
+                success=lambda _: self.poll(),
+                failure=lambda _: self.poll(),
             )
 
     def render(self, records):

@@ -483,7 +483,7 @@ def test_hotfix2_context_presets_inline_folder_continue_and_stop_button(
     assert "custom" in preset_values
     qtbot.mouseClick(w.context_button, Qt.LeftButton)
 
-    # 3. Ask about files in Pobrane without folder grant -> inline Udostępnij folder appears
+    # 3. Ask about files in Pobrane without folder grant -> pre-flight catches before model call
     class MissingFolderThenListEngine(ToolEngine):
         def __init__(self):
             self.calls = 0
@@ -491,13 +491,6 @@ def test_hotfix2_context_presets_inline_folder_continue_and_stop_button(
         async def stream(self, model, messages, parameters):
             self.calls += 1
             if self.calls == 1:
-                yield TextChunk(
-                    content=(
-                        "Nie mam dostępu do folderu Pobrane. Udostępnij folder, aby kontynuować."
-                    ),
-                    finish_reason="stop",
-                )
-            elif self.calls == 2:
                 grants_msg = messages[-1].content
                 grant_id = json.loads(grants_msg.split(": ", 1)[1])[0]["id"]
                 yield TextChunk(
@@ -521,10 +514,12 @@ def test_hotfix2_context_presets_inline_folder_continue_and_stop_button(
                     finish_reason="stop",
                 )
 
-    service.engines["llama.cpp"] = MissingFolderThenListEngine()
+    engine = MissingFolderThenListEngine()
+    service.engines["llama.cpp"] = engine
     w.composer.setPlainText("weź sprawdź jakie pliki mam na komputerze w folderze Pobrane")
     qtbot.mouseClick(w.send_button, Qt.LeftButton)
     qtbot.waitUntil(lambda: panel.active is None and len(panel.runs) == 1, timeout=10000)
+    assert engine.calls == 0
     qtbot.waitUntil(
         lambda: any(
             c.agent_grant_button is not None for c in w.transcript.findChildren(MessageCard)
@@ -536,6 +531,8 @@ def test_hotfix2_context_presets_inline_folder_continue_and_stop_button(
     )
     assert prompt_card.agent_grant_button.isVisible()
     assert not prompt_card.agent_continue_button.isVisible()
+    assert prompt_card.agent_error_label is not None
+    assert w.tr("agent_folder_not_granted") in prompt_card.agent_error_label.text()
 
     # 4. Cancelling folder dialog updates notice without error loop
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a: "")
@@ -545,7 +542,23 @@ def test_hotfix2_context_presets_inline_folder_continue_and_stop_button(
     )
     assert w.tr("agent_folder_cancelled") in cancelled_card.agent_folder_label.text()
 
-    # 5. Granting folder via FolderGrantDialog enables Kontynuuj zadanie without duplicating message
+    # 5. Granting unrelated folder (Dokumenty) keeps Kontynuuj disabled for Pobrane query
+    docs_dir = tmp_path / "Dokumenty"
+    docs_dir.mkdir()
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a: str(docs_dir))
+    monkeypatch.setattr(
+        panel,
+        "confirm_folder_grant",
+        lambda _p: (True, False, False, True, False),
+    )
+    panel.grant_folder(None)
+    qtbot.waitUntil(lambda: len(panel.granted_folders) == 1, timeout=5000)
+    still_blocked = next(
+        c for c in w.transcript.findChildren(MessageCard) if c.agent_continue_button is not None
+    )
+    assert not still_blocked.agent_continue_button.isVisible()
+
+    # 6. Granting Pobrane via panel manual action OR inline enables Kontynuuj zadanie cleanly
     dialog_check = panel.create_folder_grant_dialog(str(downloads))
     assert dialog_check.scope_combo.currentData() is False  # Read-only by default
     assert dialog_check.subfolders_check.isChecked() is True
@@ -558,10 +571,12 @@ def test_hotfix2_context_presets_inline_folder_continue_and_stop_button(
         "confirm_folder_grant",
         lambda _p: (True, False, False, True, True),
     )
-    qtbot.mouseClick(cancelled_card.agent_grant_button, Qt.LeftButton)
-    qtbot.waitUntil(lambda: len(panel.granted_folders) == 1, timeout=5000)
-    assert w.tr("agent_scope_read_only") in panel.folders.item(0).text()
-    assert w.tr("agent_persistence_durable") in panel.folders.item(0).text()
+    panel.grant_folder(None)
+    qtbot.waitUntil(lambda: len(panel.granted_folders) == 2, timeout=5000)
+    assert any(
+        w.tr("agent_persistence_durable") in panel.folders.item(i).text()
+        for i in range(panel.folders.count())
+    )
 
     ready_card = next(
         c for c in w.transcript.findChildren(MessageCard) if c.agent_continue_button is not None
@@ -572,6 +587,7 @@ def test_hotfix2_context_presets_inline_folder_continue_and_stop_button(
     qtbot.mouseClick(ready_card.agent_continue_button, Qt.LeftButton)
     qtbot.waitUntil(lambda: "lista.txt" in w.transcript.toPlainText(), timeout=10000)
     qtbot.waitUntil(lambda: panel.active is None, timeout=5000)
+    assert engine.calls == 2
     assert not w.stop_button.isVisible()
     assert w.generation_status.text() == w.tr("ready")
     assert [m["role"] for m in w.messages] == ["user", "assistant"]

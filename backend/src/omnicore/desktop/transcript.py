@@ -358,14 +358,18 @@ class MessageCard(QFrame):
         b_layout = QVBoxLayout(box)
         b_layout.setContentsMargins(10, 8, 10, 8)
         b_layout.setSpacing(6)
-        notice_key = (
-            "agent_folder_ready_notice"
-            if has_folder
-            else "agent_folder_cancelled"
-            if cancelled_grant
-            else "agent_needs_folder_notice"
-        )
-        lbl = QLabel(tr(notice_key))
+        if has_folder:
+            notice_text = tr("agent_folder_ready_notice")
+        elif cancelled_grant:
+            notice_text = tr("agent_folder_cancelled")
+        elif run.get("expand_grant"):
+            notice_text = tr("agent_folder_expand_notice")
+        else:
+            notice_text = tr("agent_needs_folder_notice")
+        target = run.get("requested_folder_path") or run.get("suggested_folder_name")
+        if target and not has_folder and not cancelled_grant:
+            notice_text = f"{notice_text} ({target})"
+        lbl = QLabel(notice_text)
         lbl.setTextFormat(Qt.PlainText)
         lbl.setWordWrap(True)
         b_layout.addWidget(lbl)

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import time
 from contextvars import ContextVar
 
 from omnicore.agents.capabilities import capability, native_declared
@@ -16,6 +17,7 @@ class AgentModel:
         self.service = service
         self.output_tokens = ContextVar("agent_output_tokens", default=0)
         self.backend_version = ContextVar("agent_backend_version", default=None)
+        self.turn_metrics = ContextVar("agent_turn_metrics", default=None)
 
     async def turn(self, model, messages, parameters, protocol, tools=None):
         service = self.service
@@ -63,16 +65,59 @@ class AgentModel:
                 for m in messages
             ]
             content, finish = "", None
+            started = time.monotonic()
+            first_token_at = None
+            reported_input = None
+            reported_output = None
             async with asyncio.timeout(service.config.generation_timeout):
                 async for chunk in engine.stream(location, converted, parameters):
+                    if (chunk.content or chunk.reasoning_content) and first_token_at is None:
+                        first_token_at = time.monotonic() - started
                     content += chunk.content
                     finish = chunk.finish_reason or finish
+                    if isinstance(chunk.input_tokens, int):
+                        reported_input = max(reported_input or 0, chunk.input_tokens)
                     if isinstance(chunk.output_tokens, int):
-                        self.output_tokens.set(max(self.output_tokens.get(), chunk.output_tokens))
+                        reported_output = max(reported_output or 0, chunk.output_tokens)
+                        self.output_tokens.set(reported_output)
                     if len(content.encode("utf-8")) > 65536:
                         raise TextError("agent_response_limit", 422)
             if finish != "stop":
                 raise TextError("agent_incomplete_response", 422)
+            gen_seconds = max(0.001, time.monotonic() - started)
+            tps = (
+                round(reported_output / gen_seconds, 2)
+                if isinstance(reported_output, int) and reported_output > 0
+                else None
+            )
+            used_ctx = (
+                reported_input + reported_output
+                if isinstance(reported_input, int) and isinstance(reported_output, int)
+                else None
+            )
+            self.turn_metrics.set(
+                {
+                    "input_tokens": reported_input,
+                    "output_tokens": reported_output,
+                    "ttft_seconds": round(first_token_at, 3)
+                    if first_token_at is not None
+                    else None,
+                    "generation_seconds": round(gen_seconds, 3),
+                    "tokens_per_second": tps,
+                    "context_limit_tokens": parameters.context_size,
+                    "context_used_tokens": used_ctx,
+                    "execution_device": getattr(engine, "execution_device", None)
+                    if model.backend == "llama.cpp"
+                    else "cpu",
+                    "gpu_offloaded_layers": getattr(engine, "offloaded_layers", None)
+                    if model.backend == "llama.cpp"
+                    else None,
+                    "gpu_total_layers": getattr(engine, "total_layers", None)
+                    if model.backend == "llama.cpp"
+                    else None,
+                    "model_name": model.name,
+                }
+            )
             return content, False
 
     async def ollama(self, engine, model, messages, parameters, tools=None):
@@ -120,6 +165,18 @@ class AgentModel:
         if not result.get("done") or result.get("done_reason") == "length":
             raise TextError("agent_incomplete_response", 422)
         count = result.get("eval_count")
+        prompt_count = result.get("prompt_eval_count")
         if type(count) is int and count >= 0:
             self.output_tokens.set(count)
+        self.turn_metrics.set(
+            {
+                "input_tokens": prompt_count if type(prompt_count) is int else None,
+                "output_tokens": count if type(count) is int else None,
+                "context_limit_tokens": parameters.context_size,
+                "execution_device": "cpu",
+                "gpu_offloaded_layers": None,
+                "gpu_total_layers": None,
+                "model_name": model,
+            }
+        )
         return result["message"], True

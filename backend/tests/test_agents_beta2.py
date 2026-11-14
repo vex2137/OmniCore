@@ -503,7 +503,7 @@ def test_incomplete_json_never_executes_tool_and_uses_bounded_repair(tmp_path):
 
 def test_missing_folder_permission_reports_permission_denied(tmp_path):
     async def exercise():
-        agents, conv, _ = setup(
+        agents, conv, engine = setup(
             tmp_path,
             [
                 '{"kind": "tool", "name": "read_text", "arguments": {"path": "test.txt"}}',
@@ -511,11 +511,13 @@ def test_missing_folder_permission_reports_permission_denied(tmp_path):
             ],
         )
         result = await finish(agents, conv)
-        assert result["state"] == "completed"
+        assert result["state"] == "failed"
+        assert result["error_code"] == "agent_folder_not_granted"
         assert len(result["steps"]) == 1
         assert result["steps"][0]["state"] == "failed"
-        assert result["steps"][0]["error_code"] == "agent_permission_denied"
+        assert result["steps"][0]["error_code"] == "agent_folder_not_granted"
         assert result["needs_folder_grant"] is True
+        assert len(engine.messages) == 1
         await agents.close()
         await agents.service.generations.close()
 
@@ -541,11 +543,14 @@ def test_agent_missing_folder_detects_needs_grant_and_continues_without_duplicat
         )
         await agents.tasks[run1["id"]]
         first_record = agents.record(run1["id"])
-        assert first_record["state"] == "completed"
+        assert first_record["state"] == "failed"
+        assert first_record["error_code"] == "agent_folder_not_granted"
+        assert first_record["turns"] == 0
+        assert engine.messages == []
         assert first_record["steps"] == []
         assert first_record["needs_folder_grant"] is True
         assert first_record["suggested_folder_name"] == "Pobrane"
-        assert len(agents.service.history.messages(conv.id)) == 2
+        assert len(agents.service.history.messages(conv.id)) == 1
 
         grant = agents.grant_folder(
             conv.id,
@@ -574,6 +579,123 @@ def test_agent_missing_folder_detects_needs_grant_and_continues_without_duplicat
         msgs = agents.service.history.messages(conv.id)
         assert [m.role for m in msgs] == ["user", "assistant"]
         assert "raport.pdf" in msgs[-1].content
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_preflight_blocks_uncovered_folder_even_with_other_grant_and_tracks_stats(tmp_path):
+    async def exercise():
+        docs = tmp_path / "Dokumenty"
+        docs.mkdir()
+        downloads = tmp_path / "Pobrane"
+        downloads.mkdir()
+        (downloads / "lista.csv").write_text("id,name\n", encoding="utf-8")
+        agents, conv, engine = setup(tmp_path, [])
+        doc_grant = agents.grant_folder(conv.id, docs, allow_write=False)
+
+        run1 = await agents.submit(
+            conv.id,
+            AgentRequest(
+                content=(
+                    "Wyświetl nazwy wszystkich plików znajdujących się w moim folderze Pobrane. "
+                    "Użyj narzędzia do listowania plików."
+                )
+            ),
+        )
+        await agents.tasks[run1["id"]]
+        rec1 = agents.record(run1["id"])
+        assert rec1["state"] == "failed"
+        assert rec1["error_code"] == "agent_folder_not_granted"
+        assert rec1["needs_folder_grant"] is True
+        assert rec1["expand_grant"] is True
+        assert rec1["grants_at_failure"] == [doc_grant["id"]]
+        assert rec1["turns"] == 0
+        assert engine.messages == []
+
+        with pytest.raises(TextError, match="agent_folder_not_granted"):
+            await agents.retry(rec1["id"])
+
+        dl_grant = agents.grant_folder(conv.id, downloads, allow_write=False)
+        engine.responses = iter(
+            [
+                tool("list_files", grant_id=dl_grant["id"], path="."),
+                '{"kind": "final", "text": "Pliki: lista.csv"}',
+            ]
+        )
+        run2 = await agents.retry(rec1["id"])
+        await agents.tasks[run2["id"]]
+        rec2 = agents.record(run2["id"])
+        assert rec2["state"] == "completed"
+        assert rec2["statistics"]["agent_steps"] == 1
+        assert rec2["statistics"]["tool_calls"] == 1
+        assert rec2["statistics"]["total_task_seconds"] >= 0
+        assert rec2["statistics"]["tool_execution_seconds"] >= 0
+        msgs = agents.service.history.messages(conv.id)
+        assert [m.role for m in msgs] == ["user", "assistant"]
+        assert msgs[-1].statistics is not None
+        assert msgs[-1].statistics.agent_steps == 1
+        assert msgs[-1].model_name == "Test fixture"
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_error_codes_distinction_and_cancel_cleanup(tmp_path):
+    async def exercise():
+        folder = tmp_path / "workspace"
+        folder.mkdir()
+        (folder / "present.txt").write_text("ok", encoding="utf-8")
+        agents, conv, engine = setup(tmp_path, [])
+        grant = agents.grant_folder(conv.id, folder)
+
+        # 1. Missing path inside valid grant -> agent_path_not_found
+        engine.responses = iter(
+            [
+                tool("read_text", grant_id=grant["id"], path="missing.txt"),
+                '{"kind": "final", "text": "Plik nie istnieje."}',
+            ]
+        )
+        run_missing = await finish(agents, conv)
+        assert run_missing["state"] == "completed"
+        assert run_missing["steps"][0]["error_code"] == "agent_path_not_found"
+        assert run_missing["steps"][0]["error_component"] == "read_text"
+
+        # 2. Invalid/other grant when multiple grants exist -> agent_invalid_grant
+        other = tmp_path / "other"
+        other.mkdir()
+        agents.grant_folder(conv.id, other)
+        engine.responses = iter(
+            [
+                tool("list_files", grant_id="nonexistent_grant", path="."),
+                tool("list_files", grant_id="never_reached", path="."),
+            ]
+        )
+        run_bad_grant = await finish(agents, conv)
+        assert run_bad_grant["state"] == "failed"
+        assert run_bad_grant["error_code"] == "agent_invalid_grant"
+        assert len(run_bad_grant["steps"]) == 1
+        assert len(engine.messages) == 3
+
+        # 3. Cancel while awaiting approval cleans up approvals and tasks
+        engine.responses = iter(
+            [tool("write_text", grant_id=grant["id"], path="new.txt", mode="create", content="x")]
+        )
+        run_write = await agents.submit(conv.id, AgentRequest(content="Change file"))
+        for _ in range(100):
+            if agents.record(run_write["id"])["steps"] and (
+                agents.record(run_write["id"])["steps"][0]["state"] == "waiting"
+            ):
+                break
+            await asyncio.sleep(0.01)
+        assert agents.approvals
+        cancelled = await agents.cancel(run_write["id"])
+        assert cancelled["state"] == "cancelled"
+        assert agents.approvals == {}
+        assert agents.tasks == {}
+        assert agents.tokens == {}
         await agents.close()
         await agents.service.generations.close()
 
