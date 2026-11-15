@@ -1,8 +1,10 @@
 """Native widgets for the existing API. Network and inference never block Qt."""
 
+import errno
 import math
 import os
 import platform
+import stat
 import uuid
 from datetime import datetime
 from html import escape
@@ -215,6 +217,9 @@ class MainWindow(QMainWindow):
         self._closing = False
         self._allow_close = False
         self._pending_import = None
+        self._pending_authorize_dir = None
+        self._pending_authorize_model_id = None
+        self._pending_authorize_target = None
         self._health_pending = set()
         self._backend_pid = None
         self._last_error_meta = None
@@ -487,6 +492,11 @@ class MainWindow(QMainWindow):
         self.notice.setTextFormat(Qt.PlainText)
         self.notice.setObjectName("notice")
         self.notice.hide()
+        self.notice_action_button = QPushButton()
+        self.notice_action_button.setObjectName("primary")
+        self.notice_action_button.setCursor(Qt.PointingHandCursor)
+        self.notice_action_button.clicked.connect(lambda: self.authorize_model_directory())
+        self.notice_action_button.hide()
         self.notice_details_toggle = QPushButton(self.tr("error_details_toggle"))
         self.notice_details_toggle.setObjectName("errorDetailsToggle")
         self.notice_details_toggle.setCheckable(True)
@@ -499,6 +509,7 @@ class MainWindow(QMainWindow):
         self.notice_close.setCursor(Qt.PointingHandCursor)
         self.notice_close.clicked.connect(self._dismiss_notice)
         notice_row.addWidget(self.notice, 1)
+        notice_row.addWidget(self.notice_action_button)
         notice_row.addWidget(self.notice_details_toggle)
         notice_row.addWidget(self.notice_close)
         notice_layout.addLayout(notice_row)
@@ -618,6 +629,7 @@ class MainWindow(QMainWindow):
 
         self.transcript = ChatTranscript()
         self.transcript.regenerate_requested.connect(self.regenerate_answer)
+        self.transcript.authorize_directory_requested.connect(self.authorize_model_directory)
         self.transcript.grant_folder_requested.connect(self.agent_panel.grant_folder)
         self.transcript.continue_run_requested.connect(self.agent_panel.continue_run)
         self.transcript.empty_slot.addWidget(self.onboarding, 0, Qt.AlignHCenter)
@@ -962,6 +974,10 @@ class MainWindow(QMainWindow):
         self.model_detail.setWordWrap(True)
         footer_layout.addWidget(self.model_detail, 1)
         self.favorite_button = self.button("favorite_toggle", self.toggle_favorite_model)
+        self.model_authorize_button = self.button(
+            "authorize_model_directory", self.authorize_selected_model, primary=True
+        )
+        self.model_authorize_button.hide()
         self.load_button = self.button("load", self.load_model, primary=True)
         configure_btn = self.button("model_configure", self.configure_selected_model)
         self.model_actions = QToolButton()
@@ -977,7 +993,12 @@ class MainWindow(QMainWindow):
             self.tr("remove_entry"), self.remove_model
         )
         self.model_actions.setMenu(self.model_actions_menu)
-        for btn in (self.load_button, self.favorite_button, configure_btn):
+        for btn in (
+            self.model_authorize_button,
+            self.load_button,
+            self.favorite_button,
+            configure_btn,
+        ):
             btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
             footer_layout.addWidget(btn)
         footer_layout.addWidget(self.model_actions)
@@ -1951,6 +1972,7 @@ class MainWindow(QMainWindow):
 
     def _dismiss_notice(self):
         self._last_error_meta = None
+        self.notice_action_button.hide()
         self.notice_details_toggle.setChecked(False)
         self.notice_details_toggle.hide()
         self.notice_details_frame.hide()
@@ -2317,6 +2339,11 @@ class MainWindow(QMainWindow):
                     self.api.watch(job)
 
             self.api.request("GET", TEXT + f"/generations/{job}", success=resume)
+        if self._pending_authorize_dir:
+            auth_dir, self._pending_authorize_dir = self._pending_authorize_dir, None
+            self._pending_authorize_model_id = None
+            self._pending_authorize_target = None
+            self.notify(self.tr("model_directory_authorized", path=auth_dir))
         if self._pending_import:
             path, self._pending_import = self._pending_import, None
             self.import_gguf(path)
@@ -2342,6 +2369,7 @@ class MainWindow(QMainWindow):
 
     def notify(self, text):
         self._last_error_meta = None
+        self.notice_action_button.hide()
         self.notice_card.setProperty("kind", "info")
         self.notice_card.style().unpolish(self.notice_card)
         self.notice_card.style().polish(self.notice_card)
@@ -2362,6 +2390,11 @@ class MainWindow(QMainWindow):
         self.notice_card.style().polish(self.notice_card)
         self.notice.setText(text)
         self.notice.show()
+        if code in {"model_directory_unauthorized", "path_not_allowed"} and self.session.owned:
+            self.notice_action_button.setText(self.tr("authorize_model_directory"))
+            self.notice_action_button.show()
+        else:
+            self.notice_action_button.hide()
         self.notice_details_label.setText(
             self._format_notice_details(code, component=component, target=target)
         )
@@ -2375,6 +2408,13 @@ class MainWindow(QMainWindow):
     def show_error(self, code, *, component: str | None = None, target: str | None = None):
         safe_code = code if code in self.tr.catalog else "unknown_error"
         self.log_event(safe_code)
+        if safe_code in {"model_directory_unauthorized", "path_not_allowed"}:
+            rec = self._selected_chat_model() or self.selected_model()
+            if isinstance(rec, dict) and not self._is_model_record_authorized(rec):
+                self._pending_authorize_model_id = rec.get("id")
+                self._pending_authorize_target = rec.get("location")
+                if target is None:
+                    target = rec.get("location")
         if code in {
             "connection_error",
             "backend_exited",
@@ -2765,6 +2805,131 @@ class MainWindow(QMainWindow):
 
         self.api.request("DELETE", TEXT + "/conversations", success=deleted_all)
 
+    def _authorized_model_roots(self) -> list[Path]:
+        roots = [data_path().absolute() / "models"]
+        for raw in self.config.model_roots:
+            if not raw:
+                continue
+            p = Path(raw)
+            if p.is_absolute() and ".." not in p.parts:
+                roots.append(p.absolute())
+        return roots
+
+    def _is_model_path_authorized(self, location: str | Path | None) -> bool:
+        if not location:
+            return False
+        p = Path(location)
+        if not p.is_absolute() or ".." in p.parts:
+            return False
+        abs_path = p.absolute()
+        return any(
+            abs_path.is_relative_to(root) and abs_path != root
+            for root in self._authorized_model_roots()
+        )
+
+    def _is_model_record_authorized(self, record: dict | None) -> bool:
+        if not isinstance(record, dict) or record.get("backend") != "llama.cpp":
+            return True
+        file_status = (record.get("metadata") or {}).get("file_status")
+        if file_status == "unauthorized":
+            return False
+        location = record.get("location")
+        if not location:
+            return True
+        if self.session.owned:
+            return self._is_model_path_authorized(location)
+        return True
+
+    @staticmethod
+    def _validate_authorizable_model_file(path: Path) -> str | None:
+        if not path.is_absolute() or ".." in path.parts:
+            return "invalid_path"
+        cur = Path(path.anchor or "/")
+        for part in path.parts[1:-1]:
+            cur = cur / part
+            try:
+                st = os.lstat(cur)
+            except OSError as exc:
+                return "model_file_missing" if exc.errno == errno.ENOENT else "invalid_path"
+            if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
+                return "invalid_path"
+        try:
+            st = os.lstat(path)
+        except OSError as exc:
+            return "model_file_missing" if exc.errno == errno.ENOENT else "invalid_path"
+        if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+            return "invalid_path"
+        return None
+
+    def authorize_selected_model(self):
+        self.authorize_model_directory(self.selected_model())
+
+    def authorize_model_directory(self, target: object = None):
+        if self.active_job or self.agent_panel.active:
+            self.show_error("busy")
+            return
+        candidate_str: str | None = None
+        if isinstance(target, (str, Path)):
+            candidate_str = str(target)
+        elif isinstance(target, dict):
+            if target.get("location"):
+                candidate_str = str(target["location"])
+            elif target.get("model_id"):
+                rec = next((m for m in self.models if m.get("id") == target["model_id"]), None)
+                if rec and rec.get("location"):
+                    candidate_str = str(rec["location"])
+        if not candidate_str and self._pending_authorize_model_id:
+            rec = next(
+                (m for m in self.models if m.get("id") == self._pending_authorize_model_id), None
+            )
+            if rec and rec.get("location"):
+                candidate_str = str(rec["location"])
+        if not candidate_str and self._pending_authorize_target:
+            candidate_str = str(self._pending_authorize_target)
+        if not candidate_str:
+            rec = self._selected_chat_model() or self.selected_model()
+            if rec and rec.get("location"):
+                candidate_str = str(rec["location"])
+        if not candidate_str:
+            self.show_error("model_required")
+            return
+        candidate = Path(candidate_str)
+        err = self._validate_authorizable_model_file(candidate)
+        if err is not None:
+            self.show_error(err, component="file_validation", target=str(candidate))
+            return
+        directory = str(candidate.parent)
+        if directory not in self.config.model_roots:
+            self.config.model_roots.append(directory)
+            self.config.save()
+        existing_roots = [self.roots.item(i).text() for i in range(self.roots.count())]
+        if directory not in existing_roots:
+            self.roots.addItem(directory)
+        self._dismiss_notice()
+        if self.session.owned:
+            self._pending_authorize_dir = directory
+            self.is_connected = False
+            self.connection.setText(self.tr("connecting"))
+            self.pages.setEnabled(False)
+            self.session.restart(self.config)
+        else:
+            self.notify(self.tr("model_directory_authorized", path=directory))
+
+    def _warn_if_selected_model_unauthorized(self):
+        rec = self._selected_chat_model()
+        if rec and not self._is_model_record_authorized(rec):
+            self.show_error(
+                "model_directory_unauthorized",
+                component="file_validation",
+                target=rec.get("location"),
+            )
+        elif (
+            isinstance(self._last_error_meta, tuple)
+            and self._last_error_meta[0] == "model_directory_unauthorized"
+            and (rec is None or self._is_model_record_authorized(rec))
+        ):
+            self._dismiss_notice()
+
     def model_selected(self):
         if not self.active_job:
             self.last_job = None
@@ -2775,6 +2940,7 @@ class MainWindow(QMainWindow):
         self._sync_last_request_context()
         self._render_model_context()
         self._refresh_model_context()
+        self._warn_if_selected_model_unauthorized()
         if self.current_id and self.model_combo.currentData() and not self.active_job:
             self.api.request(
                 "PATCH",
@@ -2931,6 +3097,10 @@ class MainWindow(QMainWindow):
                     "active_other_model",
                     "vram_total_bytes",
                     "vram_free_bytes",
+                    "vram_used_bytes",
+                    "engine_vram_bytes",
+                    "external_vram_bytes",
+                    "model_estimated_vram_bytes",
                 ):
                     if key in prev_gpu:
                         fresh["gpu"][key] = prev_gpu[key]
@@ -3093,13 +3263,24 @@ class MainWindow(QMainWindow):
                     vram_free = max(0, snap.vram_total_bytes - snap.vram_used_bytes)
         if vram_total:
             if vram_free is not None:
-                parts.append(
-                    self.tr(
-                        "gpu_status_vram",
-                        free=f"{vram_free / (1024**3):.1f}",
-                        total=f"{vram_total / (1024**3):.1f}",
+                ext_vram = gpu_info.get("external_vram_bytes")
+                if isinstance(ext_vram, int) and ext_vram >= 512 * 1024**2:
+                    parts.append(
+                        self.tr(
+                            "gpu_status_vram_contended",
+                            free=f"{vram_free / (1024**3):.1f}",
+                            total=f"{vram_total / (1024**3):.1f}",
+                            external=f"{ext_vram / (1024**3):.1f}",
+                        )
                     )
-                )
+                else:
+                    parts.append(
+                        self.tr(
+                            "gpu_status_vram",
+                            free=f"{vram_free / (1024**3):.1f}",
+                            total=f"{vram_total / (1024**3):.1f}",
+                        )
+                    )
             else:
                 parts.append(
                     self.tr("gpu_status_vram_total", total=f"{vram_total / (1024**3):.1f}")
@@ -3432,6 +3613,35 @@ class MainWindow(QMainWindow):
         state = record["state"]
         speed = record.get("tokens_per_second")
         self.generation_status.setText(self.tr(state) + (f" · {speed:.1f} tok/s" if speed else ""))
+        model_id = record.get("model_id")
+        if model_id and (
+            record.get("gpu_offloaded_layers") is not None
+            or record.get("gpu_offload_mode") is not None
+            or record.get("execution_device") is not None
+        ):
+            ctx_entry = self.model_contexts.setdefault(model_id, {})
+            gpu_entry = ctx_entry.setdefault("gpu", {})
+            if record.get("gpu_offload_mode") is not None:
+                gpu_entry["applied_mode"] = record.get("gpu_offload_mode")
+            if record.get("gpu_requested_layers") is not None:
+                gpu_entry["applied_requested_layers"] = record.get("gpu_requested_layers")
+            elif (record.get("parameters") or {}).get("gpu_layers") is not None:
+                gpu_entry["applied_requested_layers"] = record["parameters"]["gpu_layers"]
+            if record.get("gpu_offloaded_layers") is not None:
+                gpu_entry["applied_offloaded_layers"] = record.get("gpu_offloaded_layers")
+            if record.get("gpu_total_layers") is not None:
+                gpu_entry["applied_total_layers"] = record.get("gpu_total_layers")
+            if record.get("execution_device") is not None:
+                gpu_entry["applied_device"] = record.get("execution_device")
+            if record.get("gpu_offload_reason") is not None:
+                gpu_entry["applied_reason"] = record.get("gpu_offload_reason")
+            if record.get("fallback_reason") is not None:
+                gpu_entry["fallback_reason"] = record.get("fallback_reason")
+            ctx_entry["active"] = True
+            if record.get("context_limit_tokens") is not None:
+                ctx_entry["applied_tokens"] = record.get("context_limit_tokens")
+            if self.model_combo.currentData() == model_id:
+                self._render_model_context()
         self.render_messages()
         if state in TERMINAL:
             self.active_job = None
@@ -3439,8 +3649,16 @@ class MainWindow(QMainWindow):
             self._generation_idle()
             self.refresh_messages()
             self.refresh_models()
-            if record.get("error_code"):
-                self.show_error(record["error_code"])
+            err_code = record.get("error_code")
+            if err_code:
+                err_target = record.get("model_name")
+                if err_code in {"model_directory_unauthorized", "path_not_allowed"} and model_id:
+                    self._pending_authorize_model_id = model_id
+                    rec = next((m for m in self.models if m.get("id") == model_id), None)
+                    if rec and rec.get("location"):
+                        self._pending_authorize_target = rec.get("location")
+                        err_target = rec.get("location")
+                self.show_error(err_code, component="chat_generation", target=err_target)
 
     def _generation_idle(self):
         self.send_button.setEnabled(True)
@@ -3689,6 +3907,8 @@ class MainWindow(QMainWindow):
 
         def exported(document):
             messages = document["messages"]
+            original_len = len(messages)
+            target_index = None
             if isinstance(target, dict):
                 target_index = next(
                     (
@@ -3710,17 +3930,42 @@ class MainWindow(QMainWindow):
             last_user = next(
                 (i for i in range(len(messages) - 1, -1, -1) if messages[i]["role"] == "user"), None
             )
+            has_completed_answer = last_user is not None and any(
+                m["role"] == "assistant" and m["content"].strip() for m in messages[last_user + 1 :]
+            )
+            trailing_failed = (
+                last_user is not None
+                and not has_completed_answer
+                and any(
+                    m["role"] == "assistant"
+                    and m.get("status") in {"failed", "cancelled", "interrupted"}
+                    for m in messages[last_user + 1 :]
+                )
+            )
             if (
                 last_user is None
                 or self.current_id != source
-                or not any(
-                    m["role"] == "assistant" and m["content"].strip()
-                    for m in messages[last_user + 1 :]
-                )
+                or (not has_completed_answer and not trailing_failed)
             ):
                 failed("no_answer")
                 return
             content = messages[last_user]["content"]
+            is_tail = target_index is None or target_index == original_len - 1
+            if trailing_failed and is_tail:
+                self._submitting = False
+                self.last_job = None
+                if (
+                    len(self.messages) >= 2
+                    and self.messages[-1].get("role") == "assistant"
+                    and self.messages[-1].get("status") in {"failed", "cancelled", "interrupted"}
+                    and not str(self.messages[-1].get("content") or "").strip()
+                    and self.messages[-2].get("role") == "user"
+                    and str(self.messages[-2].get("content") or "").strip() == content.strip()
+                ):
+                    self.messages = self.messages[:-2]
+                self.composer.setPlainText(content)
+                self.send_message()
+                return
             document["messages"] = messages[:last_user]
             document["title"] = (document["title"][:220] + " · " + self.tr("regenerate"))[:256]
 
@@ -3789,6 +4034,7 @@ class MainWindow(QMainWindow):
             self.refresh_model_table()
             self._render_model_context()
             self._refresh_model_context()
+            self._warn_if_selected_model_unauthorized()
             self._loaded("models")
 
         self.api.request("GET", TEXT + "/models", success=received)
@@ -3855,8 +4101,11 @@ class MainWindow(QMainWindow):
             )
             title = ("★ " if record["id"] in favorites else "") + record["name"]
             loaded_tok = self._loaded_models.get(record["id"])
+            unauthorized = not self._is_model_record_authorized(record)
             status_text = self.tr(record["compatibility"])
-            if loaded_tok is not None:
+            if unauthorized:
+                status_text = f"{self.tr('model_directory_unauthorized_short')} · {status_text}"
+            elif loaded_tok is not None:
                 status_text = f"{self.tr('model_loaded_badge')} · {status_text}"
             tooltip_title = f"{title}\n{quant_arch}"
             for column, value in enumerate(
@@ -3872,7 +4121,9 @@ class MainWindow(QMainWindow):
                 item.setToolTip(escape(tooltip_title if column == 0 else value))
                 item.setData(Qt.UserRole, record["id"])
                 if column == 4 and hasattr(self, "_tokens"):
-                    if loaded_tok is not None:
+                    if unauthorized:
+                        item.setForeground(QColor(self._tokens.warning))
+                    elif loaded_tok is not None:
                         item.setForeground(QColor(self._tokens.accent))
                     else:
                         compat_color = {
@@ -3917,11 +4168,21 @@ class MainWindow(QMainWindow):
 
     def model_details(self):
         record = self.selected_model()
+        unauthorized = bool(record and not self._is_model_record_authorized(record))
+        if hasattr(self, "model_authorize_button"):
+            self.model_authorize_button.setVisible(unauthorized and self.session.owned)
         self.load_button.setEnabled(
-            bool(record and record["backend"] == "llama.cpp" and not self._loading_model)
+            bool(
+                record
+                and record["backend"] == "llama.cpp"
+                and not self._loading_model
+                and not unauthorized
+            )
         )
         self.load_button.setToolTip(
-            self.tr("ollama_managed") if record and record["backend"] == "ollama" else ""
+            self.tr("model_directory_unauthorized")
+            if unauthorized
+            else (self.tr("ollama_managed") if record and record["backend"] == "ollama" else "")
         )
         self.favorite_button.setEnabled(bool(record))
         self.favorite_button.setText(
@@ -3946,6 +4207,8 @@ class MainWindow(QMainWindow):
             capabilities = record.get("capabilities") or []
             if capabilities:
                 details += " · " + " · ".join(capabilities)
+            if unauthorized:
+                details += "\n" + self.tr("model_directory_unauthorized")
             self.model_detail.setText(details)
             if record["backend"] == "llama.cpp":
 
@@ -3961,7 +4224,11 @@ class MainWindow(QMainWindow):
                     status = (
                         self.tr("model_running_context", tokens=applied)
                         if applied is not None
-                        else self.tr("model_not_loaded")
+                        else (
+                            self.tr("model_directory_unauthorized")
+                            if not self._is_model_record_authorized(current)
+                            else self.tr("model_not_loaded")
+                        )
                     )
                     self.model_detail.setText(details + "\n" + status)
 

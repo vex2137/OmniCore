@@ -34,6 +34,7 @@ from omnicore.text.generation import (
     GenerationRequest,
 )
 from omnicore.text.models import ModelManager
+from omnicore.text.offload import estimate_kv_cache_bytes, layout_from_metadata
 from omnicore.text.store import ModelRecord, TextStore
 from omnicore.text.types import GenerationParameters, TextError
 
@@ -320,8 +321,36 @@ def routes(service: TextService):
         settings["applied_tokens"] = engine.parameters[1] if active else None
         settings["loaded_model_name"] = record.name if active else running_other_model
         devs = await nvidia.devices()
-        vram_total = max((d["total_bytes"] for d in devs), default=None) if devs else None
-        vram_free = max((d["free_bytes"] for d in devs), default=None) if devs else None
+        primary = max(devs, key=lambda d: d["total_bytes"]) if devs else None
+        vram_total = primary["total_bytes"] if primary else None
+        vram_free = primary["free_bytes"] if primary else None
+        vram_used = (
+            max(0, vram_total - vram_free)
+            if (vram_total is not None and vram_free is not None)
+            else None
+        )
+        engine_res = (
+            await engine.resources()
+            if (
+                engine.process
+                and engine.process.returncode is None
+                and callable(getattr(engine, "resources", None))
+            )
+            else None
+        )
+        engine_vram = engine_res.vram_bytes if engine_res else None
+        external_vram = max(0, vram_used - (engine_vram or 0)) if vram_used is not None else None
+        model_est_vram = None
+        if record.backend == "llama.cpp" and record.size_bytes > 0:
+            meta_dict = record.metadata if isinstance(record.metadata, dict) else {}
+            inner_meta = (
+                meta_dict.get("metadata") if isinstance(meta_dict.get("metadata"), dict) else {}
+            )
+            arch = meta_dict.get("architecture") or inner_meta.get("general.architecture")
+            layout = layout_from_metadata(inner_meta, arch, record.size_bytes)
+            model_est_vram = int(record.size_bytes) + estimate_kv_cache_bytes(
+                layout, int(settings.get("effective_tokens") or 4096)
+            )
         norm_layers = (
             0
             if eff_mode == "cpu"
@@ -334,6 +363,10 @@ def routes(service: TextService):
             "device": "cpu" if eff_mode == "cpu" else eff_device,
             "vram_total_bytes": vram_total,
             "vram_free_bytes": vram_free,
+            "vram_used_bytes": vram_used,
+            "engine_vram_bytes": engine_vram,
+            "external_vram_bytes": external_vram,
+            "model_estimated_vram_bytes": model_est_vram,
             "applied_mode": engine.offload_mode if active else None,
             "applied_requested_layers": engine.parameters[2] if active else None,
             "applied_offloaded_layers": engine.offloaded_layers if active else None,
@@ -412,7 +445,7 @@ def routes(service: TextService):
             service.require_idle()
             record = await run_in_threadpool(service.store.model, model_id)
             path = await run_in_threadpool(service.models.validated_reference, model_id)
-            with service.models.policy.open(path) as stream:
+            with service.models.policy.open(path, registered=True) as stream:
                 await service.llama.load(path, body, file_descriptor=stream.fileno())
             if record.compatibility != "tested":
                 record.compatibility = "load_verified"

@@ -26,6 +26,7 @@ from omnicore.text.offload import (
     estimate_auto_gpu_layers,
     inspect_gguf_layout,
     is_cuda_oom_log,
+    is_unsupported_architecture_log,
     next_stepdown_layers,
     parse_startup_layers,
     resolve_offload_mode,
@@ -604,6 +605,7 @@ class LlamaEngine:
 
             fallback = "gpu_unavailable" if wants_gpu and selected_device == "cpu" else None
             est_total = None
+            layout = None
             if (
                 self.process is not None
                 and selected_device != "cpu"
@@ -678,6 +680,19 @@ class LlamaEngine:
                         if known_total is not None:
                             est_total = known_total
                         nxt = next_stepdown_layers(layers, known_total)
+                        if (
+                            mode == "max"
+                            and attempts >= 1
+                            and layout is not None
+                            and nxt is not None
+                        ):
+                            current_free = await self._available_vram_bytes(selected_device)
+                            if current_free is not None and current_free > 0:
+                                est_fit, _, _ = estimate_auto_gpu_layers(
+                                    path, parameters.context_size, layers, current_free, layout
+                                )
+                                if 0 < est_fit < nxt:
+                                    nxt = est_fit
                         if nxt is not None and nxt < layers:
                             attempts += 1
                             layers = nxt
@@ -781,9 +796,14 @@ class LlamaEngine:
             self._log.seek(max(0, size - 32768))
             raw_log = self._log.read()
             self._last_startup_log = raw_log.decode("utf-8", errors="replace")
-            code = "out_of_memory" if is_cuda_oom_log(raw_log) else "model_load_failed"
+            if is_unsupported_architecture_log(raw_log):
+                code, status = "unsupported_architecture", 422
+            elif is_cuda_oom_log(raw_log):
+                code, status = "out_of_memory", 503
+            else:
+                code, status = "model_load_failed", 502
             await self.unload()
-            raise TextError(code, 503 if code == "out_of_memory" else 502)
+            raise TextError(code, status)
         except (OSError, TimeoutError):
             await self.unload()
             raise TextError("model_load_failed", 502) from None

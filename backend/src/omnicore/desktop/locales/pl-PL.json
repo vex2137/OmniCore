@@ -459,5 +459,13 @@
   "gpu_pending_unsaved": "Niezapisana zmiana GPU — kliknij Zapisz",
   "context_last_model_other": "Brak odpowiedzi dla {model} (wcześniejsze użyły: {other})",
   "context_last_for_model": "Ostatnia odpowiedź ({model}): {used}/{limit} tokenów ({percent}%)",
-  "gpu_reload_now": "Przeładuj model"
+  "gpu_reload_now": "Przeładuj model",
+  "model_directory_unauthorized": "Katalog tego modelu nie jest autoryzowany.",
+  "model_directory_unauthorized_short": "Katalog nieautoryzowany",
+  "authorize_model_directory": "Autoryzuj katalog",
+  "model_directory_authorized": "Autoryzowano katalog modeli: {path}",
+  "model_file_missing": "Nie znaleziono zarejestrowanego pliku modelu GGUF na dysku.",
+  "unsupported_architecture": "Architektura tego modelu GGUF nie jest obsługiwana przez zainstalowany silnik llama.cpp.",
+  "retry_generation": "Ponów próbę",
+  "gpu_status_vram_contended": "VRAM: {free} / {total} GB wolne ({external} GB zajęte przez inne aplikacje)"
 }

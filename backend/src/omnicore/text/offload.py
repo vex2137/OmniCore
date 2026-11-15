@@ -21,6 +21,14 @@ _OOM_PATTERNS = (
     "ggml_backend_cuda_buffer_type_alloc_buffer",
 )
 
+_UNSUPPORTED_ARCH_PATTERNS = (
+    "unknown model architecture",
+    "unsupported model architecture",
+    "arch not supported",
+    "unknown architecture",
+    "error loading model: unknown",
+)
+
 
 def resolve_offload_mode(parameters) -> str:
     """Resolve explicit or legacy offload mode from generation parameters."""
@@ -55,9 +63,30 @@ def _meta_int(inner: dict, architecture: str | None, suffix: str) -> int | None:
     return None
 
 
+def _meta_int_list(inner: dict, architecture: str | None, suffix: str) -> list[int] | None:
+    candidates = []
+    if architecture:
+        candidates.append(inner.get(f"{architecture}.{suffix}"))
+    for key, val in inner.items():
+        if isinstance(key, str) and key.endswith(f".{suffix}"):
+            candidates.append(val)
+    for val in candidates:
+        if (
+            isinstance(val, list)
+            and val
+            and all(isinstance(item, int) and not isinstance(item, bool) for item in val)
+        ):
+            return val
+    return None
+
+
 def _kv_layer_counts(layout: dict) -> tuple[int, int]:
     """Return (attention_kv_layers, recurrent_ssm_layers) for standard or hybrid models."""
     block_count = layout.get("block_count") or 32
+    kv_attn = layout.get("kv_attention_layers")
+    if isinstance(kv_attn, int) and not isinstance(kv_attn, bool) and kv_attn >= 0:
+        kv_layers = min(block_count, kv_attn)
+        return kv_layers, max(0, block_count - kv_layers)
     interval = layout.get("full_attention_interval")
     if isinstance(interval, int) and not isinstance(interval, bool) and interval >= 2:
         kv_layers = max(1, block_count // interval)
@@ -81,26 +110,40 @@ def estimate_kv_bytes_per_token(layout: dict) -> int:
 
 
 def estimate_ssm_state_bytes(layout: dict) -> int:
-    """Estimate fixed recurrent state VRAM for hybrid SSM/DeltaNet layers."""
+    """Estimate fixed recurrent state VRAM for hybrid SSM/DeltaNet/shortconv layers."""
     if not layout.get("head_count_kv"):
         return 0
     _, ssm_layers = _kv_layer_counts(layout)
+    if layout.get("shortconv_l_cache") is not None or layout.get("kv_attention_layers") is not None:
+        return ssm_layers * 256 * 1024
     return ssm_layers * 4 * 1024**2
 
 
 def layout_from_metadata(meta: dict, arch: str | None, size_bytes: int) -> dict:
     """Build a uniform GGUF layout dictionary from parsed header metadata."""
+    kv_list = _meta_int_list(meta, arch, "attention.head_count_kv")
+    kv_attention_layers: int | None = None
+    if kv_list is not None:
+        positive = [v for v in kv_list if v > 0]
+        kv_attention_layers = len(positive)
+        head_count_kv = max(1, round(sum(positive) / len(positive))) if positive else 0
+    else:
+        head_count_kv = _meta_int(meta, arch, "attention.head_count_kv") or _meta_int(
+            meta, arch, "attention.head_count"
+        )
     return {
         "file_size_bytes": size_bytes,
         "architecture": arch,
         "block_count": _meta_int(meta, arch, "block_count"),
         "full_attention_interval": _meta_int(meta, arch, "full_attention_interval"),
-        "head_count_kv": _meta_int(meta, arch, "attention.head_count_kv")
-        or _meta_int(meta, arch, "attention.head_count"),
+        "kv_attention_layers": kv_attention_layers,
+        "head_count_kv": head_count_kv,
         "key_length": _meta_int(meta, arch, "attention.key_length") or 128,
         "value_length": _meta_int(meta, arch, "attention.value_length")
         or _meta_int(meta, arch, "attention.key_length")
         or 128,
+        "sliding_window": _meta_int(meta, arch, "attention.sliding_window"),
+        "shortconv_l_cache": _meta_int(meta, arch, "shortconv.l_cache"),
         "embedding_length": _meta_int(meta, arch, "embedding_length"),
     }
 
@@ -203,6 +246,16 @@ def is_cuda_oom_log(log: bytes | str) -> bool:
         text = str(log)
     lowered = text.casefold()
     return any(pattern in lowered for pattern in _OOM_PATTERNS)
+
+
+def is_unsupported_architecture_log(log: bytes | str) -> bool:
+    """Detect unsupported GGUF architecture errors from llama-server startup logs."""
+    if isinstance(log, (bytes, bytearray)):
+        text = log.decode("utf-8", errors="replace")
+    else:
+        text = str(log)
+    lowered = text.casefold()
+    return any(pattern in lowered for pattern in _UNSUPPORTED_ARCH_PATTERNS)
 
 
 def next_stepdown_layers(current_layers: int, detected_total: int | None) -> int | None:

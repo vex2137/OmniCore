@@ -255,6 +255,7 @@ class TextStore:
         digest: str | None = None,
         location: str | None = None,
         file_status: str = "available",
+        parsed_metadata: dict[str, object] | None = None,
     ) -> ModelRecord:
         if location is not None:
             record.location = location
@@ -264,6 +265,12 @@ class TextStore:
         record.metadata["file_status"] = file_status
         if digest is not None:
             record.metadata["gguf_digest"] = digest
+        if isinstance(parsed_metadata, dict) and parsed_metadata:
+            existing_meta = record.metadata.get("metadata")
+            if isinstance(existing_meta, dict):
+                existing_meta.update(parsed_metadata)
+            else:
+                record.metadata["metadata"] = dict(parsed_metadata)
         connection.execute(
             "UPDATE text_models SET location=?,record=?,device=?,inode=? WHERE id=?",
             (record.location, record.model_dump_json(), device, inode, record.id),
@@ -281,6 +288,7 @@ class TextStore:
         digest: str | None = None,
         location: str | None = None,
         file_status: str = "available",
+        parsed_metadata: dict[str, object] | None = None,
     ) -> ModelRecord:
         record = self.model(model_id)
         with self.db.connect() as connection, connection:
@@ -294,6 +302,7 @@ class TextStore:
                 digest=digest,
                 location=location,
                 file_status=file_status,
+                parsed_metadata=parsed_metadata,
             )
 
     def delete_model(self, model_id):

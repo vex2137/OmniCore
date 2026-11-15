@@ -99,6 +99,11 @@ def read_gguf(stream) -> dict:
         if subtype in formats:
             length = count * struct.calcsize(formats[subtype])
             bounded(length)
+            if keep and 0 < count <= 512:
+                items = list(struct.unpack(f"{endian}{count}{formats[subtype]}", read(length)))
+                if subtype in (6, 12) and not all(math.isfinite(x) for x in items):
+                    raise TextError("invalid_gguf", 422)
+                return items
             stream.seek(length, 1)
         else:
             for _ in range(count):
@@ -144,11 +149,13 @@ def read_gguf(stream) -> dict:
                     ".attention.head_count_kv",
                     ".attention.key_length",
                     ".attention.value_length",
+                    ".attention.sliding_window",
+                    ".shortconv.l_cache",
                     ".embedding_length",
                 )
             )
             item = value(scalar("I"), keep)
-            if keep and isinstance(item, (str, int, float, bool)):
+            if keep and isinstance(item, (str, int, float, bool, list)):
                 if isinstance(item, float) and not math.isfinite(item):
                     raise TextError("invalid_gguf", 422)
                 metadata[key] = item

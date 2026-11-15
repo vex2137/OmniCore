@@ -322,3 +322,84 @@ def test_generation_records_detailed_timings_and_device_metadata(tmp_path):
         await manager.close()
 
     asyncio.run(exercise())
+
+
+def test_generation_preserves_cuda_device_and_persists_message_error_code(tmp_path):
+    class CudaEngine(ProtocolTestEngine):
+        async def load(self, model, parameters, file_descriptor=None):
+            await super().load(model, parameters, file_descriptor=file_descriptor)
+            self.execution_device = "CUDA0"
+            self.offloaded_layers = 24
+            self.total_layers = 24
+            self.offload_mode = "auto"
+
+    async def exercise():
+        manager, conversation = create_manager(tmp_path, CudaEngine())
+        ok = await manager.submit(
+            conversation.id, GenerationRequest(content="Hello", request_key="cuda-ok")
+        )
+        await manager.tasks[ok.id]
+        result = manager.record(ok.id)
+        assert result.execution_device == "CUDA0"
+        last_msg = manager.history.messages(conversation.id)[-1]
+        assert last_msg.statistics.execution_device == "CUDA0"
+
+        manager.engines["llama.cpp"] = ProtocolTestEngine(wait=False, error="out_of_memory")
+        failed = await manager.submit(
+            conversation.id, GenerationRequest(content="Trigger OOM", request_key="cuda-fail")
+        )
+        await manager.tasks[failed.id]
+        failed_result = manager.record(failed.id)
+        assert failed_result.state == "failed"
+        assert failed_result.error_code == "out_of_memory"
+        failed_msg = manager.history.messages(conversation.id)[-1]
+        assert failed_msg.status == "failed"
+        assert failed_msg.error_code == "out_of_memory"
+        await manager.close()
+
+    asyncio.run(exercise())
+
+
+def test_retry_failed_prompt_reuses_trailing_turn_without_duplication(tmp_path):
+    class ImmediateOomEngine(ProtocolTestEngine):
+        async def stream(self, model, messages, parameters):
+            if False:
+                yield TextChunk()
+            raise TextError("out_of_memory", 507)
+
+    async def exercise():
+        manager, conversation = create_manager(tmp_path, ImmediateOomEngine())
+        failed = await manager.submit(
+            conversation.id, GenerationRequest(content="Explain VRAM", request_key="retry-1")
+        )
+        await manager.tasks[failed.id]
+        failed_result = manager.record(failed.id)
+        assert failed_result.state == "failed"
+        assert failed_result.error_code == "out_of_memory"
+
+        messages_after_fail = manager.history.messages(conversation.id)
+        assert [m.role for m in messages_after_fail] == ["user", "assistant"]
+        assert messages_after_fail[0].content == "Explain VRAM"
+        assert messages_after_fail[1].status == "failed"
+        assert messages_after_fail[1].content == ""
+        assert messages_after_fail[1].error_code == "out_of_memory"
+
+        manager.engines["llama.cpp"] = ProtocolTestEngine()
+        retried = await manager.submit(
+            conversation.id, GenerationRequest(content="Explain VRAM", request_key="retry-2")
+        )
+        await manager.tasks[retried.id]
+        retried_result = manager.record(retried.id)
+        assert retried_result.state == "completed"
+        assert retried_result.content == "Hello world"
+
+        messages_after_retry = manager.history.messages(conversation.id)
+        assert len(messages_after_retry) == 2
+        assert [m.role for m in messages_after_retry] == ["user", "assistant"]
+        assert messages_after_retry[0].content == "Explain VRAM"
+        assert messages_after_retry[1].status == "completed"
+        assert messages_after_retry[1].content == "Hello world"
+        assert messages_after_retry[1].error_code is None
+        await manager.close()
+
+    asyncio.run(exercise())

@@ -40,7 +40,7 @@ class ModelManager:
         expected_dev, expected_ino = self.store.model_identity(model_id)
         old_mtime = record.metadata.get("file_mtime_ns")
         old_digest = record.metadata.get("gguf_digest")
-        with self.policy.open(Path(record.location)) as stream:
+        with self.policy.open(Path(record.location), registered=True) as stream:
             info = os.fstat(stream.fileno())
             if info.st_ino != expected_ino or info.st_size != record.size_bytes:
                 raise TextError("model_file_changed", 409)
@@ -64,6 +64,9 @@ class ModelManager:
                     size_bytes=info.st_size,
                     mtime_ns=info.st_mtime_ns,
                     digest=meta["gguf_digest"],
+                    parsed_metadata=meta.get("metadata")
+                    if isinstance(meta.get("metadata"), dict)
+                    else None,
                 )
                 return Path(record.location)
             raise TextError("model_file_changed", 409)
@@ -100,8 +103,9 @@ class ModelManager:
                 continue
             old_digest = record.metadata.get("gguf_digest")
             location = Path(record.location)
+            fail_code: str | None = None
             try:
-                with self.policy.open(location) as stream:
+                with self.policy.open(location, registered=True) as stream:
                     info = os.fstat(stream.fileno())
                     meta = read_gguf(stream)
                 if (
@@ -117,13 +121,16 @@ class ModelManager:
                         mtime_ns=info.st_mtime_ns,
                         digest=meta["gguf_digest"],
                         file_status="available",
+                        parsed_metadata=meta.get("metadata")
+                        if isinstance(meta.get("metadata"), dict)
+                        else None,
                     )
                 else:
                     record.metadata["file_status"] = "changed"
                     self.store.update_model(record)
                 continue
-            except TextError:
-                pass
+            except TextError as exc:
+                fail_code = exc.code
             unclaimed = [p for p in all_candidates if p not in claimed]
             matches = sorted(
                 unclaimed,
@@ -149,6 +156,9 @@ class ModelManager:
                             digest=meta["gguf_digest"],
                             location=str(candidate),
                             file_status="available",
+                            parsed_metadata=meta.get("metadata")
+                            if isinstance(meta.get("metadata"), dict)
+                            else None,
                         )
                         claimed.add(candidate)
                         recovered = True
@@ -156,7 +166,12 @@ class ModelManager:
                 except TextError:
                     continue
             if not recovered:
-                record.metadata["file_status"] = "missing"
+                if fail_code == "model_directory_unauthorized":
+                    record.metadata["file_status"] = "unauthorized"
+                elif fail_code == "invalid_path":
+                    record.metadata["file_status"] = "invalid_path"
+                else:
+                    record.metadata["file_status"] = "missing"
                 self.store.update_model(record)
         scan_roots = self.policy.roots if import_all_roots else self.policy.roots[:-1]
         for candidate in self._root_candidates(scan_roots):

@@ -223,3 +223,183 @@ def test_automatic_recovery_on_device_drift_mtime_touch_and_relocation(catalog):
     assert refreshed.location == str(moved.absolute())
     assert refreshed.metadata["file_status"] == "available"
     assert any(item.name == "Extra model!" for item in records)
+
+
+def test_file_policy_distinguishes_unauthorized_missing_and_symlink(catalog, tmp_path):
+    from omnicore.text.files import FilePolicy
+    from omnicore.text.types import TextError
+
+    manager, path = catalog
+
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside_model = outside_dir / "external.gguf"
+    outside_model.write_bytes(synthetic_gguf())
+
+    assert not manager.policy.is_authorized(outside_model)
+    with pytest.raises(TextError) as exc_validate:
+        manager.policy.validate(outside_model, registered=True)
+    assert exc_validate.value.code == "model_directory_unauthorized"
+    assert exc_validate.value.status == 403
+
+    missing_inside = path.parent / "removed.gguf"
+    with pytest.raises(TextError) as exc_missing:
+        with manager.policy.open(missing_inside, registered=True):
+            pass
+    assert exc_missing.value.code == "model_file_missing"
+    assert exc_missing.value.status == 404
+
+    symlink_inside = path.parent / "link.gguf"
+    symlink_inside.symlink_to(outside_model)
+    broken_symlink = path.parent / "broken.gguf"
+    broken_symlink.symlink_to(path.parent / "nonexistent.gguf")
+    outside_link = outside_dir / "outside-link.gguf"
+    outside_link.symlink_to(outside_model)
+    for bad in (symlink_inside, broken_symlink):
+        with pytest.raises(TextError) as exc_sym_o:
+            with manager.policy.open(bad, registered=True):
+                pass
+        assert exc_sym_o.value.code == "invalid_path"
+        assert exc_sym_o.value.status == 403
+
+    with pytest.raises(TextError) as exc_out_link:
+        with manager.policy.open(outside_link, registered=True):
+            pass
+    assert exc_out_link.value.code == "model_directory_unauthorized"
+    assert exc_out_link.value.status == 403
+
+    assert isinstance(manager.policy, FilePolicy)
+
+
+def test_scan_and_recover_marks_unauthorized_missing_and_symlink(catalog, tmp_path):
+    from omnicore.text.files import FilePolicy
+
+    manager, path = catalog
+    model_id = manager.scan_and_recover(import_all_roots=True)[0].id
+
+    empty_root = tmp_path / "empty_root"
+    empty_root.mkdir()
+    manager.policy = FilePolicy((empty_root,))
+    unauthorized = manager.scan_and_recover()
+    assert len(unauthorized) == 1
+    assert unauthorized[0].id == model_id
+    assert unauthorized[0].metadata["file_status"] == "unauthorized"
+
+    manager.policy = FilePolicy((path.parent,))
+    path.unlink()
+    missing = manager.scan_and_recover()
+    assert missing[0].metadata["file_status"] == "missing"
+
+    real_outside = tmp_path / "real-outside.gguf"
+    real_outside.write_bytes(synthetic_gguf())
+    path.symlink_to(real_outside)
+    invalid = manager.scan_and_recover()
+    assert invalid[0].metadata["file_status"] == "invalid_path"
+
+
+def test_gguf_parses_lfm3_kv_array_and_avoids_kv_cache_overestimate(tmp_path):
+    import struct
+
+    from omnicore.text.gguf import read_gguf
+    from omnicore.text.offload import (
+        estimate_auto_gpu_layers,
+        estimate_kv_bytes_per_token,
+        inspect_gguf_layout,
+    )
+
+    def pack_str(val: str) -> bytes:
+        raw = val.encode("utf-8")
+        return struct.pack("<Q", len(raw)) + raw
+
+    kv_heads = [8 if i in {2, 6, 10, 14, 18, 22} else 0 for i in range(24)]
+    entries = [
+        ("general.architecture", 8, pack_str("lfm3")),
+        ("general.alignment", 4, struct.pack("<I", 32)),
+        ("lfm3.block_count", 4, struct.pack("<I", 24)),
+        ("lfm3.embedding_length", 4, struct.pack("<I", 2048)),
+        ("lfm3.attention.head_count", 4, struct.pack("<I", 32)),
+        (
+            "lfm3.attention.head_count_kv",
+            9,
+            struct.pack("<IQ", 4, len(kv_heads)) + b"".join(struct.pack("<I", v) for v in kv_heads),
+        ),
+        ("lfm3.attention.key_length", 4, struct.pack("<I", 64)),
+        ("lfm3.attention.value_length", 4, struct.pack("<I", 64)),
+        ("lfm3.attention.sliding_window", 4, struct.pack("<I", 512)),
+        ("lfm3.shortconv.l_cache", 4, struct.pack("<I", 3)),
+        ("lfm3.context_length", 4, struct.pack("<I", 32768)),
+    ]
+    buf = bytearray(b"GGUF")
+    buf += struct.pack("<IQQ", 3, 1, len(entries))
+    for key, kind, payload in entries:
+        buf += pack_str(key)
+        buf += struct.pack("<I", kind)
+        buf += payload
+    buf += pack_str("w")
+    buf += struct.pack("<IQ", 1, 1)
+    buf += struct.pack("<IQ", 0, 0)
+    buf += b"\x00" * ((-len(buf)) % 32) + b"\x00" * 32
+
+    model_path = tmp_path / "lfm3.gguf"
+    model_path.write_bytes(bytes(buf))
+    with model_path.open("rb") as handle:
+        parsed = read_gguf(handle)
+
+    meta = parsed["metadata"]
+    assert meta["lfm3.attention.head_count_kv"] == kv_heads
+    assert meta["lfm3.attention.sliding_window"] == 512
+    assert meta["lfm3.shortconv.l_cache"] == 3
+
+    layout = inspect_gguf_layout(model_path)
+    assert layout is not None
+    layout["file_size_bytes"] = int(1.2 * 1024**3)
+    assert layout["kv_attention_layers"] == 6
+    assert layout["sliding_window"] == 512
+    assert layout["shortconv_l_cache"] == 3
+
+    hybrid_kv = estimate_kv_bytes_per_token(layout)
+    uniform_kv = estimate_kv_bytes_per_token(
+        {
+            "file_size_bytes": int(1.2 * 1024**3),
+            "architecture": "lfm3",
+            "block_count": 24,
+            "head_count_kv": 8,
+            "key_length": 64,
+            "value_length": 64,
+        }
+    )
+    assert hybrid_kv < uniform_kv // 3
+
+    layers, total, reason = estimate_auto_gpu_layers(
+        model_path,
+        context_size=8192,
+        fallback_layers=99,
+        free_vram_bytes=3 * 1024**3,
+        layout=layout,
+    )
+    assert total == 25
+    assert layers == 25
+    assert reason == "fits_in_vram"
+
+    tight_layers, _total, _reason = estimate_auto_gpu_layers(
+        model_path,
+        context_size=8192,
+        fallback_layers=99,
+        free_vram_bytes=2 * 1024**3,
+        layout=layout,
+    )
+    naive_layers, _naive_total, _naive_reason = estimate_auto_gpu_layers(
+        model_path,
+        context_size=8192,
+        fallback_layers=99,
+        free_vram_bytes=2 * 1024**3,
+        layout={
+            "file_size_bytes": int(1.2 * 1024**3),
+            "architecture": "lfm3",
+            "block_count": 24,
+            "head_count_kv": 8,
+            "key_length": 64,
+            "value_length": 64,
+        },
+    )
+    assert tight_layers > naive_layers

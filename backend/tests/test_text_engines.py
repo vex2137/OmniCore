@@ -804,3 +804,147 @@ def test_llama_max_partial_offload_and_previous_model_unload(tmp_path):
         assert engine.total_layers == 34
 
     asyncio.run(exercise())
+
+
+def test_llama_unsupported_architecture_log_and_error(tmp_path):
+    from omnicore.text.offload import is_unsupported_architecture_log
+
+    assert is_unsupported_architecture_log(
+        b"error loading model architecture: unknown model architecture: 'lfm99'"
+    )
+    assert is_unsupported_architecture_log("unknown model architecture: 'future_arch'")
+    assert not is_unsupported_architecture_log("llama_model_load: loaded all tensors")
+
+    cpu_script = tmp_path / "llama-unsupported"
+    cpu_script.write_text(
+        f"#!{sys.executable}\n"
+        + """
+import sys
+if '--version' in sys.argv:
+    print('version: b5000 (test)')
+    sys.exit(0)
+if '--list-devices' in sys.argv:
+    print('Available devices:')
+    sys.exit(0)
+sys.stderr.write("error loading model architecture: unknown model architecture: 'future_arch'\\n")
+sys.stderr.flush()
+sys.exit(1)
+"""
+    )
+    cpu_script.chmod(0o700)
+    model = tmp_path / "unsupported.gguf"
+    model.write_bytes(b"GGUF" + b"\x00" * 64)
+
+    async def exercise():
+        engine = LlamaEngine(cpu_script, startup_timeout=5)
+        with pytest.raises(TextError) as exc:
+            await engine.load(
+                model, GenerationParameters(device="cpu", gpu_layers=0, context_size=2048)
+            )
+        assert exc.value.code == "unsupported_architecture"
+        assert exc.value.status == 422
+        await engine.stop()
+
+    asyncio.run(exercise())
+
+
+def test_llama_max_mode_oom_uses_auto_estimate_upper_bound_on_second_retry(tmp_path, monkeypatch):
+    import struct
+
+    from omnicore.text import nvidia
+
+    def pack_str(val: str) -> bytes:
+        raw = val.encode("utf-8")
+        return struct.pack("<Q", len(raw)) + raw
+
+    model = _write_test_gguf(
+        tmp_path / "contended.gguf",
+        [
+            ("general.architecture", 8, pack_str("llama")),
+            ("general.alignment", 4, struct.pack("<I", 32)),
+            ("llama.block_count", 4, struct.pack("<I", 33)),
+            ("llama.context_length", 4, struct.pack("<I", 32768)),
+            ("llama.embedding_length", 4, struct.pack("<I", 4096)),
+            ("llama.attention.head_count", 4, struct.pack("<I", 32)),
+            ("llama.attention.head_count_kv", 4, struct.pack("<I", 8)),
+        ],
+    )
+
+    ngl_log = tmp_path / "ngl.json"
+    cuda_script = tmp_path / "llama-cuda-oom"
+    cuda_script.write_text(
+        f"#!{sys.executable}\n"
+        + f"""
+import argparse, json, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+
+if '--version' in sys.argv:
+    print('version: b5000 (cuda)')
+    sys.exit(0)
+if '--list-devices' in sys.argv:
+    print('Available devices:')
+    print('  CUDA0: NVIDIA GeForce RTX 4060')
+    sys.exit(0)
+
+p = argparse.ArgumentParser()
+p.add_argument('--port', type=int)
+p.add_argument('-ngl', '--n-gpu-layers', '--gpu-layers', type=int, dest='ngl', default=0)
+args, _ = p.parse_known_args()
+
+log_path = Path({str(ngl_log)!r})
+attempts = json.loads(log_path.read_text()) if log_path.exists() else []
+attempts.append(args.ngl)
+log_path.write_text(json.dumps(attempts))
+
+if args.ngl > 18:
+    sys.stderr.write("ggml_cuda_op_mul_mat: CUDA error: out of memory\\n")
+    sys.stderr.flush()
+    sys.exit(1)
+
+sys.stderr.write(f"load_tensors: offloaded {{args.ngl}}/34 layers to GPU\\n")
+sys.stderr.flush()
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'{{}}')
+    def log_message(self, *a):
+        pass
+
+HTTPServer(('127.0.0.1', args.port), Handler).serve_forever()
+"""
+    )
+    cuda_script.chmod(0o700)
+
+    async def fake_query(arguments):
+        if "--query-compute-apps=pid,used_memory" in arguments:
+            return [["111", "4800"]]
+        return [["0", "NVIDIA GeForce RTX 4060", "8188", "2400", "570.0"]]
+
+    monkeypatch.setattr(nvidia, "query", fake_query)
+    monkeypatch.setattr(
+        "omnicore.text.engines.estimate_auto_gpu_layers",
+        lambda *_a, **_kw: (18, 34, "vram_partial_offload"),
+    )
+
+    async def exercise():
+        engine = LlamaEngine(cuda_script, cuda_executable=cuda_script, startup_timeout=5)
+        await engine.load(
+            model,
+            GenerationParameters(
+                device="auto", gpu_offload_mode="max", gpu_layers=0, context_size=8192
+            ),
+        )
+        attempts = json.loads(ngl_log.read_text())
+        assert attempts[0] >= 34
+        assert attempts[-1] == 18
+        assert len(attempts) <= 3
+        assert engine.offload_mode == "max"
+        assert engine.execution_device == "CUDA0"
+        assert engine.offloaded_layers == 18
+        assert engine.total_layers == 34
+        await engine.stop()
+
+    asyncio.run(exercise())

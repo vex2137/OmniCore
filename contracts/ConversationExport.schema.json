@@ -448,6 +448,19 @@
           "title": "Created At",
           "type": "string"
         },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
         "generation_id": {
           "anyOf": [
             {

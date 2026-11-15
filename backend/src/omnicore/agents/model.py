@@ -40,7 +40,7 @@ class AgentModel:
             if model.backend == "llama.cpp":
                 path = service.models.validated_reference(model.id)
                 model = service.store.model(model.id)
-                with service.models.policy.open(path) as file:
+                with service.models.policy.open(path, registered=True) as file:
                     info = os.fstat(file.fileno())
                     if (
                         (info.st_dev, info.st_ino) != service.store.model_identity(model.id)

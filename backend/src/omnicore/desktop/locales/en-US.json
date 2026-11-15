@@ -459,5 +459,13 @@
   "gpu_pending_unsaved": "Unsaved GPU change — click Save",
   "context_last_model_other": "Last response ({model}): none (earlier messages used {other})",
   "context_last_for_model": "Last response ({model}): {used}/{limit} tokens ({percent}%)",
-  "gpu_reload_now": "Reload model"
+  "gpu_reload_now": "Reload model",
+  "model_directory_unauthorized": "This model's directory is not authorized.",
+  "model_directory_unauthorized_short": "Directory not authorized",
+  "authorize_model_directory": "Authorize directory",
+  "model_directory_authorized": "Authorized model directory: {path}",
+  "model_file_missing": "The registered GGUF model file could not be found on disk.",
+  "unsupported_architecture": "This GGUF model architecture is not supported by the installed llama.cpp engine.",
+  "retry_generation": "Retry",
+  "gpu_status_vram_contended": "VRAM: {free} / {total} GB free ({external} GB used by other apps)"
 }

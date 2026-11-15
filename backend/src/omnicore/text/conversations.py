@@ -33,6 +33,7 @@ class MessageRecord(WireModel):
     model_id: str | None = Field(default=None, max_length=128)
     model_name: str | None = Field(default=None, max_length=1024)
     reasoning_content: str = Field(default="", max_length=1_000_000)
+    error_code: str | None = Field(default=None, max_length=128)
     statistics: GenerationStatistics | None = None
 
     @field_validator("created_at")

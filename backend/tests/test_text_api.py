@@ -770,3 +770,74 @@ def test_gpu_max_normalization_applied_reason_and_per_model_isolation(text_app):
         assert ctx_b["gpu"]["gpu_layers"] == 99
         assert ctx_b["gpu"]["applied_offloaded_layers"] is None
         assert ctx_b["gpu"]["active_other_model"] == model_a["name"]
+
+
+def test_model_context_reports_vram_breakdown(text_app, monkeypatch):
+    from omnicore.schemas import ResourceUsage
+    from omnicore.text import nvidia
+
+    class VramReportingEngine(ProtocolTestEngine):
+        async def capabilities(self, _path):
+            return ["text"]
+
+        async def load(self, path, parameters, file_descriptor=None):
+            await super().load(path, parameters, file_descriptor=file_descriptor)
+            self.model = str(path)
+            self.parameters = (
+                str(path),
+                parameters.context_size,
+                parameters.gpu_layers,
+                "CUDA0",
+                "mock",
+            )
+            self.execution_device = "CUDA0"
+            self.offloaded_layers = 24
+            self.total_layers = 24
+            self.offload_mode = "auto"
+            self.offload_reason = "fits_in_vram"
+            self.fallback_reason = None
+
+            class _Proc:
+                returncode = None
+                pid = 42
+
+            self.process = _Proc()
+
+        async def resources(self):
+            return ResourceUsage(ram_bytes=256 * 1024**2, vram_bytes=1500 * 1024**2)
+
+    async def fake_query(arguments):
+        if "--query-compute-apps=pid,used_memory" in arguments:
+            return [["42", "1500"], ["99", "4500"]]
+        return [["0", "NVIDIA GeForce RTX 4060", "8188", "2188", "570.0"]]
+
+    monkeypatch.setattr(nvidia, "query", fake_query)
+
+    app, path = text_app
+    engine = VramReportingEngine()
+    app.state.text.llama = engine
+    app.state.text.engines["llama.cpp"] = engine
+    with TestClient(app, base_url="http://localhost") as client:
+        model, conversation = create_chat(client, path)
+        job = client.post(
+            f"/api/v1/text/conversations/{conversation['id']}/generations",
+            json={"content": "Warmup", "request_key": "vram-breakdown"},
+        )
+        assert job.status_code == 202
+        assert wait_job(client, job.json()["id"])["state"] == "completed"
+        assert engine.process is not None, f"process=None model={engine.model!r}"
+        assert engine.model is not None
+
+        ctx = client.get(f"/api/v1/text/models/{model['id']}/context")
+        assert ctx.status_code == 200
+        payload = ctx.json()
+        gpu = payload["gpu"]
+        assert gpu["vram_total_bytes"] == 8188 * 1024**2
+        assert gpu["vram_free_bytes"] == 2188 * 1024**2
+        assert gpu["vram_used_bytes"] == 6000 * 1024**2
+        assert gpu["engine_vram_bytes"] == 1500 * 1024**2, (
+            f"active={payload.get('active')} gpu={gpu}"
+        )
+        assert gpu["external_vram_bytes"] == 4500 * 1024**2, payload
+        assert "model_estimated_vram_bytes" in gpu
+        assert gpu["model_estimated_vram_bytes"] is None or gpu["model_estimated_vram_bytes"] >= 0

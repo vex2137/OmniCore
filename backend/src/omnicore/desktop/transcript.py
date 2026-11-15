@@ -227,6 +227,8 @@ class SafeMarkdown(QTextBrowser):
 
 
 class MessageCard(QFrame):
+    authorize_directory_requested = Signal(object)
+
     def __init__(
         self,
         message,
@@ -244,6 +246,8 @@ class MessageCard(QFrame):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         self.message = message
         self.can_regenerate = can_regenerate
+        self._can_regenerate = bool(can_regenerate and regenerate)
+        self._regenerate_cb = regenerate
         self._grant_folder = grant_folder
         self._continue_run = continue_run
         self._compact_bubble = is_user
@@ -262,6 +266,8 @@ class MessageCard(QFrame):
         self.agent_step_details = []
         self.agent_error_label = None
         self.error_card = None
+        self.authorize_dir_button = None
+        self.error_retry_button = None
         self.error_details_toggle = None
         self.error_details_frame = None
         self.error_details_label = None
@@ -410,10 +416,13 @@ class MessageCard(QFrame):
                 retry = QToolButton()
                 self.icon_action(retry, "view-refresh", QStyle.SP_BrowserReload, tr("regenerate"))
                 retry.setToolTip(tr("regenerate_branch"))
+                status = message.get("status", "completed")
                 retry.setEnabled(
                     can_regenerate
-                    and bool(message.get("content"))
-                    and message.get("status", "completed") == "completed"
+                    and (
+                        (bool(message.get("content")) and status == "completed")
+                        or status in {"failed", "interrupted", "cancelled"}
+                    )
                 )
                 if regenerate:
                     retry.clicked.connect(lambda: regenerate(message))
@@ -591,6 +600,20 @@ class MessageCard(QFrame):
         err_lbl.setTextFormat(Qt.PlainText)
         err_lbl.setWordWrap(True)
         top.addWidget(err_lbl, 1)
+        if info["code"] in {"model_directory_unauthorized", "path_not_allowed"}:
+            auth_btn = QPushButton(tr("authorize_model_directory"))
+            auth_btn.setObjectName("primary")
+            auth_btn.setCursor(Qt.PointingHandCursor)
+            auth_btn.clicked.connect(lambda: self.authorize_directory_requested.emit(self.message))
+            top.addWidget(auth_btn)
+            self.authorize_dir_button = auth_btn
+        if component == "chat_generation" and self._can_regenerate:
+            retry_btn = QPushButton(tr("retry_generation"))
+            retry_btn.setObjectName("compactToggle")
+            retry_btn.setCursor(Qt.PointingHandCursor)
+            retry_btn.clicked.connect(lambda: self._regenerate_cb(self.message))
+            top.addWidget(retry_btn)
+            self.error_retry_button = retry_btn
         toggle = QPushButton(tr("error_details_toggle"))
         toggle.setObjectName("compactToggle")
         toggle.setCheckable(True)
@@ -751,6 +774,7 @@ class MessageCard(QFrame):
 
 class ChatTranscript(QScrollArea):
     regenerate_requested = Signal(object)
+    authorize_directory_requested = Signal(object)
     grant_folder_requested = Signal(object)
     continue_run_requested = Signal(object)
 
@@ -902,6 +926,7 @@ class ChatTranscript(QScrollArea):
                 grant_folder=self.grant_folder_requested.emit,
                 continue_run=self.continue_run_requested.emit,
             )
+            card.authorize_directory_requested.connect(self.authorize_directory_requested.emit)
             if index < len(self.cards):
                 old = self.cards[index]
                 self.column.replaceWidget(old, card)

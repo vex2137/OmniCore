@@ -82,6 +82,7 @@ class GenerationManager:
                     model_id=record.model_id,
                     model_name=record.model_name,
                     reasoning_content=record.reasoning_content,
+                    error_code=record.error_code,
                     statistics=GenerationStatistics(
                         **{key: getattr(record, key) for key in GenerationStatistics.model_fields}
                     ),
@@ -183,6 +184,25 @@ class GenerationManager:
                         "INSERT INTO text_jobs VALUES('generation',?,?)",
                         (record.id, record.model_dump_json()),
                     )
+                    tail = connection.execute(
+                        "SELECT id, record FROM text_messages "
+                        "WHERE conversation_id=? ORDER BY seq DESC LIMIT 2",
+                        (conversation_id,),
+                    ).fetchall()
+                    if len(tail) == 2:
+                        last_msg = MessageRecord.model_validate_json(tail[0][1])
+                        prev_msg = MessageRecord.model_validate_json(tail[1][1])
+                        if (
+                            last_msg.role == "assistant"
+                            and last_msg.status in {"failed", "cancelled", "interrupted"}
+                            and not last_msg.content.strip()
+                            and prev_msg.role == "user"
+                            and prev_msg.content.strip() == request.content.strip()
+                        ):
+                            connection.execute(
+                                "DELETE FROM text_messages WHERE id IN (?,?)",
+                                (tail[0][0], tail[1][0]),
+                            )
                     connection.execute(
                         "INSERT INTO text_messages(id,conversation_id,record) VALUES(?,?,?)",
                         (user.id, conversation_id, user.model_dump_json()),
@@ -222,6 +242,7 @@ class GenerationManager:
                 message.parameters = snapshot.parameters
                 message.model_id, message.model_name = snapshot.model_id, snapshot.model_name
                 message.reasoning_content = snapshot.reasoning_content
+                message.error_code = snapshot.error_code
                 message.statistics = GenerationStatistics(
                     **{key: getattr(snapshot, key) for key in GenerationStatistics.model_fields}
                 )
@@ -271,11 +292,21 @@ class GenerationManager:
                 if engine_info is None or not engine_info.available:
                     raise TextError("engine_unavailable", 503)
                 history = await asyncio.to_thread(self.history.messages, record.conversation_id)
-                messages = [
-                    TextMessage(role=item.role, content=item.content)
-                    for item in history
-                    if item.role != "assistant" or item.status == "completed"
-                ]
+                messages = []
+                for idx, item in enumerate(history):
+                    if item.role == "assistant":
+                        if item.status == "completed":
+                            messages.append(TextMessage(role=item.role, content=item.content))
+                        continue
+                    if (
+                        item.role == "user"
+                        and idx + 1 < len(history)
+                        and history[idx + 1].role == "assistant"
+                        and history[idx + 1].status in {"failed", "cancelled", "interrupted"}
+                        and not history[idx + 1].content.strip()
+                    ):
+                        continue
+                    messages.append(TextMessage(role=item.role, content=item.content))
                 if record.parameters.system_prompt:
                     messages.insert(
                         0, TextMessage(role="system", content=record.parameters.system_prompt)
@@ -285,7 +316,7 @@ class GenerationManager:
                     # swap in a different model between validation and llama-server opening it.
                     path = self.models.validated_reference(model.id)
                     model = await asyncio.to_thread(self.store.model, model.id)
-                    with self.models.policy.open(path) as stream:
+                    with self.models.policy.open(path, registered=True) as stream:
                         info = os.fstat(stream.fileno())
                         if (
                             (info.st_dev, info.st_ino) != self.store.model_identity(model.id)
@@ -426,7 +457,10 @@ class GenerationManager:
                 if value is not None:
                     setattr(record, field, value)
             if record.gpu_offloaded_layers is not None:
-                record.execution_device = "gpu" if record.gpu_offloaded_layers > 0 else "cpu"
+                if record.gpu_offloaded_layers <= 0:
+                    record.execution_device = "cpu"
+                elif not record.execution_device or record.execution_device == "cpu":
+                    record.execution_device = "gpu"
             if record.input_tokens is not None and record.output_tokens is not None:
                 if record.total_tokens is None:
                     record.total_tokens = record.input_tokens + record.output_tokens

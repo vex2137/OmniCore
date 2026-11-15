@@ -14,9 +14,37 @@ def sanitize_component(value: str | None) -> str:
     return cleaned[:64]
 
 
+def _sanitize_target(target: str | None) -> str | None:
+    if not isinstance(target, str):
+        return None
+    cleaned = target.strip().splitlines()[0] if target.strip() else ""
+    if not cleaned:
+        return None
+    cleaned = re.sub(r"\?[^\s]+", "", cleaned)
+    cleaned = re.sub(r"Bearer\s+\S+", "Bearer [redacted]", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\b[A-Z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD)[A-Z0-9_]*=\S+",
+        "[redacted]",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = cleaned.strip()[:80]
+    return cleaned or None
+
+
 def _default_component(code: str) -> str:
     if code in {"agent_folder_not_granted", "agent_invalid_grant", "agent_permission_denied"}:
         return "file_permissions"
+    if code in {"model_directory_unauthorized", "path_not_allowed", "invalid_path"}:
+        return "file_validation"
+    if code in {
+        "model_file_missing",
+        "model_file_changed",
+        "unsupported_architecture",
+        "unsupported_gguf_version",
+        "invalid_gguf",
+    }:
+        return "model_load"
     if code in {"agent_path_not_found", "agent_sensitive_file", "agent_file_limit"}:
         return "file_tools"
     if code.startswith("agent_web_"):
@@ -32,6 +60,7 @@ def _default_component(code: str) -> str:
     if code in {
         "out_of_memory",
         "model_load_failed",
+        "engine_timeout",
         "cuda_runtime_unavailable",
         "gpu_unavailable",
         "llama_unavailable",
@@ -158,6 +187,79 @@ def _cause_and_solution(code: str, is_pl: bool) -> tuple[str, str]:
             "Backend wykonuje obecnie inną operację blokującą zmianę zasobu.",
             "Zaczekaj chwilę na zakończenie bieżącego zadania.",
         ),
+        "model_directory_unauthorized": (
+            (
+                "Katalog tego modelu nie znajduje się na liście autoryzowanych "
+                "katalogów modeli (model_roots)."
+            ),
+            (
+                "Kliknij „Autoryzuj katalog”, aby dodać folder modelu do dozwolonych "
+                "katalogów i zrestartować backend, lub dodaj go w sekcji Modele."
+            ),
+        ),
+        "path_not_allowed": (
+            (
+                "Katalog tego modelu nie znajduje się na liście autoryzowanych "
+                "katalogów modeli (model_roots)."
+            ),
+            (
+                "Kliknij „Autoryzuj katalog”, aby dodać folder modelu do dozwolonych "
+                "katalogów i zrestartować backend, lub dodaj go w sekcji Ustawienia."
+            ),
+        ),
+        "model_file_missing": (
+            "Zarejestrowany plik GGUF nie istnieje pod zapisaną ścieżką na dysku.",
+            (
+                "Przywróć plik do oryginalnego folderu, przeskanuj katalogi modeli "
+                "lub zaimportuj model ponownie."
+            ),
+        ),
+        "invalid_path": (
+            (
+                "Ścieżka modelu wskazuje na dowiązanie symboliczne (symlink), "
+                "plik nieregularny lub niedozwoloną ścieżkę względną."
+            ),
+            (
+                "Wybierz zwykły plik GGUF bezpośrednio na dysku, "
+                "bez dowiązań symbolicznych w ścieżce."
+            ),
+        ),
+        "model_file_changed": (
+            "Plik GGUF na dysku nie zgadza się z zarejestrowanym rozmiarem lub nagłówkiem modelu.",
+            (
+                "Zaimportuj zaktualizowany plik GGUF ponownie w widoku Modele, "
+                "aby zweryfikować nowe metadane."
+            ),
+        ),
+        "unsupported_architecture": (
+            (
+                "Model GGUF korzysta z architektury nieobsługiwanej przez "
+                "zainstalowany silnik llama.cpp."
+            ),
+            (
+                "Zaktualizuj środowisko wykonawcze llama.cpp (llama-server) do nowszej "
+                "wersji obsługującej tę architekturę lub wybierz inny model."
+            ),
+        ),
+        "unsupported_gguf_version": (
+            "Wersja formatu GGUF tego pliku nie jest obsługiwana.",
+            "Pobierz ponownie model w obsługiwanym formacie GGUF v2 lub v3.",
+        ),
+        "invalid_gguf": (
+            "Nagłówek pliku GGUF jest uszkodzony lub niepoprawny.",
+            "Zweryfikuj sumę kontrolną pliku i pobierz lub wyeksportuj go ponownie.",
+        ),
+        "engine_timeout": (
+            "Wczytywanie modelu lub generowanie odpowiedzi przekroczyło limit czasu.",
+            (
+                "Zmniejsz rozmiar kontekstu, zamknij inne aplikacje używające GPU "
+                "lub sprawdź Diagnostykę."
+            ),
+        ),
+        "generation_failed": (
+            "Silnik inferencji zakończył generowanie nieoczekiwanym błędem.",
+            "Ponów próbę albo sprawdź ustawienia warstw GPU, kontekstu i zakładkę Diagnostyka.",
+        ),
     }
     table_en = {
         "agent_folder_not_granted": (
@@ -272,6 +374,73 @@ def _cause_and_solution(code: str, is_pl: bool) -> tuple[str, str]:
             "Backend is currently busy with an active task.",
             "Wait for the active task to finish before modifying this resource.",
         ),
+        "model_directory_unauthorized": (
+            (
+                "This model's directory is not authorized in OmniCore's allowed "
+                "model directories (model_roots)."
+            ),
+            (
+                "Click 'Authorize directory' to allow this model's folder and restart "
+                "the backend, or add the folder in Models."
+            ),
+        ),
+        "path_not_allowed": (
+            (
+                "This model's directory is not authorized in OmniCore's allowed "
+                "model directories (model_roots)."
+            ),
+            (
+                "Click 'Authorize directory' to allow this model's folder and restart "
+                "the backend, or add the folder in Settings."
+            ),
+        ),
+        "model_file_missing": (
+            "The registered GGUF file does not exist at its recorded path on disk.",
+            (
+                "Restore the file to its original folder, re-scan model directories, "
+                "or re-import the model."
+            ),
+        ),
+        "invalid_path": (
+            (
+                "The model path points to a symbolic link, non-regular file, "
+                "or disallowed relative path."
+            ),
+            "Select a regular GGUF file directly on disk without symbolic links in its path.",
+        ),
+        "model_file_changed": (
+            "The GGUF file on disk no longer matches its registered size or header identity.",
+            (
+                "Re-import the updated GGUF file in the Models view so OmniCore can "
+                "verify its new metadata."
+            ),
+        ),
+        "unsupported_architecture": (
+            (
+                "The GGUF model uses an architecture that is not supported by "
+                "the installed llama.cpp runtime."
+            ),
+            (
+                "Update the llama.cpp runtime (llama-server) to a newer build that "
+                "supports this model architecture, or choose another model."
+            ),
+        ),
+        "unsupported_gguf_version": (
+            "The GGUF format version of this file is not supported.",
+            "Re-download or convert the model into a supported GGUF v2 or v3 file.",
+        ),
+        "invalid_gguf": (
+            "The GGUF file header is corrupted or structurally invalid.",
+            "Verify the file checksum and re-download or re-export the GGUF file.",
+        ),
+        "engine_timeout": (
+            "Model loading or response generation exceeded the configured timeout limit.",
+            "Lower the context size, close other GPU-heavy apps, or inspect Diagnostics.",
+        ),
+        "generation_failed": (
+            "The inference runtime stopped with an unexpected error during generation.",
+            "Click Retry or check GPU layers, context size, and Diagnostics.",
+        ),
     }
     table = table_pl if is_pl else table_en
     if code in table:
@@ -301,10 +470,9 @@ def describe_error(
     title = tr(safe_code)
     comp = sanitize_component(component) or _default_component(safe_code)
     cause, solution = _cause_and_solution(safe_code, is_pl)
-    if target and isinstance(target, str):
-        safe_target = target.strip().splitlines()[0][:80]
-        if safe_target:
-            comp = f"{comp} ({safe_target})" if safe_target not in comp else comp
+    safe_target = _sanitize_target(target)
+    if safe_target:
+        comp = f"{comp} ({safe_target})" if safe_target not in comp else comp
     return {
         "title": title,
         "code": safe_code,

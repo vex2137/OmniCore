@@ -1791,3 +1791,245 @@ def test_chat_layout_drawer_reclaim_scroll_clearance_and_scaled_720p(desktop, qt
         assert w.context_button.geometry().right() <= w.width()
         assert w.chat_gpu_save.geometry().right() <= w.context_controls.width() + 2
         assert w.composer_box.geometry().bottom() <= w.height()
+
+
+def test_error_localization_and_sanitization(desktop, qtbot):
+    from PySide6.QtWidgets import QFrame
+
+    from omnicore.desktop.i18n import Translator
+
+    w = desktop
+    w.show()
+    qtbot.waitExposed(w)
+
+    en = Translator("en-US")
+    pl = Translator("pl-PL")
+    assert en("model_directory_unauthorized") == "This model's directory is not authorized."
+    assert pl("model_directory_unauthorized") == "Katalog tego modelu nie jest autoryzowany."
+
+    w.language.setCurrentIndex(w.language.findData("en-US"))
+    w.config.locale = "en-US"
+    w.retranslate()
+    w.show_error(
+        "model_directory_unauthorized",
+        component="llama.cpp",
+        target="/mnt/models/foo.gguf?token=SECRET_Q&Authorization=Bearer%20SECRET_B",
+    )
+    assert w.notice_card.isVisible()
+    assert w.notice.text() == en("model_directory_unauthorized")
+    qtbot.mouseClick(w.notice_details_toggle, Qt.LeftButton)
+    QApplication.processEvents()
+    details_en = w.notice_details_label.text()
+    assert "model_directory_unauthorized" in details_en
+    assert "SECRET_Q" not in details_en
+    assert "SECRET_B" not in details_en
+    assert "/mnt/models/foo.gguf" in details_en
+
+    w.show_error("unsupported_architecture", component="llama.cpp", target="Bearer SECRET_TOKEN")
+    assert "SECRET_TOKEN" not in w.notice_details_label.text()
+
+    w.language.setCurrentIndex(w.language.findData("pl-PL"))
+    w.config.locale = "pl-PL"
+    w.retranslate()
+    w.show_error(
+        "unsupported_architecture",
+        component="llama.cpp",
+        target="http://localhost:8000/v1?api_key=TOPSECRET",
+    )
+    assert w.notice.text() == pl("unsupported_architecture")
+    if not w.notice_details_frame.isVisible():
+        qtbot.mouseClick(w.notice_details_toggle, Qt.LeftButton)
+        QApplication.processEvents()
+    details_pl = w.notice_details_label.text()
+    assert "unsupported_architecture" in details_pl
+    assert "TOPSECRET" not in details_pl
+
+    w.language.setCurrentIndex(w.language.findData("en-US"))
+    w.config.locale = "en-US"
+    w.retranslate()
+    for code in ("model_file_missing", "invalid_path", "unsupported_architecture"):
+        w.messages = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "", "status": "failed", "error_code": code},
+        ]
+        w.render_messages()
+        QApplication.processEvents()
+        boxes = w.transcript.findChildren(QFrame, "errorDetailsBox")
+        assert len(boxes) == 1
+        text = "\n".join(lbl.text() for lbl in boxes[0].findChildren(QLabel))
+        assert code in text
+
+
+def test_authorize_model_directory_rejects_symlink_and_persists_real_root(desktop, qtbot, tmp_path):
+    w = desktop
+    w.show()
+    qtbot.waitExposed(w)
+
+    ext_dir = tmp_path / "external_models"
+    ext_dir.mkdir()
+    real_gguf = ext_dir / "real.gguf"
+    real_gguf.write_bytes(b"GGUF" + b"\x00" * 64)
+
+    sym_dir = tmp_path / "sym_dir"
+    sym_dir.mkdir()
+    sym_gguf = sym_dir / "linked.gguf"
+    sym_gguf.symlink_to(real_gguf)
+
+    roots_before = list(w.config.model_roots)
+    pid_before = w.session.process.processId()
+    w.authorize_model_directory({"id": "m-sym", "name": "Linked", "location": str(sym_gguf)})
+    QApplication.processEvents()
+    assert list(w.config.model_roots) == roots_before
+    assert list(DesktopConfig.load().model_roots) == roots_before
+    assert w.session.process.processId() == pid_before
+    assert w.notice_card.isVisible()
+    assert w.notice.text() == w.tr("invalid_path")
+
+    w.new_conversation()
+    qtbot.waitUntil(lambda: bool(w.current_id))
+    conv_id = w.current_id
+
+    w.authorize_model_directory({"id": "m-real", "name": "Real", "location": str(real_gguf)})
+    qtbot.waitUntil(lambda: w.is_connected and not w._health_pending, timeout=20000)
+    assert str(ext_dir.resolve()) in w.config.model_roots
+    assert str(ext_dir.resolve()) in DesktopConfig.load().model_roots
+    assert any(c["id"] == conv_id for c in w.conversations)
+
+
+def test_message_card_error_buttons_retry_in_place_and_gpu_snapshot_sync(
+    desktop, qtbot, monkeypatch
+):
+    from omnicore.desktop.i18n import Translator
+    from omnicore.desktop.transcript import ChatTranscript
+
+    transcript = ChatTranscript()
+    transcript.can_regenerate = True
+    qtbot.addWidget(transcript)
+    transcript.resize(700, 600)
+    transcript.show()
+
+    messages = [
+        {"role": "user", "content": "Hello"},
+        {
+            "role": "assistant",
+            "content": "",
+            "status": "failed",
+            "error_code": "model_directory_unauthorized",
+            "model_id": "m1",
+            "model_name": "LFM3",
+        },
+    ]
+    transcript.set_messages(messages, Translator("en-US"))
+    qtbot.wait(30)
+    card = transcript.cards[1]
+    assert card.authorize_dir_button is not None
+    auth_requests = []
+    card.authorize_directory_requested.connect(auth_requests.append)
+    qtbot.mouseClick(card.authorize_dir_button, Qt.LeftButton)
+    assert len(auth_requests) == 1
+
+    retry_messages = [
+        {"role": "user", "content": "Hello"},
+        {
+            "role": "assistant",
+            "content": "",
+            "status": "failed",
+            "error_code": "out_of_memory",
+            "model_id": "m1",
+            "model_name": "LFM3",
+        },
+    ]
+    transcript.set_messages(retry_messages, Translator("en-US"))
+    qtbot.wait(30)
+    retry_card = transcript.cards[1]
+    assert retry_card.authorize_dir_button is None
+    assert retry_card.error_retry_button is not None
+    retry_requests = []
+    transcript.regenerate_requested.connect(retry_requests.append)
+    qtbot.mouseClick(retry_card.error_retry_button, Qt.LeftButton)
+    assert len(retry_requests) == 1
+
+    w = desktop
+    w.models = [
+        {"id": "m1", "name": "LFM3", "backend": "llama.cpp", "location": "/mnt/models/m1.gguf"}
+    ]
+    w.model_combo.clear()
+    w.model_combo.addItem("LFM3", "m1")
+    w.model_combo.setCurrentIndex(0)
+    w.model_contexts["m1"] = {
+        "mode": "auto",
+        "maximum": 32768,
+        "manual_tokens": 8192,
+        "automatic_tokens": 8192,
+        "effective_tokens": 8192,
+        "applied_tokens": 8192,
+        "active": True,
+        "loaded_model_name": "LFM3",
+        "auto_reason": "memory_estimated",
+        "memory_kind": "vram",
+        "memory_warning": False,
+        "gpu": {
+            "gpu_offload_mode": "manual",
+            "gpu_layers": 12,
+            "device": "auto",
+            "applied_requested_layers": 12,
+            "applied_offloaded_layers": None,
+            "applied_total_layers": None,
+        },
+    }
+    w._render_model_context()
+    w.active_job = "job-sync"
+    w.generation_snapshot(
+        {
+            "id": "job-sync",
+            "model_id": "m1",
+            "state": "completed",
+            "sequence": 1,
+            "content": "Done",
+            "gpu_offload_mode": "manual",
+            "gpu_offloaded_layers": 12,
+            "gpu_total_layers": 25,
+            "execution_device": "CUDA0",
+        }
+    )
+    gpu_state = w.model_contexts["m1"]["gpu"]
+    assert gpu_state["applied_offloaded_layers"] == 12
+    assert gpu_state["applied_total_layers"] == 25
+    assert gpu_state["applied_device"] == "CUDA0"
+    assert gpu_state["applied_mode"] == "manual"
+    assert "12/25" in w.chat_gpu_status.text(), (
+        f"gpu={gpu_state!r} "
+        f"chat_gpu_status={w.chat_gpu_status.text()!r} "
+        f"ctx_status={w.context_status.text()!r}"
+    )
+
+    w.current_id = "conv-retry-1"
+    w.is_connected = True
+    w.active_job = None
+    w._submitting = False
+    w.composer.clear()
+    export_messages = [
+        {"id": "u-1", "role": "user", "content": "Retry prompt"},
+        {
+            "id": "a-1",
+            "role": "assistant",
+            "content": "",
+            "status": "failed",
+            "error_code": "out_of_memory",
+            "model_id": "m1",
+        },
+    ]
+    w.messages = list(export_messages)
+    submitted = []
+
+    def fake_request(method, path, payload=None, *, success=None, failure=None, **_kwargs):
+        submitted.append((method, path, payload))
+        if method == "GET" and path.endswith("/export") and success:
+            success({"title": "Test", "messages": list(export_messages)})
+
+    monkeypatch.setattr(w.api, "request", fake_request)
+    w.regenerate_answer(export_messages[1])
+    post_calls = [item for item in submitted if item[0] == "POST"]
+    assert len(post_calls) == 1
+    assert post_calls[0][1] == "/api/v1/text/conversations/conv-retry-1/generations"
+    assert post_calls[0][2]["content"] == "Retry prompt"
