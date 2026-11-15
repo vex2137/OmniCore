@@ -51,6 +51,7 @@ class DesktopConfig:
     ui_scale: int = 100
     favorite_models: list[str] = field(default_factory=list)
     collapsed_history: list[str] = field(default_factory=list)
+    drawer_open: bool = False
 
     @classmethod
     def load(cls, path: Path | None = None):

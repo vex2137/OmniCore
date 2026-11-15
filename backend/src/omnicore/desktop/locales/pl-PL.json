@@ -12,7 +12,7 @@
   "send": "Wyślij",
   "stop": "Zatrzymaj",
   "copy": "Kopiuj odpowiedź",
-  "composer": "Napisz wiadomość… Enter wysyła, Shift+Enter dodaje wiersz",
+  "composer": "Napisz wiadomość…",
   "chat_hint": "Utwórz rozmowę, wybierz model i zachowaj swoje pomysły lokalnie.",
   "no_model": "Brak modelu — zaimportuj GGUF w zakładce Modele.",
   "no_conversation": "Najpierw utwórz lub wybierz rozmowę.",
@@ -447,5 +447,17 @@
   "settings_engine": "Silnik i sprzęt",
   "settings_paths": "Foldery i silniki",
   "settings_generation": "Domyślne generowanie",
-  "settings_about": "Aplikacja i aktualizacje"
+  "settings_about": "Aplikacja i aktualizacje",
+  "gpu_reason_vram_partial_offload": "Częściowe odciążenie GPU: za mało VRAM dla wszystkich warstw",
+  "gpu_reason_oom_retry": "Zmniejszono warstwy GPU po błędzie pamięci VRAM (CUDA OOM)",
+  "gpu_reason_gpu_offload_unverified": "Brak potwierdzenia warstw GPU — użyto CPU",
+  "gpu_reason_gpu_unavailable": "GPU/CUDA niedostępne — uruchomiono na CPU",
+  "gpu_status_running_other": "W pamięci działa: {model} (wybrany model niezaładowany)",
+  "gpu_status_not_loaded": "Wybrany model nie jest załadowany w pamięci",
+  "context_running_other": "W pamięci działa: {model} (zmiana przy kolejnym użyciu lub przeładowaniu)",
+  "context_pending_unsaved": "Niezapisana zmiana kontekstu — kliknij Zapisz kontekst",
+  "gpu_pending_unsaved": "Niezapisana zmiana GPU — kliknij Zapisz",
+  "context_last_model_other": "Brak odpowiedzi dla {model} (wcześniejsze użyły: {other})",
+  "context_last_for_model": "Ostatnia odpowiedź ({model}): {used}/{limit} tokenów ({percent}%)",
+  "gpu_reload_now": "Przeładuj model"
 }

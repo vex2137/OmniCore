@@ -604,6 +604,15 @@ class LlamaEngine:
 
             fallback = "gpu_unavailable" if wants_gpu and selected_device == "cpu" else None
             est_total = None
+            if (
+                self.process is not None
+                and selected_device != "cpu"
+                and mode in ("auto", "max", "manual")
+            ):
+                was_gpu = bool(self.parameters and self.parameters[3] != "cpu")
+                await self.unload()
+                if was_gpu:
+                    await asyncio.sleep(0.15)
             if selected_device == "cpu" or mode == "cpu":
                 layers = 0
                 reason = "cpu_mode" if mode == "cpu" else "gpu_unavailable"
@@ -617,11 +626,6 @@ class LlamaEngine:
                 layers = parameters.gpu_layers
                 reason = "manual_layers"
             else:
-                if self.process is not None:
-                    was_gpu = bool(self.parameters and self.parameters[3] != "cpu")
-                    await self.unload()
-                    if was_gpu:
-                        await asyncio.sleep(0.15)
                 layout = inspect_gguf_layout(path)
                 free_vram = await self._available_vram_bytes(selected_device)
                 layers, est_total, reason = estimate_auto_gpu_layers(
@@ -648,6 +652,16 @@ class LlamaEngine:
                         file_descriptor,
                     )
                     self.offload_mode = mode
+                    if (
+                        attempts == 0
+                        and selected_device != "cpu"
+                        and self.offloaded_layers is not None
+                        and self.total_layers
+                        and self.offloaded_layers < self.total_layers
+                        and layers >= self.total_layers
+                        and reason in ("max_gpu", "fits_in_vram")
+                    ):
+                        reason = "vram_partial_offload"
                     self.offload_reason = reason
                     if self.total_layers is None and est_total is not None:
                         self.total_layers = est_total
@@ -655,7 +669,7 @@ class LlamaEngine:
                 except TextError as exc:
                     if (
                         exc.code == "out_of_memory"
-                        and mode == "auto"
+                        and mode in ("auto", "max")
                         and selected_device != "cpu"
                         and attempts < MAX_OOM_RETRIES
                     ):

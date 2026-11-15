@@ -1608,3 +1608,186 @@ def test_stage2_screens_and_action_bar_accessibility(desktop, qtbot):
         val_lbl, sub_lbl = w._diag_tiles[tile_key]
         assert val_lbl.text() and val_lbl.text() != "—"
         assert sub_lbl.text()
+
+
+def test_model_switch_isolates_historical_gpu_context_and_identity(desktop, qtbot):
+    from omnicore.desktop.transcript import MessageCard
+
+    w = desktop
+    w.onboarding.hide()
+    models_dir = data_path() / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    qwen_path = models_dir / "Qwen_Qwen3.5-4B-Q8_0.gguf"
+    deepseek_path = models_dir / "DeepSeek-V4-Pro-Qwen3.5-9B-UNCENSORED-heretic.i1-Q4_K_M.gguf"
+    qwen_path.write_bytes(fixture_gguf("Qwen3.5 4B"))
+    deepseek_path.write_bytes(fixture_gguf("DeepSeek V4 Pro Qwen3.5 9B"))
+
+    qwen = request(w, "POST", "/api/v1/text/models/import", {"path": str(qwen_path)})
+    deepseek = request(w, "POST", "/api/v1/text/models/import", {"path": str(deepseek_path)})
+    w.refresh_models()
+    qtbot.waitUntil(
+        lambda: (
+            w.model_combo.findData(qwen["id"]) >= 0 and w.model_combo.findData(deepseek["id"]) >= 0
+        )
+    )
+
+    conv = request(
+        w,
+        "POST",
+        "/api/v1/text/conversations",
+        {"title": "Model Isolation", "model_id": qwen["id"]},
+    )
+    w.refresh_conversations(conv["id"])
+    qtbot.waitUntil(lambda: w.current_id == conv["id"])
+
+    w.model_combo.setCurrentIndex(w.model_combo.findData(qwen["id"]))
+    w.context_button.setChecked(True)
+    qtbot.waitUntil(lambda: w.context_controls.isVisible())
+
+    # Switching CPU -> Max must restore gpu_layers to 99 rather than leaving 0.
+    w.chat_gpu_mode.setCurrentIndex(w.chat_gpu_mode.findData("cpu"))
+    assert w.chat_gpu_layers.value() == 0
+    w.chat_gpu_mode.setCurrentIndex(w.chat_gpu_mode.findData("max"))
+    assert w.chat_gpu_layers.value() == 99
+
+    # Populate historical assistant turns belonging to DeepSeek 9B with different layer counts.
+    w.messages = [
+        {"id": "u1", "role": "user", "content": "Prompt 1", "state": "done"},
+        {
+            "id": "a1",
+            "role": "assistant",
+            "content": "Fast response",
+            "state": "done",
+            "model_id": deepseek["id"],
+            "model_name": deepseek["name"],
+            "statistics": {
+                "execution_model": deepseek["name"],
+                "execution_device": "CUDA0",
+                "gpu_offloaded_layers": 33,
+                "gpu_total_layers": 34,
+                "tokens_per_second": 26.63,
+                "context_used_tokens": 1836,
+                "context_limit_tokens": 2048,
+            },
+        },
+        {
+            "id": "a2",
+            "role": "assistant",
+            "content": "Slower response",
+            "state": "done",
+            "model_id": deepseek["id"],
+            "statistics": {
+                "execution_model": deepseek["name"],
+                "execution_device": "CUDA0",
+                "gpu_offload_mode": "auto",
+                "gpu_offload_reason": "vram_partial_offload",
+                "gpu_offloaded_layers": 7,
+                "gpu_total_layers": 34,
+                "tokens_per_second": 14.34,
+                "context_used_tokens": 101,
+                "context_limit_tokens": 32768,
+            },
+        },
+    ]
+    w.render_messages()
+
+    # Selected model remains Qwen3.5 4B; cards retain DeepSeek identity; meter ignores DeepSeek.
+    assert w.model_combo.currentData() == qwen["id"]
+    cards = [c for c in w.transcript.findChildren(MessageCard) if c.message["role"] == "assistant"]
+    assert len(cards) == 2
+    assert deepseek["name"] in cards[0].findChild(QLabel, "messageAuthor").text()
+    assert deepseek["name"] in cards[1].findChild(QLabel, "messageAuthor").text()
+    stats0 = " ".join(lbl.text() for lbl in cards[0].findChildren(QLabel, "messageStats"))
+    stats1 = " ".join(lbl.text() for lbl in cards[1].findChildren(QLabel, "messageStats"))
+    assert "33/34" in stats0
+    assert "7/34" in stats1
+    assert "1836/2048" not in w.context_usage.text()
+    assert "101/32768" not in w.context_usage.text()
+    assert w.context_meter.isHidden()
+
+    # Reduced offload + pending reload distinguish configured vs running and show reload control.
+    w.model_contexts[qwen["id"]] = {
+        **w.model_contexts.get(qwen["id"], {}),
+        "mode": "manual",
+        "manual_tokens": 8192,
+        "effective_tokens": 8192,
+        "maximum": 32768,
+        "auto_reason": "manual",
+        "memory_warning": None,
+        "applied_tokens": 4096,
+        "gpu": {
+            "configured": True,
+            "gpu_offload_mode": "auto",
+            "gpu_layers": 99,
+            "device": "auto",
+            "applied_mode": "auto",
+            "applied_requested_layers": 7,
+            "applied_offloaded_layers": 7,
+            "applied_total_layers": 34,
+            "applied_device": "CUDA0",
+            "applied_reason": "vram_partial_offload",
+        },
+    }
+    w._gpu_dirty = False
+    w._context_dirty = False
+    w._render_model_context()
+    assert w.tr("gpu_reason_vram_partial_offload") in w.chat_gpu_status.text()
+    assert w.tr("context_reload") in w.context_status.text()
+    assert w.context_reload_btn.isVisible()
+    assert w.chat_gpu_pill.property("tone") == "warn"
+
+
+def test_chat_layout_drawer_reclaim_scroll_clearance_and_scaled_720p(desktop, qtbot):
+    from omnicore.desktop.transcript import MessageCard
+
+    w = desktop
+    w.onboarding.hide()
+    w.resize(1280, 720)
+    w.show()
+    qtbot.waitExposed(w)
+
+    # Drawer collapse reclaims center width and keeps unsaved settings state.
+    w.context_button.setChecked(True)
+    qtbot.waitUntil(lambda: w.chat_drawer.isVisible())
+    open_width = w.transcript.width()
+    w.chat_gpu_mode.setCurrentIndex(w.chat_gpu_mode.findData("manual"))
+    w.chat_gpu_layers.setValue(24)
+    w.context_button.setChecked(False)
+    qtbot.waitUntil(lambda: w.chat_drawer.isHidden())
+    qtbot.wait(30)
+    closed_width = w.transcript.width()
+    assert closed_width > open_width + 150
+    w.context_button.setChecked(True)
+    qtbot.waitUntil(lambda: w.chat_drawer.isVisible())
+    assert w.chat_gpu_mode.currentData() == "manual"
+    assert w.chat_gpu_layers.value() == 24
+
+    # Long conversation scrolls last card + action bar cleanly above composer.
+    long_body = ("Line of generated explanation with wrapped markdown content.\n" * 6).strip()
+    w.messages = [
+        {
+            "id": f"m{i}",
+            "role": "user" if i % 2 == 0 else "assistant",
+            "content": long_body,
+            "state": "done",
+        }
+        for i in range(10)
+    ]
+    w.render_messages()
+    qtbot.wait(80)
+    last_card = w.transcript.findChildren(MessageCard)[-1]
+    vp_rect = w.transcript.viewport().rect()
+    last_bottom_in_vp = last_card.mapTo(w.transcript.viewport(), last_card.rect().bottomLeft()).y()
+    assert last_bottom_in_vp <= vp_rect.bottom() + 2
+    assert w.transcript.geometry().bottom() <= w.composer_wrap.geometry().top() + 4
+
+    # 1280x720 @ 150% UI scale and 853x480 logical fractional-scale viewport stay within bounds.
+    for size, scale in (((1280, 720), 150), ((853, 480), 100)):
+        w.resize(*size)
+        w.ui_scale.setValue(scale)
+        qtbot.wait(50)
+        assert w.chat_drawer.width() < w.width() * 0.5
+        assert w.model_combo.geometry().right() <= w.width()
+        assert w.context_button.geometry().right() <= w.width()
+        assert w.chat_gpu_save.geometry().right() <= w.context_controls.width() + 2
+        assert w.composer_box.geometry().bottom() <= w.height()

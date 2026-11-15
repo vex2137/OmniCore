@@ -129,6 +129,18 @@ class AgentModel:
                     "gpu_total_layers": getattr(engine, "total_layers", None)
                     if model.backend == "llama.cpp"
                     else None,
+                    "gpu_offload_mode": (
+                        getattr(engine, "offload_mode", None)
+                        or getattr(parameters, "gpu_offload_mode", None)
+                    )
+                    if model.backend == "llama.cpp"
+                    else "cpu",
+                    "gpu_offload_reason": getattr(engine, "offload_reason", None)
+                    if model.backend == "llama.cpp"
+                    else None,
+                    "fallback_reason": getattr(engine, "fallback_reason", None)
+                    if model.backend == "llama.cpp"
+                    else None,
                     "model_name": model.name,
                 }
             )

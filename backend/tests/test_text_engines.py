@@ -599,7 +599,24 @@ HTTPServer(('127.0.0.1', args.port), Handler).serve_forever()
         assert len(history) == 1 + MAX_OOM_RETRIES
         assert not cpu_log.exists()
 
-        # Case 3: Explicit max mode fails immediately without retries or CPU fallback.
+        # Case 3: Max mode tries all layers first, steps down on CUDA OOM to max feasible
+        # offload, and raises out_of_memory without CPU fallback when all attempts fail.
+        attempts_log.unlink()
+        fail_until.write_text("1")
+        await engine.load(
+            model,
+            GenerationParameters(device="auto", gpu_offload_mode="max", context_size=8192),
+        )
+        history = json.loads(attempts_log.read_text())
+        assert len(history) == 2
+        assert history[0]["layers"] > history[1]["layers"] > 0
+        assert engine.offload_mode == "max"
+        assert engine.offload_reason == "oom_retry_1"
+        assert engine.execution_device == "CUDA0"
+        assert engine.offloaded_layers == history[-1]["layers"]
+        assert not cpu_log.exists()
+        await engine.stop()
+
         attempts_log.unlink()
         fail_until.write_text("99")
         with pytest.raises(TextError) as max_exc:
@@ -608,7 +625,7 @@ HTTPServer(('127.0.0.1', args.port), Handler).serve_forever()
                 GenerationParameters(device="auto", gpu_offload_mode="max", context_size=8192),
             )
         assert max_exc.value.code == "out_of_memory"
-        assert len(json.loads(attempts_log.read_text())) == 1
+        assert len(json.loads(attempts_log.read_text())) == 1 + MAX_OOM_RETRIES
         assert not cpu_log.exists()
 
     asyncio.run(exercise())
@@ -726,5 +743,64 @@ def test_llama_load_unloads_previous_model_before_measuring_vram(tmp_path):
             model, GenerationParameters(device="auto", gpu_offload_mode="auto", context_size=8192)
         )
         assert events == ["unload", "vram", "load_selected"]
+
+    asyncio.run(exercise())
+
+
+def test_llama_max_partial_offload_and_previous_model_unload(tmp_path):
+    from omnicore.schemas import BackendInfo
+
+    async def exercise():
+        model = tmp_path / "m2.gguf"
+        model.write_bytes(b"GGUF" + b"\x00" * 64)
+        engine = LlamaEngine(tmp_path / "cpu", cuda_executable=tmp_path / "cuda")
+        engine.devices = ["CUDA0"]
+        engine._device_executables = {"cpu": tmp_path / "cpu", "CUDA0": tmp_path / "cuda"}
+        engine._cpu_executable = tmp_path / "cpu"
+        engine.candidates = []
+
+        class LiveProc:
+            returncode = None
+            pid = 99998
+
+        engine.process = LiveProc()
+        engine.parameters = (str(tmp_path / "prev.gguf"), 4096, 20, "CUDA0", str(tmp_path / "cuda"))
+        engine.offload_mode = "manual"
+        events = []
+
+        async def fake_probe():
+            return BackendInfo(id="llama.cpp", available=True, version="test")
+
+        async def fake_unload(_name=None):
+            events.append("unload")
+            engine.process = None
+            engine.parameters = None
+
+        async def fake_load_selected(path, ctx, binary, device, layers, fallback, fd=None):
+            events.append(("load", device, layers, ctx))
+            engine.model = str(path)
+            engine.parameters = (str(path), ctx, layers, device, str(binary))
+            engine.execution_device = "CUDA0"
+            engine.offloaded_layers = 29
+            engine.total_layers = 34
+            engine.process = LiveProc()
+
+        engine.probe = fake_probe
+        engine.unload = fake_unload
+        engine._load_selected = fake_load_selected
+
+        await engine.load(
+            model,
+            GenerationParameters(
+                device="auto", gpu_offload_mode="max", gpu_layers=0, context_size=8192
+            ),
+        )
+        assert events[0] == "unload"
+        assert events[1][1] == "CUDA0"
+        assert events[1][2] == 999
+        assert engine.offload_mode == "max"
+        assert engine.offload_reason == "vram_partial_offload"
+        assert engine.offloaded_layers == 29
+        assert engine.total_layers == 34
 
     asyncio.run(exercise())

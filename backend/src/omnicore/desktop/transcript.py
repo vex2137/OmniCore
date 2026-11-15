@@ -179,6 +179,7 @@ class SafeMarkdown(QTextBrowser):
             self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         else:
             self._ideal_width = 0
+            self.setMinimumWidth(0)
             self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.document().documentLayout().documentSizeChanged.connect(self.fit)
         self.fit()
@@ -187,11 +188,17 @@ class SafeMarkdown(QTextBrowser):
         # No local files, remote image requests, data URLs or external styles from model text.
         return None
 
+    def minimumSizeHint(self):
+        return QSize(0, self.height() or 24)
+
     def sizeHint(self):
         base = super().sizeHint()
         if self._compact_width:
-            return QSize(self._ideal_width, self.height() or base.height())
-        return base
+            return QSize(
+                min(self._ideal_width, self.viewport().width() or self._ideal_width),
+                self.height() or base.height(),
+            )
+        return QSize(0, self.height() or base.height())
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -233,6 +240,7 @@ class MessageCard(QFrame):
         super().__init__(parent)
         is_user = message["role"] == "user"
         self.setObjectName("userTurn" if is_user else "assistantTurn")
+        self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         self.message = message
         self.can_regenerate = can_regenerate
@@ -301,12 +309,15 @@ class MessageCard(QFrame):
             avatar.setIcon(app_icon("brand", self._accent_color_hex(), 12))
             avatar.setIconSize(QSize(12, 12))
             header.addWidget(avatar)
-            name = message.get("model_name") or tr("assistant")
+            stats = message.get("statistics") or {}
+            name = message.get("model_name") or stats.get("execution_model") or tr("assistant")
             title = QLabel(name)
             title.setTextFormat(Qt.PlainText)
+            title.setWordWrap(True)
+            title.setMinimumWidth(0)
+            title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             title.setObjectName("messageAuthor")
-            header.addWidget(title)
-            header.addStretch(1)
+            header.addWidget(title, 1)
             self._header_layout = header
             self.layout_.addLayout(header)
 
@@ -747,13 +758,15 @@ class ChatTranscript(QScrollArea):
         super().__init__()
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setObjectName("transcript")
         self.setAlignment(Qt.AlignHCenter)
         container = QWidget()
         container.setObjectName("transcriptColumn")
-        container.setMaximumWidth(860)
+        container.setMinimumWidth(0)
+        container.setMaximumWidth(980)
         self.column = QVBoxLayout(container)
-        self.column.setContentsMargins(16, 12, 16, 16)
+        self.column.setContentsMargins(16, 12, 16, 28)
         self.column.setSpacing(12)
         self.limit = 60
         self.more = QPushButton()
@@ -806,13 +819,42 @@ class ChatTranscript(QScrollArea):
         self.cards, self.messages, self.locale = [], [], None
         self.can_regenerate = False
         self._previous_can_regenerate = None
+        self._pin_to_bottom = True
+        self._auto_scrolling = False
         self.scroll_timer = QTimer(self)
         self.scroll_timer.setSingleShot(True)
         self.scroll_timer.timeout.connect(self.scroll_bottom)
+        bar = self.verticalScrollBar()
+        bar.rangeChanged.connect(self._on_scroll_range_changed)
+        bar.valueChanged.connect(self._on_scroll_value_changed)
+
+    def _on_scroll_range_changed(self, _minimum: int, maximum: int):
+        if self._pin_to_bottom and maximum > 0:
+            self._auto_scrolling = True
+            try:
+                self.verticalScrollBar().setValue(maximum)
+            finally:
+                self._auto_scrolling = False
+
+    def _on_scroll_value_changed(self, value: int):
+        if self._auto_scrolling:
+            return
+        bar = self.verticalScrollBar()
+        self._pin_to_bottom = value >= max(0, bar.maximum() - 40)
+
+    def resizeEvent(self, event):
+        was_pinned = self._pin_to_bottom
+        super().resizeEvent(event)
+        if was_pinned:
+            self.scroll_timer.start(0)
 
     def scroll_bottom(self):
         bar = self.verticalScrollBar()
-        bar.setValue(bar.maximum())
+        self._auto_scrolling = True
+        try:
+            bar.setValue(bar.maximum())
+        finally:
+            self._auto_scrolling = False
 
     def expand_history(self):
         self.limit += 60
@@ -833,7 +875,11 @@ class ChatTranscript(QScrollArea):
         self.more.setText(tr("older_messages", count=max(0, len(messages) - self.limit)))
         self.more.setVisible(len(messages) > self.limit)
         bar = self.verticalScrollBar()
-        at_bottom = bar.value() >= bar.maximum() - 40
+        at_bottom = bar.value() >= max(0, bar.maximum() - 40)
+        conv_changed = bool(
+            messages and (not self.messages or self.messages[0].get("id") != messages[0].get("id"))
+        )
+        self._pin_to_bottom = bool(at_bottom or conv_changed or len(messages) > len(self.messages))
         locale = tr("copy")
         self.empty_title.setText(tr("empty_chat_title"))
         self.hint.setText(tr("chat_hint"))

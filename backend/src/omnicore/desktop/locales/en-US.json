@@ -12,7 +12,7 @@
   "send": "Send",
   "stop": "Stop",
   "copy": "Copy answer",
-  "composer": "Write a message… Enter sends, Shift+Enter adds a line",
+  "composer": "Write a message…",
   "chat_hint": "Start a conversation, select a model, and keep your ideas local.",
   "no_model": "No model yet — import a GGUF in Models.",
   "no_conversation": "Create or select a conversation first.",
@@ -447,5 +447,17 @@
   "settings_engine": "Inference & hardware",
   "settings_paths": "Folders & engines",
   "settings_generation": "Generation defaults",
-  "settings_about": "Application & updates"
+  "settings_about": "Application & updates",
+  "gpu_reason_vram_partial_offload": "Reduced GPU offload: insufficient VRAM for all layers",
+  "gpu_reason_oom_retry": "Reduced GPU offload after CUDA out-of-memory retry",
+  "gpu_reason_gpu_offload_unverified": "GPU offload unverified — fell back to CPU",
+  "gpu_reason_gpu_unavailable": "CUDA/GPU unavailable — running on CPU",
+  "gpu_status_running_other": "In memory: {model} (selected model not loaded)",
+  "gpu_status_not_loaded": "Selected model not loaded in memory",
+  "context_running_other": "Loaded in memory: {model} (switches on next use or reload)",
+  "context_pending_unsaved": "Unsaved context change — click Save context",
+  "gpu_pending_unsaved": "Unsaved GPU change — click Save",
+  "context_last_model_other": "Last response ({model}): none (earlier messages used {other})",
+  "context_last_for_model": "Last response ({model}): {used}/{limit} tokens ({percent}%)",
+  "gpu_reload_now": "Reload model"
 }

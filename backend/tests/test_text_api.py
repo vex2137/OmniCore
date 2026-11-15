@@ -677,3 +677,96 @@ def test_per_model_gpu_offload_endpoint_persists_resists_rescan_and_drives_llama
         assert engine.loaded_parameters[-1].gpu_offload_mode == "cpu"
         assert engine.loaded_parameters[-1].gpu_layers == 0
         assert engine.loaded_parameters[-1].device == "cpu"
+
+
+def test_gpu_max_normalization_applied_reason_and_per_model_isolation(text_app):
+    class LiveRecordingEngine(ProtocolTestEngine):
+        def __init__(self):
+            super().__init__()
+            self.loaded_parameters = []
+
+        async def capabilities(self, _path):
+            return ["text"]
+
+        async def load(self, path, parameters, file_descriptor=None):
+            await super().load(path, parameters, file_descriptor=file_descriptor)
+            self.loaded_parameters.append(parameters)
+            self.model = str(path)
+            self.parameters = (
+                str(path),
+                parameters.context_size,
+                parameters.gpu_layers,
+                "CUDA0" if parameters.device != "cpu" else "cpu",
+                "mock",
+            )
+            self.offload_mode = parameters.gpu_offload_mode
+            self.execution_device = "CUDA0" if parameters.device != "cpu" else "cpu"
+            self.offloaded_layers = 0 if parameters.device == "cpu" else 30
+            self.total_layers = 34
+            self.offload_reason = (
+                "cpu_mode" if parameters.device == "cpu" else "vram_partial_offload"
+            )
+            self.fallback_reason = None
+
+            class _Proc:
+                returncode = None
+
+            self.process = _Proc()
+
+    app, path_a = text_app
+    path_b = path_a.parent / "qwen-4b.gguf"
+    path_b.write_bytes(path_a.read_bytes())
+    engine = LiveRecordingEngine()
+    app.state.text.llama = engine
+    app.state.text.engines["llama.cpp"] = engine
+
+    with TestClient(app, base_url="http://localhost") as client:
+        model_a, _ = create_chat(client, path_a)
+        imp_b = client.post("/api/v1/text/models/import", json={"path": str(path_b)})
+        assert imp_b.status_code == 201
+        model_b = imp_b.json()
+
+        # Max mode with stale gpu_layers=0/device=cpu normalizes to 99/auto.
+        res_max = client.put(
+            f"/api/v1/text/models/{model_b['id']}/gpu",
+            json={"gpu_offload_mode": "max", "gpu_layers": 0, "device": "cpu"},
+        )
+        assert res_max.status_code == 200
+        assert res_max.json()["metadata"]["desktop_gpu"] == {
+            "gpu_offload_mode": "max",
+            "gpu_layers": 99,
+            "device": "auto",
+        }
+        # Persist explicit manual context for Model A and load it.
+        ctx_put_a = client.put(
+            f"/api/v1/text/models/{model_a['id']}/context",
+            json={"mode": "manual", "manual_tokens": 4096},
+        )
+        assert ctx_put_a.status_code == 200
+        load_a = client.post(
+            f"/api/v1/text/models/{model_a['id']}/load",
+            json={
+                "context_size": 4096,
+                "gpu_offload_mode": "auto",
+                "gpu_layers": 99,
+                "device": "auto",
+            },
+        )
+        assert load_a.status_code == 200, load_a.text
+
+        ctx_a = client.get(f"/api/v1/text/models/{model_a['id']}/context").json()
+        assert ctx_a["active"] is True
+        assert ctx_a["applied_tokens"] == 4096
+        assert ctx_a["gpu"]["applied_reason"] == "vram_partial_offload"
+        assert ctx_a["gpu"]["applied_offloaded_layers"] == 30
+        assert ctx_a["gpu"]["applied_total_layers"] == 34
+
+        # Querying Model B must NOT report Model A's running state as Model B's own applied state.
+        ctx_b = client.get(f"/api/v1/text/models/{model_b['id']}/context").json()
+        assert ctx_b["active"] is False
+        assert ctx_b["applied_tokens"] is None
+        assert ctx_b["loaded_model_name"] == model_a["name"]
+        assert ctx_b["gpu"]["gpu_offload_mode"] == "max"
+        assert ctx_b["gpu"]["gpu_layers"] == 99
+        assert ctx_b["gpu"]["applied_offloaded_layers"] is None
+        assert ctx_b["gpu"]["active_other_model"] == model_a["name"]

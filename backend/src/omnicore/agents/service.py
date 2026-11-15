@@ -562,6 +562,10 @@ class Agents:
             execution_device=record.get("_execution_device"),
             gpu_offloaded_layers=record.get("_gpu_offloaded_layers"),
             gpu_total_layers=record.get("_gpu_total_layers"),
+            gpu_offload_mode=record.get("_gpu_offload_mode")
+            or getattr(parameters, "gpu_offload_mode", None),
+            gpu_offload_reason=record.get("_gpu_offload_reason"),
+            fallback_reason=record.get("_fallback_reason"),
             input_tokens=input_toks,
             output_tokens=output_toks,
             total_tokens=total_toks,
@@ -606,6 +610,9 @@ class Agents:
         record["_execution_device"] = None
         record["_gpu_offloaded_layers"] = None
         record["_gpu_total_layers"] = None
+        record["_gpu_offload_mode"] = None
+        record["_gpu_offload_reason"] = None
+        record["_fallback_reason"] = None
         valid_grants = self._active_valid_grants(conversation)
         grants = [self.files.describe(g) for g in valid_grants]
         folder_intent = bool(record.get("folder_intent", False))
@@ -648,6 +655,9 @@ class Agents:
                     "_execution_device",
                     "_gpu_offloaded_layers",
                     "_gpu_total_layers",
+                    "_gpu_offload_mode",
+                    "_gpu_offload_reason",
+                    "_fallback_reason",
                     "_final_text",
                     "folder_intent",
                     "_request_fs_hint",
@@ -766,6 +776,9 @@ class Agents:
                 "_execution_device",
                 "_gpu_offloaded_layers",
                 "_gpu_total_layers",
+                "_gpu_offload_mode",
+                "_gpu_offload_reason",
+                "_fallback_reason",
                 "_incomplete_retries",
                 "_consecutive_protocol_errors",
             ):
@@ -961,6 +974,9 @@ class Agents:
                     ("execution_device", "_execution_device"),
                     ("gpu_offloaded_layers", "_gpu_offloaded_layers"),
                     ("gpu_total_layers", "_gpu_total_layers"),
+                    ("gpu_offload_mode", "_gpu_offload_mode"),
+                    ("gpu_offload_reason", "_gpu_offload_reason"),
+                    ("fallback_reason", "_fallback_reason"),
                 ):
                     if turn_stats.get(stat_k) is not None:
                         record[rec_k] = turn_stats[stat_k]

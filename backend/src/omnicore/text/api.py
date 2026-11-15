@@ -311,14 +311,26 @@ def routes(service: TextService):
             and engine.process
             and engine.process.returncode is None
         )
+        running_other_model = None
+        if not active and engine.model and engine.process and engine.process.returncode is None:
+            models = await run_in_threadpool(service.store.models)
+            other = next((m for m in models if m.location == engine.model), None)
+            running_other_model = other.name if other else Path(engine.model).name
+        settings["active"] = active
         settings["applied_tokens"] = engine.parameters[1] if active else None
+        settings["loaded_model_name"] = record.name if active else running_other_model
         devs = await nvidia.devices()
         vram_total = max((d["total_bytes"] for d in devs), default=None) if devs else None
         vram_free = max((d["free_bytes"] for d in devs), default=None) if devs else None
+        norm_layers = (
+            0
+            if eff_mode == "cpu"
+            else (99 if eff_mode in ("auto", "max") and raw_layers <= 0 else raw_layers)
+        )
         settings["gpu"] = {
             "configured": has_saved_gpu,
             "gpu_offload_mode": eff_mode,
-            "gpu_layers": 0 if eff_mode == "cpu" else raw_layers,
+            "gpu_layers": norm_layers,
             "device": "cpu" if eff_mode == "cpu" else eff_device,
             "vram_total_bytes": vram_total,
             "vram_free_bytes": vram_free,
@@ -327,6 +339,9 @@ def routes(service: TextService):
             "applied_offloaded_layers": engine.offloaded_layers if active else None,
             "applied_total_layers": engine.total_layers if active else None,
             "applied_device": engine.execution_device if active else None,
+            "applied_reason": engine.offload_reason if active else None,
+            "fallback_reason": engine.fallback_reason if active else None,
+            "active_other_model": running_other_model,
         }
         return settings
 
@@ -355,7 +370,9 @@ def routes(service: TextService):
             record = await run_in_threadpool(service.store.model, model_id)
             if record.backend == "ollama":
                 normalized = {"gpu_offload_mode": "cpu", "gpu_layers": 0, "device": "cpu"}
-            elif body.gpu_offload_mode == "cpu" or body.device == "cpu":
+            elif body.gpu_offload_mode == "cpu" or (
+                body.gpu_offload_mode == "auto" and body.device == "cpu"
+            ):
                 normalized = {"gpu_offload_mode": "cpu", "gpu_layers": 0, "device": "cpu"}
             else:
                 if (
@@ -364,10 +381,15 @@ def routes(service: TextService):
                     and body.device != "auto"
                 ):
                     raise TextError("gpu_layers_required", 422)
+                norm_layers = (
+                    99
+                    if body.gpu_offload_mode in ("auto", "max") and body.gpu_layers <= 0
+                    else body.gpu_layers
+                )
                 normalized = {
                     "gpu_offload_mode": body.gpu_offload_mode,
-                    "gpu_layers": body.gpu_layers,
-                    "device": body.device,
+                    "gpu_layers": norm_layers,
+                    "device": "auto" if body.device == "cpu" else body.device,
                 }
             record.metadata["desktop_gpu"] = normalized
             merged = dict(record.parameters or {})
