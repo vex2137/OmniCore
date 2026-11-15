@@ -230,6 +230,8 @@ def test_model_check_and_explicit_new_retry_in_gui(agent_window, qtbot, monkeypa
     qtbot.waitUntil(lambda: not panel.settings_loading)
     panel.mode.setCurrentIndex(panel.mode.findData("agent"))
     qtbot.waitUntil(lambda: not panel.settings_saving)
+    qtbot.mouseClick(w.context_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: w.chat_drawer.isVisible())
     monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.Yes)
     panel.scroll.ensureWidgetVisible(panel.compatibility_test)
     qtbot.mouseClick(panel.compatibility_test, Qt.LeftButton)

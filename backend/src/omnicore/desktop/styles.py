@@ -270,6 +270,10 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
             color: {t.muted};
             font-size: 12px;
         }}
+        QLabel#composerMeta {{
+            color: {t.muted};
+            font-size: 11px;
+        }}
         QLabel#subtleHint {{
             color: {t.fg_secondary};
             font-size: 13px;
@@ -279,6 +283,50 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
         QFrame#appTopbar {{
             background: {t.bg};
             border-bottom: 1px solid {t.border_subtle};
+        }}
+        QFrame#modeSwitch {{
+            background: {t.field};
+            border: 1px solid {t.border};
+            border-radius: 9px;
+        }}
+        QPushButton#modeSegBtn {{
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 7px;
+            padding: 3px 8px;
+            font-size: 12px;
+            font-weight: 550;
+            color: {t.fg_secondary};
+        }}
+        QPushButton#modeSegBtn:hover {{
+            color: {t.fg};
+        }}
+        QPushButton#modeSegBtn:checked {{
+            background: {t.accent_tint};
+            border-color: {t.accent_border};
+            color: {t.accent};
+            font-weight: 650;
+        }}
+        QFrame#rightDrawer {{
+            background: {t.sidebar};
+            border-left: 1px solid {t.border_subtle};
+        }}
+        QFrame#rightDrawer QFrame#contextCard {{
+            background: transparent;
+            border: none;
+        }}
+        QFrame#rightDrawer QPushButton {{
+            padding: 5px 8px;
+        }}
+        QFrame#rightDrawer QComboBox {{
+            padding: 4px 20px 4px 7px;
+        }}
+        QFrame#rightDrawer QSpinBox {{
+            padding: 4px 16px 4px 6px;
+        }}
+        QScrollArea#drawerScroll, QWidget#drawerBody {{
+            background: transparent;
+            border: none;
         }}
         QLabel#statusPill {{
             padding: 3px 9px;
@@ -307,16 +355,16 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
         QPushButton#resourceMonitorBtn {{
             background: {t.panel};
             color: {t.fg_secondary};
-            border: 1px solid {t.border};
-            border-radius: 8px;
-            padding: 3px 8px;
+            border: 1px solid {t.border_subtle};
+            border-radius: 9px;
+            padding: 4px 10px;
             font-size: 11px;
-            font-weight: 500;
+            font-weight: 550;
         }}
         QPushButton#resourceMonitorBtn:hover {{
             color: {t.fg};
             background: {t.field};
-            border-color: {t.accent};
+            border-color: {t.border_strong};
         }}
         QPushButton#resourceMonitorBtn:checked {{
             color: {t.accent};
@@ -381,6 +429,7 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
             border-color: {t.accent_border};
             font-weight: 600;
         }}
+        QPushButton#nav[iconOnly="true"],
         QFrame#sidebar[compact="true"] QPushButton#nav,
         QFrame#sidebar[compact="true"] QPushButton#primary,
         QFrame#sidebar[compact="true"] QPushButton#sidebarToggle {{
@@ -393,7 +442,7 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
             border-color: {t.accent_border};
         }}
         QFrame#sidebar QPushButton#primary {{
-            padding: 9px 10px;
+            padding: 6px 6px;
             border-radius: 9px;
         }}
         QPushButton#historySearchTrigger {{
@@ -454,7 +503,8 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
             border-radius: 6px;
         }}
         QWidget#historyTitleRow {{
-            background: {t.sidebar};
+            background: transparent;
+            border: none;
             border-radius: 8px;
         }}
         QWidget#historyTitleRow:hover {{
@@ -462,7 +512,6 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
         }}
         QWidget#historyTitleRow[selected="true"] {{
             background: {t.accent_tint};
-            border: 1px solid {t.accent_border};
         }}
         QLabel#historyItemTitle {{
             background: transparent;
@@ -497,15 +546,128 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
             border: 1px solid {t.border};
             border-radius: 12px;
         }}
-        QFrame#composerBox {{
+        QFrame#sectionGroup, QFrame#metricTile {{
             background: {t.panel};
-            border: 1px solid {t.border_strong};
-            border-radius: 14px;
+            border: 1px solid {t.border_subtle};
+            border-radius: 10px;
         }}
-        QFrame#composerBox QPlainTextEdit#composer {{
+        QFrame#modelInspector {{
+            background: {t.panel};
+            border: 1px solid {t.border_subtle};
+            border-radius: 10px;
+        }}
+        QFrame#toolbarStrip {{
             background: transparent;
             border: none;
-            padding: 4px 6px;
+            border-bottom: 1px solid {t.border_subtle};
+        }}
+        QFrame#engineCallout {{
+            background: {t.field};
+            border: 1px solid {t.border_subtle};
+            border-radius: 8px;
+        }}
+        QFrame#errorBanner {{
+            background: {t.danger_tint};
+            border: 1px solid {t.danger};
+            border-radius: 8px;
+        }}
+        QCheckBox {{
+            spacing: 8px;
+            color: {t.fg};
+        }}
+        QCheckBox::indicator {{
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+            border: 1px solid {t.border_strong};
+            background: {t.panel};
+        }}
+        QCheckBox::indicator:hover {{
+            border-color: {t.accent};
+        }}
+        QCheckBox::indicator:checked {{
+            border: 3px solid {t.panel};
+            background: {t.accent};
+        }}
+        QLabel#metricTitle {{
+            color: {t.muted};
+            font-size: 11px;
+            font-weight: 600;
+        }}
+        QLabel#metricValue {{
+            color: {t.fg};
+            font-size: 15px;
+            font-weight: 700;
+        }}
+        QLabel#metricSub {{
+            color: {t.muted};
+            font-size: 12px;
+        }}
+        QPushButton#sectionPill {{
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            padding: 5px 11px;
+            color: {t.muted};
+            font-size: 12px;
+            font-weight: 600;
+        }}
+        QPushButton#sectionPill:hover {{
+            background: {t.hover};
+            color: {t.fg};
+        }}
+        QPushButton#sectionPill:checked {{
+            background: {t.accent_tint};
+            border-color: {t.accent_border};
+            color: {t.accent};
+        }}
+        QFrame#composerBox {{
+            background: {t.panel};
+            border: 1px solid {t.border};
+            border-radius: 18px;
+        }}
+        QFrame#composerBox[focused="true"] {{
+            border: 1.5px solid {t.accent};
+        }}
+        QFrame#composerBox QPlainTextEdit#composer,
+        QFrame#composerBox QPlainTextEdit#composer:focus {{
+            background: transparent;
+            border: none;
+            padding: 2px 4px;
+        }}
+        QPushButton#composerSendBtn {{
+            background: {t.accent_button};
+            color: {t.accent_text};
+            border: none;
+            border-radius: 17px;
+            min-width: 0;
+            min-height: 0;
+            padding: 0;
+        }}
+        QPushButton#composerSendBtn:hover {{
+            background: {t.accent_hover};
+        }}
+        QPushButton#composerSendBtn:disabled {{
+            background: {t.field};
+            color: {t.muted};
+        }}
+        QPushButton#composerStopBtn {{
+            background: {t.danger_tint};
+            color: {t.danger};
+            border: 1px solid {t.danger};
+            border-radius: 17px;
+            min-width: 0;
+            min-height: 0;
+            padding: 0;
+        }}
+        QPushButton#composerStopBtn:hover {{
+            background: {t.danger};
+            color: #ffffff;
+        }}
+        QFrame#agentInlineBanner {{
+            background: {t.panel};
+            border: 1px solid {t.accent_border};
+            border-radius: 10px;
         }}
         QFrame#noticeCard {{
             background: {t.elevated};
@@ -661,6 +823,12 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
         QToolButton#noticeClose:hover {{
             color: {t.fg};
         }}
+        QFrame#cardActionsBar {{
+            background: {t.panel};
+            border: 1px solid {t.border_subtle};
+            border-radius: 9px;
+            padding: 1px;
+        }}
         QToolButton#cardAction {{
             background: transparent;
             border: 1px solid transparent;
@@ -670,6 +838,10 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
         QToolButton#cardAction:hover {{
             background: {t.field};
             border-color: {t.border};
+        }}
+        QToolButton#cardAction:focus {{
+            background: {t.field};
+            border: 1.5px solid {t.accent};
         }}
         QToolButton#cardAction:checked {{
             background: {t.accent_tint};
@@ -814,26 +986,49 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
         }}
 
         /* --- Conversation Transcript --- */
-        QFrame#assistantBubble {{
-            background: {t.panel};
-            border: 1px solid {t.border_subtle};
-            border-radius: 14px;
+        QFrame#assistantTurn, QFrame#userTurn {{
+            background: transparent;
+            border: none;
+        }}
+        QToolButton#assistantAvatar {{
+            background: {t.accent_tint};
+            border: 1px solid {t.accent_border};
+            border-radius: 11px;
+            padding: 0;
+        }}
+        QToolButton#emptyBadge {{
+            background: {t.accent_tint};
+            border: 1px solid {t.accent_border};
+            border-radius: 22px;
+            padding: 0;
         }}
         QFrame#userBubble {{
             background: {t.elevated};
-            border: 1px solid {t.border_strong};
-            border-radius: 14px;
+            border: 1px solid {t.border_subtle};
+            border-radius: 16px;
+        }}
+        QWidget#emptyCanvas {{
+            background: transparent;
+        }}
+        QLabel#emptyTitle {{
+            background: transparent;
+            color: {t.fg};
+            font-size: 20px;
+            font-weight: 650;
         }}
         QLabel#emptyState {{
-            background: {t.panel};
-            border: 1px solid {t.border};
-            border-radius: 14px;
-            padding: 22px 24px;
-            color: {t.fg_secondary};
-            font-size: 14px;
+            background: transparent;
+            border: none;
+            padding: 4px 12px;
+            color: {t.muted};
+            font-size: 13px;
+        }}
+        QFrame#drawerSection {{
+            background: transparent;
+            border: none;
         }}
         QLabel#drawerHeading {{
-            color: {t.fg_secondary};
+            color: {t.fg};
             font-size: 12px;
             font-weight: 650;
         }}
@@ -888,7 +1083,7 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
 
         /* --- Tables, Tabs, Progress & Chrome --- */
         QListWidget::item {{
-            padding: 10px 8px;
+            padding: 9px 10px;
             border-radius: 7px;
         }}
         QListWidget::item:selected, QTableWidget::item:selected {{
@@ -896,11 +1091,18 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
             color: {t.accent};
         }}
         QTableWidget {{
-            gridline-color: {t.border_subtle};
+            background: {t.panel};
+            border: 1px solid {t.border_subtle};
+            border-radius: 10px;
+            gridline-color: transparent;
             alternate-background-color: {t.elevated};
         }}
+        QTableWidget::item {{
+            padding: 6px 10px;
+            border-bottom: 1px solid {t.border_subtle};
+        }}
         QHeaderView::section {{
-            background: {t.field};
+            background: {t.panel};
             color: {t.muted};
             border: none;
             border-bottom: 1px solid {t.border};
@@ -911,8 +1113,11 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
         QTabWidget::pane {{
             border: none;
         }}
+        QTabBar {{
+            border-bottom: 1px solid {t.border_subtle};
+        }}
         QTabBar::tab {{
-            padding: 10px 18px;
+            padding: 8px 16px;
             background: transparent;
             color: {t.muted};
             border-bottom: 2px solid transparent;

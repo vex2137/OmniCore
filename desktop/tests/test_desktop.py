@@ -503,15 +503,15 @@ def test_desktop_theme_variants_survive_reload(desktop, tmp_path):
 
 def test_sidebar_compact_preserves_history_and_setting(desktop, qtbot, tmp_path):
     w = desktop
-    assert w.sidebar.width() == 232
+    assert w.sidebar.width() == 240
     qtbot.mouseClick(w.sidebar_toggle, Qt.LeftButton)
-    assert w.sidebar.width() == 60
+    assert w.sidebar.width() == 56
     assert w.history_panel.isHidden()
     path = tmp_path / "desktop.json"
     w.config.save(path)
     assert DesktopConfig.load(path).sidebar_compact
     qtbot.mouseClick(w.sidebar_toggle, Qt.LeftButton)
-    assert w.sidebar.width() == 232
+    assert w.sidebar.width() == 240
     assert not w.history_panel.isHidden()
 
 
@@ -520,7 +520,7 @@ def test_sidebar_width_is_persistent_and_restored_after_compacting(desktop, tmp_
     window.sidebar_width.setValue(280)
     assert window.sidebar.width() == 280
     window.toggle_sidebar()
-    assert window.sidebar.width() == 60
+    assert window.sidebar.width() == 56
     window.toggle_sidebar()
     assert window.sidebar.width() == 280
     path = tmp_path / "prefs.json"
@@ -831,6 +831,7 @@ def test_chat_header_stays_aligned_across_modes_and_scales(desktop, qtbot):
         qtbot.wait(30)
         chat_geometries = (
             w.model_combo.geometry(),
+            w.mode_switch.geometry(),
             w.agent_panel.mode.geometry(),
             w.context_button.geometry(),
             w.chat_refresh.geometry(),
@@ -839,6 +840,7 @@ def test_chat_header_stays_aligned_across_modes_and_scales(desktop, qtbot):
         qtbot.wait(30)
         agent_geometries = (
             w.model_combo.geometry(),
+            w.mode_switch.geometry(),
             w.agent_panel.mode.geometry(),
             w.context_button.geometry(),
             w.chat_refresh.geometry(),
@@ -1048,8 +1050,10 @@ def test_model_selector_popup_tooltip_and_responsive_header(desktop, qtbot):
     )
     w.model_combo.setCurrentIndex(idx)
     full_label = w.model_combo.itemText(idx)
-    assert w.model_combo.toolTip() == full_label
-    assert w.model_combo.itemData(idx, Qt.ToolTipRole) == full_label
+    full_tip = f"{full_label} · llama.cpp"
+    assert full_label == "DeepSeek-V4-Pro-Qwen3.5-9B-UNCENSORED-heretic.i1-Q4_K_M"
+    assert w.model_combo.toolTip() == full_tip
+    assert w.model_combo.itemData(idx, Qt.ToolTipRole) == full_tip
 
     w.model_combo.showPopup()
     QApplication.processEvents()
@@ -1064,21 +1068,21 @@ def test_model_selector_popup_tooltip_and_responsive_header(desktop, qtbot):
         QApplication.processEvents()
         chat_geos = (
             w.model_combo.geometry(),
-            w.agent_panel.mode.geometry(),
-            w.context_button.geometry(),
             w.chat_refresh.geometry(),
+            w.mode_switch.geometry(),
+            w.context_button.geometry(),
         )
         assert chat_geos[0].width() >= 140
         assert chat_geos[0].right() <= chat_geos[1].left()
         assert chat_geos[1].right() <= chat_geos[2].left()
-        assert chat_geos[2].right() <= chat_geos[3].left()
+        assert w.chat_header_widget.geometry().right() <= chat_geos[3].left()
         w.agent_panel.mode.setCurrentIndex(1)
         QApplication.processEvents()
         agent_geos = (
             w.model_combo.geometry(),
-            w.agent_panel.mode.geometry(),
-            w.context_button.geometry(),
             w.chat_refresh.geometry(),
+            w.mode_switch.geometry(),
+            w.context_button.geometry(),
         )
         assert chat_geos == agent_geos
 
@@ -1474,8 +1478,9 @@ def test_expanded_chat_panel_exposes_per_model_gpu_settings_and_reload_indicator
         assert w.chat_gpu_save.isVisible()
         assert w.chat_gpu_status.isVisible()
         assert w.chat_gpu_mode.geometry().top() >= w.context_status.geometry().bottom()
-        assert w.chat_gpu_mode.geometry().right() < w.chat_gpu_layers.geometry().left()
+        assert w.chat_gpu_mode.geometry().bottom() <= w.chat_gpu_layers.geometry().top()
         assert w.chat_gpu_layers.geometry().right() < w.chat_gpu_save.geometry().left()
+        assert w.chat_gpu_mode.geometry().right() <= w.context_controls.width()
         assert w.chat_gpu_save.geometry().right() <= w.context_controls.width()
 
     w.ui_scale.setValue(100)
@@ -1541,3 +1546,65 @@ def test_expanded_chat_panel_exposes_per_model_gpu_settings_and_reload_indicator
     assert "15/32" in status_text
     assert "VRAM" in status_text
     assert w.tr("context_reload") in status_text
+
+
+def test_stage2_screens_and_action_bar_accessibility(desktop, qtbot):
+    w = desktop
+    w.onboarding.hide()
+
+    # Stage 1 action toolbar keyboard focus reveals full opacity cleanly.
+    w.transcript.can_regenerate = True
+    w.transcript.set_messages(
+        [
+            {"id": "u1", "role": "user", "content": "Hello", "state": "done"},
+            {"id": "a1", "role": "assistant", "content": "World", "state": "done"},
+        ],
+        w.tr,
+    )
+    card = w.transcript.cards[-1]
+    assert card._action_buttons
+    assert card._action_buttons[0].focusPolicy() == Qt.StrongFocus
+    w.activateWindow()
+    card._action_buttons[0].setFocus(Qt.TabFocusReason)
+    qtbot.waitUntil(lambda: card._hover_effects[0].opacity() >= 0.99, timeout=3000)
+
+    # Models Local 5-column table & Transfers error banner / state badge.
+    assert w.model_table.columnCount() == 5
+    w.navigate(1)
+    w.model_tabs.setCurrentIndex(2)
+    failed_dl = {
+        "id": "dl-err",
+        "state": "failed",
+        "percent": 18.0,
+        "error_code": "network_timeout",
+        "source": {"repository": "org/repo", "filename": "model-Q4_K_M.gguf"},
+    }
+    w.downloads = [failed_dl]
+    w.download_list.clear()
+    w.download_list.addItem("model-Q4_K_M.gguf", "dl-err")
+    w.download_list.setCurrentIndex(0)
+    w._show_download_progress()
+    assert w.transfer_state_badge.isVisible()
+    assert w.transfer_error_banner.isVisible()
+    w.downloads = []
+    w.download_list.clear()
+    w._show_download_progress()
+    assert not w.transfer_error_banner.isVisible()
+
+    # Settings quick-jump nav pills and docked save bar remain visible regardless of scroll.
+    w.navigate(2)
+    assert set(w.settings_nav_pills) == {
+        "settings_appearance",
+        "settings_engine",
+        "settings_about",
+    }
+    assert w.settings_save_bar.isVisible()
+
+    # Diagnostics KPI tiles populate from backend diagnostics snapshot.
+    w.navigate(3)
+    w.refresh_diagnostics()
+    qtbot.waitUntil(lambda: w._diag_tiles["cpu"][0].text() != "—", timeout=5000)
+    for tile_key in ("backend", "gpu", "cpu", "storage"):
+        val_lbl, sub_lbl = w._diag_tiles[tile_key]
+        assert val_lbl.text() and val_lbl.text() != "—"
+        assert sub_lbl.text()

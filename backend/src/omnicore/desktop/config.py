@@ -45,7 +45,7 @@ class DesktopConfig:
     parameters: dict = field(default_factory=dict)
     onboarding_complete: bool = False
     sidebar_compact: bool = False
-    sidebar_width: int = 232
+    sidebar_width: int = 240
     accent: str = ""
     update_channel: str = field(default_factory=default_update_channel)
     ui_scale: int = 100
@@ -79,7 +79,7 @@ class DesktopConfig:
         if obj.update_channel not in {"stable", "beta", "rc"}:
             obj.update_channel = default_update_channel()
         if not isinstance(obj.sidebar_width, int) or isinstance(obj.sidebar_width, bool):
-            obj.sidebar_width = 232
+            obj.sidebar_width = 240
         obj.sidebar_width = max(200, min(360, obj.sidebar_width))
         if not isinstance(obj.ui_scale, int) or isinstance(obj.ui_scale, bool):
             obj.ui_scale = 100

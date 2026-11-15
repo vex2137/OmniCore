@@ -259,7 +259,7 @@ def test_beta3_all_history_headers_fit_at_narrow_widths(desktop, qtbot):
         w.language.setCurrentIndex(w.language.findData(locale))
         for scale in (80, 100, 125, 150):
             w.ui_scale.setValue(scale)
-            for width in (200, 232):
+            for width in (200, 240):
                 w.sidebar_width.setValue(width)
                 w._fill_conversations()
                 qtbot.wait(20)
@@ -291,12 +291,12 @@ def test_beta3_compact_sidebar_scales_proportionally(desktop, qtbot):
     for scale in (80, 90, 100, 125, 150):
         w.ui_scale.setValue(scale)
         qtbot.wait(30)
-        expected_sidebar = max(1, round(60 * scale / 100))
-        expected_btn = max(1, round(38 * scale / 100))
+        expected_sidebar = max(1, round(56 * scale / 100))
+        expected_btn = max(1, round(36 * scale / 100))
         assert w.sidebar.width() == expected_sidebar
         if scale == 100:
-            assert w.sidebar.width() == 60
-            assert 36 <= w.sidebar_toggle.width() <= 40
+            assert w.sidebar.width() == 56
+            assert 34 <= w.sidebar_toggle.width() <= 38
         centers = []
         for btn in (w.sidebar_toggle, w.new_button, *w.nav):
             assert btn.isVisible()

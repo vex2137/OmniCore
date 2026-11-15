@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor, QPainter, QPen, QPixmap, QPolygonF, QTextDocum
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
@@ -156,7 +157,7 @@ def statistics_details_text(stats, tr):
 
 
 class SafeMarkdown(QTextBrowser):
-    def __init__(self, text, parent=None):
+    def __init__(self, text, parent=None, compact_width=None):
         super().__init__(parent)
         self.setObjectName("messageText")
         self.setFrameShape(QFrame.NoFrame)
@@ -164,16 +165,33 @@ class SafeMarkdown(QTextBrowser):
         self.setOpenExternalLinks(False)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._compact_width = compact_width
+        self.document().setDocumentMargin(2)
         self.document().setMarkdown(
             text, QTextDocument.MarkdownDialectGitHub | QTextDocument.MarkdownNoHTML
         )
+        if compact_width:
+            probe = self.document().clone(self)
+            probe.setTextWidth(-1)
+            self._ideal_width = min(compact_width, max(44, math.ceil(probe.size().width()) + 10))
+            self.setMinimumWidth(44)
+            self.setMaximumWidth(self._ideal_width)
+            self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        else:
+            self._ideal_width = 0
+            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.document().documentLayout().documentSizeChanged.connect(self.fit)
         self.fit()
 
     def loadResource(self, resource_type, url):
         # No local files, remote image requests, data URLs or external styles from model text.
         return None
+
+    def sizeHint(self):
+        base = super().sizeHint()
+        if self._compact_width:
+            return QSize(self._ideal_width, self.height() or base.height())
+        return base
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -185,8 +203,15 @@ class SafeMarkdown(QTextBrowser):
             self.fit()
 
     def fit(self, *_):
-        self.document().setTextWidth(max(80, self.viewport().width()))
-        height = math.ceil(self.document().size().height()) + 18
+        avail = self.viewport().width()
+        if self._compact_width:
+            target_w = min(self._ideal_width, avail) if avail >= 40 else self._ideal_width
+            pad = 6
+        else:
+            target_w = max(80, avail)
+            pad = 10
+        self.document().setTextWidth(target_w)
+        height = math.ceil(self.document().size().height()) + pad
         if self.height() != height:
             self.setFixedHeight(height)
             parent = self.parentWidget()
@@ -206,43 +231,25 @@ class MessageCard(QFrame):
         continue_run=None,
     ):
         super().__init__(parent)
-        self.setObjectName("userBubble" if message["role"] == "user" else "assistantBubble")
+        is_user = message["role"] == "user"
+        self.setObjectName("userTurn" if is_user else "assistantTurn")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         self.message = message
         self.can_regenerate = can_regenerate
         self._grant_folder = grant_folder
         self._continue_run = continue_run
-        self.layout_ = QVBoxLayout(self)
-        self.layout_.setContentsMargins(18, 12, 18, 14)
-        self.layout_.setSpacing(8)
-        header = QHBoxLayout()
-        name = (
-            tr("you") if message["role"] == "user" else message.get("model_name") or tr("assistant")
-        )
-        title = QLabel(name)
-        title.setTextFormat(Qt.PlainText)
-        title.setWordWrap(True)
-        title.setObjectName("messageAuthor")
-        header.addWidget(title, 1)
-        copy_label = tr("copy") if message["role"] == "assistant" else tr("copy_message")
+        self._compact_bubble = is_user
+        self._hover_effects = []
+        self._action_buttons = []
+        self._info_button = None
+
+        copy_label = tr("copy") if not is_user else tr("copy_message")
         copy = QToolButton()
         self.icon_action(copy, "edit-copy", QStyle.SP_FileDialogContentsView, copy_label)
-        copy.setAccessibleName(copy_label)
         copy.clicked.connect(lambda: QApplication.clipboard().setText(message["content"]))
         copy.setEnabled(bool(message["content"]))
-        if message["role"] != "assistant":
-            header.addWidget(copy)
-        self.layout_.addLayout(header)
-        if message.get("reasoning_content"):
-            reasoning = QPlainTextEdit(message["reasoning_content"])
-            reasoning.setReadOnly(True)
-            reasoning.setMaximumHeight(130)
-            reasoning.hide()
-            toggle = QPushButton(tr("reasoning"))
-            toggle.setCheckable(True)
-            toggle.toggled.connect(reasoning.setVisible)
-            self.layout_.addWidget(toggle)
-            self.layout_.addWidget(reasoning)
+        self._register_action_button(copy)
+
         self.agent_step_buttons = []
         self.agent_step_details = []
         self.agent_error_label = None
@@ -256,10 +263,69 @@ class MessageCard(QFrame):
         self.agent_continue_button = None
         self.stats_details_frame = None
         self.stats_details_label = None
-        if message["role"] == "assistant" and message.get("agent_run"):
+
+        if is_user:
+            outer = QHBoxLayout(self)
+            outer.setContentsMargins(0, 4, 0, 4)
+            outer.setSpacing(8)
+            outer.addStretch(1)
+            user_actions = QFrame(self)
+            user_actions.setObjectName("cardActionsBar")
+            ua_layout = QHBoxLayout(user_actions)
+            ua_layout.setContentsMargins(2, 2, 2, 2)
+            ua_layout.setSpacing(2)
+            ua_layout.addWidget(copy)
+            self._attach_actions_hover(user_actions)
+            outer.addWidget(user_actions, 0, Qt.AlignVCenter)
+            bubble = QFrame(self)
+            bubble.setObjectName("userBubble")
+            bubble.setMaximumWidth(600)
+            bubble.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+            self.bubble = bubble
+            self.layout_ = QVBoxLayout(bubble)
+            self.layout_.setContentsMargins(14, 9, 14, 9)
+            self.layout_.setSpacing(6)
+            outer.addWidget(bubble, 0, Qt.AlignRight)
+        else:
+            self.layout_ = QVBoxLayout(self)
+            self.layout_.setContentsMargins(0, 6, 0, 8)
+            self.layout_.setSpacing(8)
+            header = QHBoxLayout()
+            header.setContentsMargins(0, 0, 0, 0)
+            header.setSpacing(8)
+            avatar = QToolButton()
+            avatar.setObjectName("assistantAvatar")
+            avatar.setFocusPolicy(Qt.NoFocus)
+            avatar.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+            avatar.setFixedSize(22, 22)
+            avatar.setIcon(app_icon("brand", self._accent_color_hex(), 12))
+            avatar.setIconSize(QSize(12, 12))
+            header.addWidget(avatar)
+            name = message.get("model_name") or tr("assistant")
+            title = QLabel(name)
+            title.setTextFormat(Qt.PlainText)
+            title.setObjectName("messageAuthor")
+            header.addWidget(title)
+            header.addStretch(1)
+            self._header_layout = header
+            self.layout_.addLayout(header)
+
+        if message.get("reasoning_content"):
+            reasoning = QPlainTextEdit(message["reasoning_content"])
+            reasoning.setReadOnly(True)
+            reasoning.setMaximumHeight(130)
+            reasoning.hide()
+            toggle = QPushButton(tr("reasoning"))
+            toggle.setObjectName("compactToggle")
+            toggle.setCheckable(True)
+            toggle.toggled.connect(reasoning.setVisible)
+            self.layout_.addWidget(toggle, 0, Qt.AlignLeft)
+            self.layout_.addWidget(reasoning)
+
+        if not is_user and message.get("agent_run"):
             self._render_agent_activity(message["agent_run"], tr)
         self._body(message["content"], tr)
-        if message["role"] == "user" and message.get("agent_run"):
+        if is_user and message.get("agent_run"):
             self._render_agent_activity(message["agent_run"], tr)
         if (message.get("status") == "failed" or message.get("error_code")) and not self.error_card:
             err_code = message.get("error_code") or "generation_failed"
@@ -322,9 +388,13 @@ class MessageCard(QFrame):
             stats_row.addStretch()
             self.layout_.addLayout(stats_row)
 
-        if message["role"] == "assistant" or details:
-            actions = QHBoxLayout()
-            if message["role"] == "assistant":
+        if not is_user or details:
+            actions_bar = QFrame()
+            actions_bar.setObjectName("cardActionsBar")
+            actions = QHBoxLayout(actions_bar)
+            actions.setContentsMargins(3, 2, 3, 2)
+            actions.setSpacing(2)
+            if not is_user:
                 actions.addWidget(copy)
                 retry = QToolButton()
                 self.icon_action(retry, "view-refresh", QStyle.SP_BrowserReload, tr("regenerate"))
@@ -336,6 +406,7 @@ class MessageCard(QFrame):
                 )
                 if regenerate:
                     retry.clicked.connect(lambda: regenerate(message))
+                self._register_action_button(retry)
                 actions.addWidget(retry)
             info = QToolButton()
             self.icon_action(
@@ -343,6 +414,8 @@ class MessageCard(QFrame):
             )
             info.setEnabled(bool(details))
             info.setCheckable(True)
+            self._info_button = info
+            self._register_action_button(info)
             stats_frame = QFrame()
             stats_frame.setObjectName("messageStatsDetails")
             sf_layout = QVBoxLayout(stats_frame)
@@ -356,12 +429,50 @@ class MessageCard(QFrame):
             sf_layout.addWidget(full_stats)
             stats_frame.hide()
             info.toggled.connect(stats_frame.setVisible)
+            info.toggled.connect(lambda _on: self._sync_actions_opacity(self.underMouse()))
             self.stats_details_frame = stats_frame
             self.stats_details_label = full_stats
             actions.addWidget(info)
-            actions.addStretch()
-            self.layout_.addLayout(actions)
+            self._attach_actions_hover(actions_bar)
+            if not is_user:
+                self._header_layout.addWidget(actions_bar)
+            else:
+                self.layout_.addWidget(actions_bar, 0, Qt.AlignRight)
             self.layout_.addWidget(stats_frame)
+
+    def _accent_color_hex(self):
+        return self.palette().color(self.palette().ColorRole.HighlightedText).name()
+
+    def _register_action_button(self, button):
+        button.setFocusPolicy(Qt.StrongFocus)
+        button.installEventFilter(self)
+        self._action_buttons.append(button)
+
+    def eventFilter(self, watched, event):
+        if watched in self._action_buttons and event.type() in (QEvent.FocusIn, QEvent.FocusOut):
+            self._sync_actions_opacity(self.underMouse())
+        return super().eventFilter(watched, event)
+
+    def _attach_actions_hover(self, widget):
+        effect = QGraphicsOpacityEffect(widget)
+        widget.setGraphicsEffect(effect)
+        self._hover_effects.append(effect)
+        self._sync_actions_opacity(False)
+
+    def _sync_actions_opacity(self, hovered):
+        pinned = self._info_button is not None and self._info_button.isChecked()
+        focused = any(btn.hasFocus() for btn in self._action_buttons)
+        opacity = 1.0 if (hovered or pinned or focused) else 0.62
+        for effect in self._hover_effects:
+            effect.setOpacity(opacity)
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self._sync_actions_opacity(True)
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self._sync_actions_opacity(False)
 
     def icon_action(self, button, name, fallback, label):
         kind_map = {
@@ -371,11 +482,13 @@ class MessageCard(QFrame):
         }
         button.setObjectName("cardAction")
         button.setCursor(Qt.PointingHandCursor)
+        button.setFocusPolicy(Qt.StrongFocus)
+        button.setAccessibleName(label)
         color = self.palette().color(self.palette().ColorRole.WindowText).name()
         kind = kind_map.get(name)
         button.setIcon(app_icon(kind, color, 15) if kind else self.style().standardIcon(fallback))
         button.setIconSize(QSize(15, 15))
-        button.setFixedSize(28, 28)
+        button.setFixedSize(26, 26)
         button.setToolTip(label)
         button.setAccessibleName(label)
 
@@ -557,15 +670,19 @@ class MessageCard(QFrame):
     def _body(self, content, tr):
         # Treat fenced code as plain text, with a separate native clipboard action.
         lines, prose, code, fence = content.splitlines(keepends=True), [], [], None
+        body_parent = getattr(self, "bubble", self)
+        compact_w = 560 if self._compact_bubble else None
 
         def flush_prose():
             if prose:
-                self.layout_.addWidget(SafeMarkdown("".join(prose), self))
+                self.layout_.addWidget(
+                    SafeMarkdown("".join(prose), body_parent, compact_width=compact_w)
+                )
                 prose.clear()
 
         def flush_code():
             text = "".join(code).rstrip("\n")
-            container = QFrame(self)
+            container = QFrame(body_parent)
             container.setObjectName("codeContainer")
             c_layout = QVBoxLayout(container)
             c_layout.setSizeConstraint(QVBoxLayout.SetMinimumSize)
@@ -636,20 +753,55 @@ class ChatTranscript(QScrollArea):
         container.setObjectName("transcriptColumn")
         container.setMaximumWidth(860)
         self.column = QVBoxLayout(container)
-        self.column.setContentsMargins(12, 12, 12, 12)
-        self.column.setSpacing(14)
+        self.column.setContentsMargins(16, 12, 16, 16)
+        self.column.setSpacing(12)
         self.limit = 60
         self.more = QPushButton()
         self.more.setObjectName("compactToggle")
         self.more.clicked.connect(self.expand_history)
         self.column.addWidget(self.more, 0, Qt.AlignHCenter)
+
+        self.empty_top_spacer = QWidget()
+        self.empty_top_spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.column.addWidget(self.empty_top_spacer, 1)
+
+        self.empty_box = QWidget()
+        self.empty_box.setObjectName("emptyCanvas")
+        self.empty_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+        empty_layout = QVBoxLayout(self.empty_box)
+        empty_layout.setContentsMargins(40, 24, 40, 24)
+        empty_layout.setSpacing(10)
+        self.empty_badge = QToolButton()
+        self.empty_badge.setObjectName("emptyBadge")
+        self.empty_badge.setFocusPolicy(Qt.NoFocus)
+        self.empty_badge.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.empty_badge.setFixedSize(44, 44)
+        self.empty_badge.setIcon(
+            app_icon(
+                "brand", self.palette().color(self.palette().ColorRole.HighlightedText).name(), 22
+            )
+        )
+        self.empty_badge.setIconSize(QSize(22, 22))
+        empty_layout.addWidget(self.empty_badge, 0, Qt.AlignHCenter)
+        self.empty_title = QLabel()
+        self.empty_title.setObjectName("emptyTitle")
+        self.empty_title.setAlignment(Qt.AlignCenter)
+        self.empty_title.setWordWrap(True)
+        self.empty_title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        empty_layout.addWidget(self.empty_title)
         self.hint = QLabel()
         self.hint.setObjectName("emptyState")
         self.hint.setAlignment(Qt.AlignCenter)
-        self.hint.setMaximumWidth(600)
         self.hint.setWordWrap(True)
-        self.column.addWidget(self.hint, 0, Qt.AlignHCenter)
-        self.column.addStretch()
+        self.hint.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        empty_layout.addWidget(self.hint)
+        self.empty_slot = QVBoxLayout()
+        self.empty_slot.setContentsMargins(0, 8, 0, 0)
+        self.empty_slot.setSpacing(6)
+        empty_layout.addLayout(self.empty_slot)
+        self.column.addWidget(self.empty_box, 0)
+
+        self.column.addStretch(1)
         self.setWidget(container)
         self.cards, self.messages, self.locale = [], [], None
         self.can_regenerate = False
@@ -666,6 +818,13 @@ class ChatTranscript(QScrollArea):
         self.limit += 60
         self.set_messages(self.messages, self.translator)
 
+    def sync_empty_state(self, tr, brand_hex=None):
+        self.empty_title.setText(tr("empty_chat_title"))
+        self.hint.setText(tr("chat_hint"))
+        if brand_hex:
+            self.empty_badge.setIcon(app_icon("brand", brand_hex, 22))
+            self.empty_badge.setIconSize(QSize(22, 22))
+
     def set_messages(self, messages, tr):
         self.translator = tr
         if self.messages and messages and self.messages[0].get("id") != messages[0].get("id"):
@@ -676,8 +835,11 @@ class ChatTranscript(QScrollArea):
         bar = self.verticalScrollBar()
         at_bottom = bar.value() >= bar.maximum() - 40
         locale = tr("copy")
+        self.empty_title.setText(tr("empty_chat_title"))
         self.hint.setText(tr("chat_hint"))
         self.hint.setVisible(not messages)
+        self.empty_top_spacer.setVisible(not messages)
+        self.empty_box.setVisible(not messages)
         for index, message in enumerate(visible):
             if (
                 index < len(self.cards)

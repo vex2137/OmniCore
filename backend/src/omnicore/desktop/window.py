@@ -10,9 +10,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from PySide6.QtCore import (
-    QEasingCurve,
     QEvent,
-    QPropertyAnimation,
     QSize,
     Qt,
     QTimer,
@@ -29,6 +27,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QColorDialog,
     QComboBox,
@@ -36,7 +35,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
-    QGraphicsOpacityEffect,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -159,9 +158,9 @@ class ModelComboBox(QComboBox):
         text_rect = self.style().subControlRect(
             QStyle.CC_ComboBox, option, QStyle.SC_ComboBoxEditField, self
         )
-        available = max(24, text_rect.width() - 6)
+        available = max(24, text_rect.width() - 4)
         option.currentText = self.fontMetrics().elidedText(
-            self.currentText(), Qt.ElideMiddle, available
+            self.currentText(), Qt.ElideRight, available
         )
         painter.drawControl(QStyle.CE_ComboBoxLabel, option)
 
@@ -219,6 +218,7 @@ class MainWindow(QMainWindow):
         self._health_pending = set()
         self._backend_pid = None
         self._last_error_meta = None
+        self._loaded_models = {}
         self._theme_colors = ("#ecf1f9", "#8b80f9", "#000000")
         self.resource_monitor = ResourceMonitor(self._resource_root_pids, interval_seconds=2.0)
         self.resource_monitor.updated.connect(self._apply_resource_snapshot)
@@ -322,7 +322,6 @@ class MainWindow(QMainWindow):
         self.sidebar_header.addWidget(self.sidebar_toggle)
         self.new_button = self.button("new_chat", self.new_conversation, primary=True)
         self.new_button.setCursor(Qt.PointingHandCursor)
-        self.side_layout.addWidget(self.new_button)
         self.nav = []
         for index, key in enumerate(("chat", "models", "settings", "diagnostics")):
             button = self.button(key, lambda checked=False, i=index: self.navigate(i))
@@ -330,8 +329,12 @@ class MainWindow(QMainWindow):
             button.setObjectName("nav")
             button.setCursor(Qt.PointingHandCursor)
             self.nav.append(button)
-        self.side_layout.addWidget(self.nav[0])
-        self.side_layout.addWidget(self.nav[1])
+        self.top_actions_grid = QGridLayout()
+        self.top_actions_grid.setContentsMargins(0, 0, 0, 0)
+        self.top_actions_grid.setSpacing(6)
+        self.top_actions_grid.addWidget(self.new_button, 0, 0)
+        self.top_actions_grid.addWidget(self.nav[0], 0, 1)
+        self.side_layout.addLayout(self.top_actions_grid)
 
         self._history_search_open = False
         self.history_panel = QWidget()
@@ -390,6 +393,9 @@ class MainWindow(QMainWindow):
         self.conversation_list.customContextMenuRequested.connect(self.conversation_menu)
         self.conversation_list.currentItemChanged.connect(self.select_conversation)
         self.conversation_list.currentItemChanged.connect(self.update_history_selection)
+        self.conversation_list.itemClicked.connect(
+            lambda _item=None: self.navigate(0) if self.pages.currentIndex() != 0 else None
+        )
         left.addWidget(self.conversation_list, 1)
         self.side_layout.addWidget(self.history_panel, 1)
         self.compact_spacer = QWidget()
@@ -397,6 +403,7 @@ class MainWindow(QMainWindow):
         self.side_layout.addWidget(self.compact_spacer, 1)
         self.nav_footer_divider = make_divider()
         self.side_layout.addWidget(self.nav_footer_divider)
+        self.side_layout.addWidget(self.nav[1])
         self.side_layout.addWidget(self.nav[3])
         self.side_layout.addWidget(self.nav[2])
         self.shell.addWidget(self.sidebar)
@@ -404,16 +411,27 @@ class MainWindow(QMainWindow):
         main = QWidget()
         self.body_layout = QVBoxLayout(main)
         body = self.body_layout
-        body.setContentsMargins(18, 12, 18, 12)
-        body.setSpacing(10)
+        body.setContentsMargins(16, 10, 16, 10)
+        body.setSpacing(8)
         self.topbar = QFrame()
         self.topbar.setObjectName("appTopbar")
         topbar_layout = QHBoxLayout(self.topbar)
         topbar_layout.setContentsMargins(0, 0, 0, 8)
-        topbar_layout.setSpacing(6)
+        topbar_layout.setSpacing(8)
+        self.chat_header_widget = QWidget()
+        self.chat_header_widget.setMinimumWidth(0)
+        self.chat_header = QHBoxLayout(self.chat_header_widget)
+        self.chat_header.setContentsMargins(0, 0, 0, 0)
+        self.chat_header.setSpacing(8)
+        topbar_layout.addWidget(self.chat_header_widget, 1)
         self.page_title = self.label("chat", title=True)
-        topbar_layout.addWidget(self.page_title)
-        topbar_layout.addStretch(1)
+        self.page_title.hide()
+        topbar_layout.addWidget(self.page_title, 1)
+        self.chat_gpu_pill = QLabel("GPU")
+        self.chat_gpu_pill.setObjectName("statusPill")
+        self.chat_gpu_pill.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.chat_gpu_pill.hide()
+        topbar_layout.addWidget(self.chat_gpu_pill)
         self.resource_monitor_btn = QPushButton(
             format_resource_summary(ResourceSnapshot(), self.tr)
         )
@@ -426,11 +444,19 @@ class MainWindow(QMainWindow):
         topbar_layout.addWidget(self.resource_monitor_btn)
         self.connection = self.label("connecting")
         self.connection.setObjectName("statusPill")
+        self.connection.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         polish_property(self.connection, "tone", "warn")
         topbar_layout.addWidget(self.connection)
         self.reconnect_button = self.button("reconnect", self.reconnect)
+        self.reconnect_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.reconnect_button.hide()
         topbar_layout.addWidget(self.reconnect_button)
+        self.context_button = QPushButton()
+        self.context_button.setObjectName("iconButton")
+        self.context_button.setCursor(Qt.PointingHandCursor)
+        self.context_button.setFixedWidth(32)
+        self.context_button.setCheckable(True)
+        topbar_layout.addWidget(self.context_button)
         body.addWidget(self.topbar)
 
         self.resource_details_frame = QFrame()
@@ -494,8 +520,9 @@ class MainWindow(QMainWindow):
         self.resource_monitor.start()
         self.onboarding = QFrame()
         self.onboarding.setObjectName("onboardingCard")
+        self.onboarding.setMaximumWidth(540)
         intro = QVBoxLayout(self.onboarding)
-        intro.setContentsMargins(16, 14, 16, 14)
+        intro.setContentsMargins(14, 12, 14, 12)
         intro.setSpacing(8)
         intro.addWidget(self.label("welcome_title", title=True))
         intro_text = self.label("welcome_steps")
@@ -512,7 +539,6 @@ class MainWindow(QMainWindow):
             )
         )
         self.onboarding.setVisible(not self.config.onboarding_complete)
-        body.addWidget(self.onboarding)
         self.pages = QStackedWidget()
         self.pages.setMinimumWidth(0)
         body.addWidget(self.pages, 1)
@@ -525,70 +551,216 @@ class MainWindow(QMainWindow):
         self._apply_sidebar()
         self.nav[0].setChecked(True)
         self.statusBar().showMessage(self.tr("connecting"))
+        self.statusBar().hide()
         self.pages.setEnabled(False)
 
     def _build_chat(self):
         page = QWidget()
         outer = QHBoxLayout(page)
         outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(12)
         pane = QWidget()
         chat = QVBoxLayout(pane)
         chat.setContentsMargins(0, 0, 0, 0)
-        chat.setSpacing(10)
-        self.chat_header_card = QFrame()
-        self.chat_header_card.setObjectName("chatHeaderCard")
-        self.chat_header = QHBoxLayout(self.chat_header_card)
-        self.chat_header.setContentsMargins(14, 8, 14, 8)
-        self.chat_header.setSpacing(10)
-        self.chat_title = QLabel(self.tr("new_chat"))
-        self.chat_title.setObjectName("chatTitle")
-        self.chat_title.setTextFormat(Qt.PlainText)
-        self.chat_title.setMinimumWidth(80)
-        self.chat_title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        chat.setSpacing(8)
+
         self.model_combo = ModelComboBox()
-        self.model_combo.setMinimumWidth(180)
-        self.model_combo.setMaximumWidth(560)
-        self.model_combo.setMinimumContentsLength(18)
+        self.model_combo.setMinimumWidth(160)
+        self.model_combo.setMaximumWidth(440)
+        self.model_combo.setMinimumContentsLength(16)
         self.model_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.model_combo.currentIndexChanged.connect(self.model_selected)
-        self.chat_header.addWidget(self.chat_title, 1)
-        self.chat_header.addWidget(self.model_combo)
-        self.context_button = QPushButton()
-        self.context_button.setObjectName("iconButton")
-        self.context_button.setCursor(Qt.PointingHandCursor)
-        self.context_button.setFixedWidth(34)
-        self.context_button.setCheckable(True)
+
         self.chat_refresh = QPushButton()
         self.chat_refresh.setObjectName("iconButton")
         self.chat_refresh.setCursor(Qt.PointingHandCursor)
-        self.chat_refresh.setFixedWidth(34)
+        self.chat_refresh.setFixedSize(32, 32)
         self.chat_refresh.clicked.connect(self.refresh_models)
-        self.chat_header.addWidget(self.context_button)
+
+        self.mode_switch = QFrame()
+        self.mode_switch.setObjectName("modeSwitch")
+        self.mode_switch.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        mode_layout = QHBoxLayout(self.mode_switch)
+        mode_layout.setContentsMargins(2, 2, 2, 2)
+        mode_layout.setSpacing(2)
+        self.mode_chat_btn = QPushButton(self.tr("agent_chat"))
+        self.mode_chat_btn.setObjectName("modeSegBtn")
+        self.mode_chat_btn.setCheckable(True)
+        self.mode_chat_btn.setChecked(True)
+        self.mode_chat_btn.setCursor(Qt.PointingHandCursor)
+        self.mode_agent_btn = QPushButton(self.tr("agent_mode"))
+        self.mode_agent_btn.setObjectName("modeSegBtn")
+        self.mode_agent_btn.setCheckable(True)
+        self.mode_agent_btn.setCursor(Qt.PointingHandCursor)
+        self.mode_group = QButtonGroup(self.mode_switch)
+        self.mode_group.setExclusive(True)
+        self.mode_group.addButton(self.mode_chat_btn)
+        self.mode_group.addButton(self.mode_agent_btn)
+        self.mode_chat_btn.clicked.connect(lambda: self._set_mode_from_pill("chat"))
+        self.mode_agent_btn.clicked.connect(lambda: self._set_mode_from_pill("agent"))
+        mode_layout.addWidget(self.mode_chat_btn)
+        mode_layout.addWidget(self.mode_agent_btn)
+
+        self.agent_panel = AgentPanel(self)
+        self.agent_panel.mode.hide()
+        self.agent_panel.mode.currentIndexChanged.connect(
+            lambda _index=0: self._sync_mode_settings()
+        )
+        self.chat_header.addWidget(self.model_combo, 100)
         self.chat_header.addWidget(self.chat_refresh)
-        chat.addWidget(self.chat_header_card)
-        self.context_controls = QFrame()
-        self.context_controls.setObjectName("contextCard")
-        self.context_controls.setMaximumWidth(860)
-        context_layout = QVBoxLayout(self.context_controls)
-        context_layout.setContentsMargins(16, 12, 16, 12)
-        context_layout.setSpacing(8)
-        self.context_controls.hide()
+        self.chat_header.addWidget(self.mode_switch)
+        self.chat_header.addStretch(1)
+        self.chat_header.addWidget(self.agent_panel.mode)
+
         self.context_button.toggled.connect(lambda _checked=False: self._sync_mode_settings())
         self.context_button.toggled.connect(lambda _checked=False: self._sync_chat_icons())
-        context_row = QHBoxLayout()
-        context_row.setContentsMargins(0, 0, 0, 0)
-        context_row.addStretch(1)
-        context_row.addWidget(self.context_controls, 100)
-        context_row.addStretch(1)
-        chat.addLayout(context_row)
+
+        self.transcript = ChatTranscript()
+        self.transcript.regenerate_requested.connect(self.regenerate_answer)
+        self.transcript.grant_folder_requested.connect(self.agent_panel.grant_folder)
+        self.transcript.continue_run_requested.connect(self.agent_panel.continue_run)
+        self.transcript.empty_slot.addWidget(self.onboarding, 0, Qt.AlignHCenter)
+        self.transcript.sync_empty_state(self.tr)
+        chat.addWidget(self.transcript, 1)
+
+        self.composer_wrap = QWidget()
+        self.composer_wrap.setMaximumWidth(850)
+        wrap_layout = QVBoxLayout(self.composer_wrap)
+        wrap_layout.setContentsMargins(0, 0, 0, 0)
+        wrap_layout.setSpacing(6)
+
+        self.agent_inline_banner = QFrame()
+        self.agent_inline_banner.setObjectName("agentInlineBanner")
+        self.agent_inline_banner.hide()
+        banner_layout = QHBoxLayout(self.agent_inline_banner)
+        banner_layout.setContentsMargins(12, 6, 10, 6)
+        banner_layout.setSpacing(8)
+        self.agent_banner_label = QLabel()
+        self.agent_banner_label.setObjectName("mutedMeta")
+        self.agent_banner_label.setTextFormat(Qt.PlainText)
+        self.agent_banner_label.setWordWrap(False)
+        self.agent_banner_retry_btn = QPushButton(self.tr("agent_retry"))
+        self.agent_banner_retry_btn.setObjectName("primary")
+        self.agent_banner_retry_btn.setCursor(Qt.PointingHandCursor)
+        self.agent_banner_retry_btn.clicked.connect(self.agent_panel.retry)
+        self.agent_banner_retry_btn.hide()
+        self.agent_banner_open_btn = QPushButton(self.tr("drawer_title"))
+        self.agent_banner_open_btn.setObjectName("compactToggle")
+        self.agent_banner_open_btn.setCursor(Qt.PointingHandCursor)
+        self.agent_banner_open_btn.clicked.connect(lambda: self.context_button.setChecked(True))
+        banner_layout.addWidget(self.agent_banner_label, 1)
+        banner_layout.addWidget(self.agent_banner_retry_btn)
+        banner_layout.addWidget(self.agent_banner_open_btn)
+        wrap_layout.addWidget(self.agent_inline_banner)
+
+        self.composer_box = QFrame()
+        self.composer_box.setObjectName("composerBox")
+        self.composer_box.setProperty("focused", False)
+        box_layout = QHBoxLayout(self.composer_box)
+        box_layout.setContentsMargins(12, 6, 8, 6)
+        box_layout.setSpacing(8)
+        self.composer = Composer()
+        self.composer.submitted.connect(self.send_message)
+        self.composer.focus_changed.connect(self._set_composer_focused)
+        self.composer.setObjectName("composer")
+        box_layout.addWidget(self.composer, 1)
+
+        self.stop_button = QPushButton()
+        self.stop_button.setObjectName("composerStopBtn")
+        self.stop_button.setCursor(Qt.PointingHandCursor)
+        self.stop_button.setToolTip(self.tr("stop"))
+        self.stop_button.setAccessibleName(self.tr("stop"))
+        self.stop_button.clicked.connect(self.stop_generation)
+        self.stop_button.setEnabled(False)
+        self.stop_button.hide()
+        self.send_button = QPushButton()
+        self.send_button.setObjectName("composerSendBtn")
+        self.send_button.setCursor(Qt.PointingHandCursor)
+        self.send_button.setToolTip(self.tr("send"))
+        self.send_button.setAccessibleName(self.tr("send"))
+        self.send_button.clicked.connect(self.send_message)
+        composer_btns = QHBoxLayout()
+        composer_btns.setContentsMargins(0, 0, 0, 0)
+        composer_btns.setSpacing(6)
+        composer_btns.addWidget(self.stop_button, 0, Qt.AlignBottom)
+        composer_btns.addWidget(self.send_button, 0, Qt.AlignBottom)
+        box_layout.addLayout(composer_btns)
+        wrap_layout.addWidget(self.composer_box)
+
+        self.generation_status = self.label("ready")
+        self.generation_status.setObjectName("composerMeta")
+        self.generation_status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.composer_hint = QLabel(self.tr("composer_hint"))
+        self.composer_hint.setObjectName("composerMeta")
+        self.composer_hint.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        meta_caption = QHBoxLayout()
+        meta_caption.setContentsMargins(8, 0, 8, 2)
+        meta_caption.setSpacing(8)
+        meta_caption.addWidget(self.generation_status, 1)
+        meta_caption.addWidget(self.composer_hint)
+        wrap_layout.addLayout(meta_caption)
+
+        composer_row = QHBoxLayout()
+        composer_row.setContentsMargins(16, 0, 16, 2)
+        composer_row.addStretch(1)
+        composer_row.addWidget(self.composer_wrap, 100)
+        composer_row.addStretch(1)
+        chat.addLayout(composer_row)
+        outer.addWidget(pane, 1)
+
+        self.chat_drawer = QFrame()
+        self.chat_drawer.setObjectName("rightDrawer")
+        self.chat_drawer.setFixedWidth(320)
+        self.chat_drawer.hide()
+        drawer_outer = QVBoxLayout(self.chat_drawer)
+        drawer_outer.setContentsMargins(0, 0, 0, 0)
+        drawer_outer.setSpacing(0)
+        drawer_hdr = QHBoxLayout()
+        drawer_hdr.setContentsMargins(14, 10, 10, 8)
+        drawer_hdr.setSpacing(8)
+        self.drawer_title = QLabel(self.tr("drawer_title"))
+        self.drawer_title.setObjectName("drawerHeading")
+        self.drawer_close_btn = QPushButton()
+        self.drawer_close_btn.setObjectName("iconButton")
+        self.drawer_close_btn.setCursor(Qt.PointingHandCursor)
+        self.drawer_close_btn.setFixedSize(28, 28)
+        self.drawer_close_btn.setToolTip(self.tr("close_notice"))
+        self.drawer_close_btn.setAccessibleName(self.tr("close_notice"))
+        self.drawer_close_btn.clicked.connect(lambda: self.context_button.setChecked(False))
+        drawer_hdr.addWidget(self.drawer_title, 1)
+        drawer_hdr.addWidget(self.drawer_close_btn)
+        drawer_outer.addLayout(drawer_hdr)
+        drawer_outer.addWidget(make_divider())
+
+        self.chat_drawer_scroll = QScrollArea()
+        self.chat_drawer_scroll.setObjectName("drawerScroll")
+        self.chat_drawer_scroll.setWidgetResizable(True)
+        self.chat_drawer_scroll.setFrameShape(QFrame.NoFrame)
+        self.chat_drawer_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        drawer_body = QWidget()
+        drawer_body.setObjectName("drawerBody")
+        drawer_body_layout = QVBoxLayout(drawer_body)
+        drawer_body_layout.setContentsMargins(12, 10, 12, 14)
+        drawer_body_layout.setSpacing(12)
+
+        self.context_controls = QFrame()
+        self.context_controls.setObjectName("contextCard")
+        context_layout = QVBoxLayout(self.context_controls)
+        context_layout.setContentsMargins(2, 2, 2, 2)
+        context_layout.setSpacing(8)
+        self.context_controls.hide()
         self.context_label = self.label("context_label")
         self.context_label.setObjectName("drawerHeading")
         self.context_preset = QComboBox()
+        self.context_preset.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.context_preset.setMinimumContentsLength(6)
         self.context_preset.setAccessibleName(self.tr("context_configure"))
         self._populate_context_presets(1_000_000)
         self.context_preset.currentIndexChanged.connect(self._context_preset_changed)
         self.context_mode = QComboBox()
+        self.context_mode.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.context_mode.setMinimumContentsLength(6)
         self.context_mode.addItem(self.tr("context_auto"), "auto")
         self.context_mode.addItem(self.tr("context_manual"), "manual")
         self.context_mode.currentIndexChanged.connect(self._context_mode_changed)
@@ -597,20 +769,22 @@ class MainWindow(QMainWindow):
         self.context_tokens.setRange(128, 1_000_000)
         self.context_tokens.setSingleStep(256)
         self.context_tokens.setValue(2048)
+        self.context_tokens.setMinimumWidth(80)
         self.context_tokens.valueChanged.connect(self._context_edited)
         self.context_tokens.valueChanged.connect(self._sync_context_preset)
         self.context_save = self.button("context_save", self.save_model_context)
         self.context_save.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        context_layout.addLayout(
-            self.row(
-                self.context_label,
-                self.context_preset,
-                self.context_mode,
-                self.context_tokens,
-                self.context_save,
-            )
-        )
+        context_layout.addWidget(self.context_label)
+        context_layout.addWidget(self.context_mode)
+        context_layout.addWidget(self.context_preset)
+        ctx_row2 = QHBoxLayout()
+        ctx_row2.setContentsMargins(0, 0, 0, 0)
+        ctx_row2.setSpacing(6)
+        ctx_row2.addWidget(self.context_tokens, 1)
+        ctx_row2.addWidget(self.context_save)
+        context_layout.addLayout(ctx_row2)
         self.context_status = QLabel()
+        self.context_status.setObjectName("mutedMeta")
         self.context_status.setWordWrap(True)
         self.context_slider = QSlider(Qt.Horizontal)
         self.context_slider.setRange(0, 1000)
@@ -619,71 +793,7 @@ class MainWindow(QMainWindow):
         self.context_tokens.valueChanged.connect(self.sync_context_slider)
         context_layout.addWidget(self.context_slider)
         context_layout.addWidget(self.context_status)
-        self.context_gpu_divider = make_divider("contextDivider")
-        context_layout.addWidget(self.context_gpu_divider)
-        self.chat_gpu_label = self.label("gpu_section_label")
-        self.chat_gpu_label.setObjectName("drawerHeading")
-        self.chat_gpu_mode = QComboBox()
-        self.chat_gpu_mode.setAccessibleName(self.tr("gpu_offload_mode"))
-        for key in ("auto", "max", "manual", "cpu"):
-            self.chat_gpu_mode.addItem(self.tr("offload_" + key), key)
-        self.chat_gpu_mode.currentIndexChanged.connect(self._chat_gpu_mode_changed)
-        self.chat_gpu_mode.currentIndexChanged.connect(self._chat_gpu_edited)
-        self.chat_gpu_layers = QSpinBox()
-        self.chat_gpu_layers.setRange(0, 999)
-        self.chat_gpu_layers.setValue(99)
-        self.chat_gpu_layers.setAccessibleName(self.tr("gpu_layers"))
-        self.chat_gpu_layers.valueChanged.connect(self._chat_gpu_edited)
-        self.chat_gpu_save = self.button("save", self.save_model_gpu)
-        self.chat_gpu_save.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        context_layout.addLayout(
-            self.row(
-                self.chat_gpu_label,
-                self.chat_gpu_mode,
-                self.chat_gpu_layers,
-                self.chat_gpu_save,
-            )
-        )
-        self.chat_gpu_status = QLabel()
-        self.chat_gpu_status.setObjectName("mutedMeta")
-        self.chat_gpu_status.setTextFormat(Qt.PlainText)
-        self.chat_gpu_status.setWordWrap(True)
-        context_layout.addWidget(self.chat_gpu_status)
-        self.agent_panel = AgentPanel(self)
-        self.agent_panel.setMaximumWidth(840)
-        self.chat_header.insertWidget(2, self.agent_panel.mode)
-        self.agent_panel.mode.currentIndexChanged.connect(
-            lambda _index=0: self._sync_mode_settings()
-        )
-        agent_row = QHBoxLayout()
-        agent_row.setContentsMargins(0, 0, 0, 0)
-        agent_row.addStretch(1)
-        agent_row.addWidget(self.agent_panel, 100)
-        agent_row.addStretch(1)
-        chat.addLayout(agent_row)
-        self.transcript = ChatTranscript()
-        self.transcript.regenerate_requested.connect(self.regenerate_answer)
-        self.transcript.grant_folder_requested.connect(self.agent_panel.grant_folder)
-        self.transcript.continue_run_requested.connect(self.agent_panel.continue_run)
-        chat.addWidget(self.transcript, 1)
-        self.composer_wrap = QWidget()
-        self.composer_wrap.setMaximumWidth(860)
-        wrap_layout = QVBoxLayout(self.composer_wrap)
-        wrap_layout.setContentsMargins(0, 0, 0, 0)
-        wrap_layout.setSpacing(6)
-        self.composer_box = QFrame()
-        self.composer_box.setObjectName("composerBox")
-        box_layout = QVBoxLayout(self.composer_box)
-        box_layout.setContentsMargins(12, 8, 12, 8)
-        box_layout.setSpacing(6)
-        self.composer = Composer()
-        self.composer.submitted.connect(self.send_message)
-        self.composer.setObjectName("composer")
-        box_layout.addWidget(self.composer)
-        box_layout.addWidget(make_divider("subtleDivider"))
-        self.generation_status = self.label("ready")
-        self.generation_status.setObjectName("mutedMeta")
-        self.generation_status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
         self.context_usage = QLabel()
         self.context_usage.setObjectName("mutedMeta")
         self.context_usage.setWordWrap(True)
@@ -704,46 +814,62 @@ class MainWindow(QMainWindow):
         self.context_details.setWordWrap(True)
         self.context_details.hide()
         self.context_toggle.toggled.connect(self.context_details.setVisible)
-        self.send_button = self.button("send", self.send_message, primary=True)
-        self.stop_button = self.button("stop", self.stop_generation)
-        self.stop_button.setObjectName("dangerButton")
-        self.stop_button.setEnabled(False)
-        self.stop_button.hide()
-        self.stop_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        self.send_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        meta_row = QHBoxLayout()
-        meta_row.setContentsMargins(4, 0, 4, 0)
-        meta_row.setSpacing(8)
-        meta_row.addWidget(self.context_usage, 1)
-        meta_row.addWidget(self.context_meter)
-        meta_row.addWidget(self.context_toggle)
-        actions = QHBoxLayout()
-        actions.setContentsMargins(4, 0, 0, 0)
-        actions.setSpacing(8)
-        actions.addWidget(self.generation_status, 1)
-        actions.addWidget(self.stop_button)
-        actions.addWidget(self.send_button)
-        box_layout.addLayout(actions)
-        wrap_layout.addWidget(self.composer_box)
-        wrap_layout.addLayout(meta_row)
-        wrap_layout.addWidget(self.context_details)
-        composer_row = QHBoxLayout()
-        composer_row.setContentsMargins(0, 0, 0, 0)
-        composer_row.addStretch(1)
-        composer_row.addWidget(self.composer_wrap, 100)
-        composer_row.addStretch(1)
-        chat.addLayout(composer_row)
-        outer.addWidget(pane, 1)
+        usage_row = QHBoxLayout()
+        usage_row.setContentsMargins(0, 0, 0, 0)
+        usage_row.setSpacing(8)
+        usage_row.addWidget(self.context_usage, 1)
+        usage_row.addWidget(self.context_meter)
+        context_layout.addLayout(usage_row)
+        context_layout.addWidget(self.context_toggle, 0, Qt.AlignLeft)
+        context_layout.addWidget(self.context_details)
+
+        self.context_gpu_divider = make_divider("contextDivider")
+        context_layout.addWidget(self.context_gpu_divider)
+        self.chat_gpu_label = self.label("gpu_section_label")
+        self.chat_gpu_label.setObjectName("drawerHeading")
+        self.chat_gpu_mode = QComboBox()
+        self.chat_gpu_mode.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.chat_gpu_mode.setMinimumContentsLength(8)
+        self.chat_gpu_mode.setAccessibleName(self.tr("gpu_offload_mode"))
+        for key in ("auto", "max", "manual", "cpu"):
+            self.chat_gpu_mode.addItem(self.tr("offload_" + key), key)
+        self.chat_gpu_mode.currentIndexChanged.connect(self._chat_gpu_mode_changed)
+        self.chat_gpu_mode.currentIndexChanged.connect(self._chat_gpu_edited)
+        self.chat_gpu_layers = QSpinBox()
+        self.chat_gpu_layers.setRange(0, 999)
+        self.chat_gpu_layers.setValue(99)
+        self.chat_gpu_layers.setMinimumWidth(80)
+        self.chat_gpu_layers.setAccessibleName(self.tr("gpu_layers"))
+        self.chat_gpu_layers.valueChanged.connect(self._chat_gpu_edited)
+        self.chat_gpu_save = self.button("save_short", self.save_model_gpu)
+        self.chat_gpu_save.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        context_layout.addWidget(self.chat_gpu_label)
+        context_layout.addWidget(self.chat_gpu_mode)
+        gpu_row = QHBoxLayout()
+        gpu_row.setContentsMargins(0, 0, 0, 0)
+        gpu_row.setSpacing(6)
+        gpu_row.addWidget(self.chat_gpu_layers, 1)
+        gpu_row.addWidget(self.chat_gpu_save)
+        context_layout.addLayout(gpu_row)
+        self.chat_gpu_status = QLabel()
+        self.chat_gpu_status.setObjectName("mutedMeta")
+        self.chat_gpu_status.setTextFormat(Qt.PlainText)
+        self.chat_gpu_status.setWordWrap(True)
+        context_layout.addWidget(self.chat_gpu_status)
+
+        drawer_body_layout.addWidget(self.context_controls)
+        drawer_body_layout.addWidget(self.agent_panel)
+        drawer_body_layout.addStretch(1)
+        self.chat_drawer_scroll.setWidget(drawer_body)
+        drawer_outer.addWidget(self.chat_drawer_scroll, 1)
+        outer.addWidget(self.chat_drawer)
         self.pages.addWidget(page)
 
     def _build_models(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 6, 0, 0)
+        layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(10)
-        models_hint = self.label("model_hint")
-        models_hint.setObjectName("subtleHint")
-        layout.addWidget(models_hint)
         self.model_tabs = QTabWidget()
         layout.addWidget(self.model_tabs, 1)
 
@@ -752,10 +878,10 @@ class MainWindow(QMainWindow):
         local.setContentsMargins(0, 10, 0, 0)
         local.setSpacing(10)
 
-        controls_card = QFrame()
-        controls_card.setObjectName("surfaceCard")
-        controls_layout = QVBoxLayout(controls_card)
-        controls_layout.setContentsMargins(14, 10, 14, 10)
+        controls_strip = QFrame()
+        controls_strip.setObjectName("toolbarStrip")
+        controls_layout = QVBoxLayout(controls_strip)
+        controls_layout.setContentsMargins(0, 0, 0, 10)
         controls_layout.setSpacing(8)
         self.engine_filter = QComboBox()
         self.engine_filter.addItems(["llama.cpp", "ollama"])
@@ -772,7 +898,10 @@ class MainWindow(QMainWindow):
         action_bar.addWidget(import_btn)
         action_bar.addWidget(self.scan_button)
         action_bar.addWidget(sync_btn)
+        models_hint = self.label("model_hint")
+        models_hint.setObjectName("mutedMeta")
         action_bar.addStretch(1)
+        action_bar.addWidget(models_hint)
         action_bar.addWidget(refresh_btn)
         controls_layout.addLayout(action_bar)
 
@@ -790,30 +919,31 @@ class MainWindow(QMainWindow):
         )
         filter_bar.setStretch(0, 1)
         controls_layout.addLayout(filter_bar)
-        local.addWidget(controls_card)
+        local.addWidget(controls_strip)
 
         self.models_empty = self.label("models_empty")
         self.models_empty.setObjectName("subtleHint")
         local.addWidget(self.models_empty)
 
-        self.model_table = QTableWidget(0, 4)
+        self.model_table = QTableWidget(0, 5)
         self.model_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.model_table.setSelectionMode(QTableWidget.SingleSelection)
         self.model_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.model_table.setShowGrid(False)
         self.model_table.setAlternatingRowColors(True)
         self.model_table.verticalHeader().hide()
+        self.model_table.horizontalHeader().setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.model_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        for column in (1, 2, 3):
+        for column in (1, 2, 3, 4):
             self.model_table.horizontalHeader().setSectionResizeMode(
                 column, QHeaderView.ResizeToContents
             )
         self.model_table.itemSelectionChanged.connect(self.model_details)
         local.addWidget(self.model_table, 1)
 
-        footer_card = QFrame()
-        footer_card.setObjectName("surfaceCard")
-        footer_layout = QHBoxLayout(footer_card)
+        inspector = QFrame()
+        inspector.setObjectName("modelInspector")
+        footer_layout = QHBoxLayout(inspector)
         footer_layout.setContentsMargins(14, 10, 14, 10)
         footer_layout.setSpacing(12)
         self.model_detail = self.label("model_details")
@@ -841,31 +971,27 @@ class MainWindow(QMainWindow):
             btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
             footer_layout.addWidget(btn)
         footer_layout.addWidget(self.model_actions)
-        local.addWidget(footer_card)
+        local.addWidget(inspector)
         self.model_tabs.addTab(installed, "")
 
         remote = QWidget()
         hf = QVBoxLayout(remote)
         hf.setContentsMargins(0, 10, 0, 0)
         hf.setSpacing(10)
-        download_hint = self.label("download_hint")
-        download_hint.setObjectName("subtleHint")
-        hf.addWidget(download_hint)
         splitter = QSplitter(Qt.Horizontal)
         splitter.setHandleWidth(6)
         left = QFrame()
-        left.setObjectName("surfaceCard")
-        right = QFrame()
-        right.setObjectName("surfaceCard")
+        left.setObjectName("sectionGroup")
+        right = QWidget()
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(12, 12, 12, 12)
         left_layout.setSpacing(8)
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(14, 12, 14, 12)
-        right_layout.setSpacing(8)
+        right_layout.setSpacing(10)
         self.hf_query = QLineEdit()
         self.hf_query.returnPressed.connect(self.search_hf)
-        hf_search_btn = self.button("search", self.search_hf)
+        hf_search_btn = self.button("search", self.search_hf, primary=True)
         hf_search_btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         left_layout.addLayout(self.row(self.hf_query, hf_search_btn))
         self.hf_sort = QComboBox()
@@ -882,14 +1008,20 @@ class MainWindow(QMainWindow):
         self.hf_results.currentItemChanged.connect(self._hf_selection_changed)
         self.hf_sort.currentIndexChanged.connect(self.search_hf)
         left_layout.addWidget(self.hf_results, 1)
+        download_hint = self.label("download_hint")
+        download_hint.setObjectName("mutedMeta")
+        download_hint.setWordWrap(True)
+        left_layout.addWidget(download_hint)
+
         self.hf_detail = QLabel()
-        self.hf_detail.setObjectName("subtleHint")
+        self.hf_detail.setObjectName("sectionTitle")
         self.hf_detail.setWordWrap(True)
         self.hf_detail.setTextFormat(Qt.PlainText)
         right_layout.addWidget(self.hf_detail)
         self.hf_readme = ModelCardBrowser()
-        self.hf_readme.setMinimumHeight(100)
+        self.hf_readme.setMinimumHeight(140)
         right_layout.addWidget(self.hf_readme, 1)
+        right_layout.addWidget(make_divider())
         files_label = self.label("files")
         files_label.setObjectName("drawerHeading")
         right_layout.addWidget(files_label)
@@ -904,40 +1036,79 @@ class MainWindow(QMainWindow):
         right_layout.addLayout(self.row(self.hf_quant_filter, self.hf_size_filter))
         self.hf_files = QComboBox()
         right_layout.addWidget(self.hf_files)
+        hf_dl_bar = QHBoxLayout()
+        hf_dl_bar.setContentsMargins(0, 0, 0, 0)
+        hf_dl_bar.setSpacing(10)
         self.hf_file_info = QLabel()
         self.hf_file_info.setObjectName("mutedMeta")
         self.hf_file_info.setWordWrap(True)
         self.hf_files.currentIndexChanged.connect(self._hf_file_info)
-        right_layout.addWidget(self.hf_file_info)
         self.download_button = self.button("download_file", self.download_file, primary=True)
-        right_layout.addWidget(self.download_button)
+        self.download_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        hf_dl_bar.addWidget(self.hf_file_info, 1)
+        hf_dl_bar.addWidget(self.download_button)
+        right_layout.addLayout(hf_dl_bar)
+
+        right_scroll = QScrollArea()
+        right_scroll.setFrameShape(QFrame.NoFrame)
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setWidget(right)
+        splitter.addWidget(left)
+        splitter.addWidget(right_scroll)
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 3)
+        splitter.setSizes([360, 680])
+        hf.addWidget(splitter, 1)
 
         transfers = QWidget()
         transfer_layout = QVBoxLayout(transfers)
         transfer_layout.setContentsMargins(0, 10, 0, 0)
-        transfer_layout.setSpacing(10)
+        transfer_layout.setSpacing(12)
         transfers_card = QFrame()
-        transfers_card.setObjectName("surfaceCard")
+        transfers_card.setObjectName("sectionGroup")
         tc_layout = QVBoxLayout(transfers_card)
-        tc_layout.setContentsMargins(18, 16, 18, 16)
+        tc_layout.setContentsMargins(16, 14, 16, 14)
         tc_layout.setSpacing(10)
         self.transfers_empty = self.label("transfers_empty")
         self.transfers_empty.setObjectName("subtleHint")
+        self.transfers_empty.setWordWrap(True)
         tc_layout.addWidget(self.transfers_empty)
+        transfer_head = QHBoxLayout()
+        transfer_head.setContentsMargins(0, 0, 0, 0)
+        transfer_head.setSpacing(8)
         self.download_list = QComboBox()
-        tc_layout.addWidget(self.download_list)
+        self.download_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.transfer_state_badge = QLabel()
+        self.transfer_state_badge.setObjectName("statusPill")
+        self.transfer_state_badge.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.transfer_state_badge.hide()
+        transfer_head.addWidget(self.download_list, 1)
+        transfer_head.addWidget(self.transfer_state_badge)
+        tc_layout.addLayout(transfer_head)
         self.download_progress = QProgressBar()
+        self.download_progress.setMinimumHeight(8)
         self.download_progress.setValue(0)
         tc_layout.addWidget(self.download_progress)
         self.download_status = QLabel()
         self.download_status.setObjectName("mutedMeta")
+        self.download_status.setWordWrap(True)
         tc_layout.addWidget(self.download_status)
+        self.transfer_error_banner = QFrame()
+        self.transfer_error_banner.setObjectName("errorBanner")
+        self.transfer_error_banner.hide()
+        err_layout = QHBoxLayout(self.transfer_error_banner)
+        err_layout.setContentsMargins(10, 6, 10, 6)
+        self.transfer_error_label = QLabel()
+        self.transfer_error_label.setObjectName("notice")
+        self.transfer_error_label.setWordWrap(True)
+        err_layout.addWidget(self.transfer_error_label, 1)
+        tc_layout.addWidget(self.transfer_error_banner)
         self.download_list.currentIndexChanged.connect(self._show_download_progress)
         self.cancel_download_button = self.button("cancel_download", self.cancel_download)
         self.resume_download_button = self.button("resume_download", self.resume_download)
         self.import_download_button = self.button("import_download", self.import_download)
         dl_actions = QHBoxLayout()
-        dl_actions.setContentsMargins(0, 4, 0, 0)
+        dl_actions.setContentsMargins(0, 2, 0, 0)
         dl_actions.setSpacing(8)
         for button in (
             self.cancel_download_button,
@@ -950,48 +1121,77 @@ class MainWindow(QMainWindow):
         dl_actions.addStretch(1)
         tc_layout.addLayout(dl_actions)
         transfer_layout.addWidget(transfers_card)
+
+        self.transfer_queue_heading = self.label("transfer_queue")
+        self.transfer_queue_heading.setObjectName("drawerHeading")
+        self.transfer_queue_heading.hide()
+        transfer_layout.addWidget(self.transfer_queue_heading)
+        self.transfers_queue = QListWidget()
+        self.transfers_queue.setObjectName("sectionGroup")
+        self.transfers_queue.hide()
+        self.transfers_queue.currentRowChanged.connect(self._transfer_queue_selected)
+        transfer_layout.addWidget(self.transfers_queue, 1)
         transfer_layout.addStretch(1)
 
-        right_scroll = QScrollArea()
-        right_scroll.setFrameShape(QFrame.NoFrame)
-        right_scroll.setWidgetResizable(True)
-        right_scroll.setWidget(right)
-        splitter.addWidget(left)
-        splitter.addWidget(right_scroll)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 2)
-        splitter.setSizes([390, 700])
-        hf.addWidget(splitter, 1)
         self.model_tabs.addTab(remote, "")
         self.model_tabs.addTab(transfers, "")
         self.pages.addWidget(page)
 
     def _build_settings(self):
+        settings_page = QWidget()
+        page_layout = QVBoxLayout(settings_page)
+        page_layout.setContentsMargins(0, 4, 0, 0)
+        page_layout.setSpacing(10)
         scroll = QScrollArea()
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setWidgetResizable(True)
+        self.settings_scroll = scroll
         outer = QWidget()
         outer_layout = QHBoxLayout(outer)
-        outer_layout.setContentsMargins(0, 8, 0, 24)
+        outer_layout.setContentsMargins(0, 8, 0, 16)
         outer_layout.addStretch(1)
         self.settings_container = QWidget()
+        self.settings_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.settings_container.setMaximumWidth(850)
         outer_layout.addWidget(self.settings_container, 10)
         outer_layout.addStretch(1)
         container_layout = QVBoxLayout(self.settings_container)
-        container_layout.setContentsMargins(0, 8, 0, 8)
+        container_layout.setContentsMargins(0, 6, 0, 12)
         container_layout.setSpacing(14)
 
-        def make_card():
-            card = QFrame()
-            card.setObjectName("settingsCard")
-            card_form = QFormLayout(card)
-            card_form.setContentsMargins(20, 18, 20, 18)
+        nav_row = QHBoxLayout()
+        nav_row.setContentsMargins(0, 0, 0, 4)
+        nav_row.setSpacing(6)
+        self.settings_nav_group = QButtonGroup(self.settings_container)
+        self.settings_nav_group.setExclusive(True)
+        self.settings_nav_pills = {}
+
+        def make_section(key):
+            section = QFrame()
+            section.setObjectName("sectionGroup")
+            sec_layout = QVBoxLayout(section)
+            sec_layout.setContentsMargins(18, 14, 18, 16)
+            sec_layout.setSpacing(12)
+            head = self.label(key)
+            head.setObjectName("drawerHeading")
+            sec_layout.addWidget(head)
+            sec_layout.addWidget(make_divider())
+            card_form = QFormLayout()
+            card_form.setContentsMargins(0, 2, 0, 0)
             card_form.setHorizontalSpacing(18)
-            card_form.setVerticalSpacing(14)
+            card_form.setVerticalSpacing(12)
             card_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
-            container_layout.addWidget(card)
-            return card_form
+            sec_layout.addLayout(card_form)
+            container_layout.addWidget(section)
+            pill = QPushButton(self.tr(key))
+            pill.setObjectName("sectionPill")
+            pill.setCheckable(True)
+            pill.setCursor(Qt.PointingHandCursor)
+            self._texts.append((pill, key))
+            self.settings_nav_group.addButton(pill)
+            self.settings_nav_pills[key] = (pill, section)
+            nav_row.addWidget(pill)
+            return section, sec_layout, card_form
 
         def compact_row(*widgets):
             box = QHBoxLayout()
@@ -1002,7 +1202,9 @@ class MainWindow(QMainWindow):
             box.addStretch(1)
             return box
 
-        appearance_form = make_card()
+        container_layout.addLayout(nav_row)
+
+        appearance_sec, _, appearance_form = make_section("settings_appearance")
         self.language = QComboBox()
         self.language.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.language.setMinimumContentsLength(16)
@@ -1049,10 +1251,10 @@ class MainWindow(QMainWindow):
             compact_row(self.accent_button, self.button("accent_default", self.reset_accent))
         )
 
-        engine_form = make_card()
+        engine_sec, engine_box, engine_form = make_section("settings_engine")
         self.device = QComboBox()
         self.device.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        self.device.setMinimumContentsLength(28)
+        self.device.setMinimumContentsLength(24)
         self.device.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         for key in ("auto", "cpu", "cuda"):
             self.device.addItem(self.tr("mode_" + key), key)
@@ -1075,11 +1277,18 @@ class MainWindow(QMainWindow):
             offload_selected = "auto"
         self.gpu_offload_mode.setCurrentIndex(self.gpu_offload_mode.findData(offload_selected))
         engine_form.addRow(self.label("gpu_offload_mode"), self.gpu_offload_mode)
+        engine_callout = QFrame()
+        engine_callout.setObjectName("engineCallout")
+        ec_layout = QHBoxLayout(engine_callout)
+        ec_layout.setContentsMargins(12, 8, 12, 8)
         self.engine_summary = self.label("detecting_engines")
-        engine_form.addRow(self.engine_summary)
+        self.engine_summary.setObjectName("subtleHint")
+        self.engine_summary.setWordWrap(True)
+        ec_layout.addWidget(self.engine_summary, 1)
+        engine_box.addWidget(engine_callout)
         self.advanced_toggle = self.button("advanced_settings", lambda: None)
         self.advanced_toggle.setCheckable(True)
-        engine_form.addRow(
+        engine_box.addLayout(
             compact_row(
                 self.button("detect_engines", self.refresh_diagnostics),
                 self.advanced_toggle,
@@ -1087,17 +1296,25 @@ class MainWindow(QMainWindow):
         )
 
         self.advanced_settings = QFrame()
-        self.advanced_settings.setObjectName("settingsCard")
+        self.advanced_settings.setObjectName("sectionGroup")
         self.advanced_toggle.toggled.connect(self.advanced_settings.setVisible)
         container_layout.addWidget(self.advanced_settings)
         self.advanced_settings.hide()
-        form = QFormLayout(self.advanced_settings)
-        form.setContentsMargins(20, 18, 20, 18)
+        adv_outer = QVBoxLayout(self.advanced_settings)
+        adv_outer.setContentsMargins(18, 14, 18, 16)
+        adv_outer.setSpacing(12)
+        adv_paths_head = self.label("settings_paths")
+        adv_paths_head.setObjectName("drawerHeading")
+        adv_outer.addWidget(adv_paths_head)
+        adv_outer.addWidget(make_divider())
+        form = QFormLayout()
+        form.setContentsMargins(0, 2, 0, 0)
         form.setHorizontalSpacing(18)
-        form.setVerticalSpacing(14)
+        form.setVerticalSpacing(12)
         form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        adv_outer.addLayout(form)
         self.roots = QListWidget()
-        self.roots.setMaximumHeight(100)
+        self.roots.setMaximumHeight(96)
         self.roots.addItems(self.config.model_roots)
         form.addRow(self.label("model_roots"), self.roots)
         form.addRow(
@@ -1116,14 +1333,26 @@ class MainWindow(QMainWindow):
                 self.button("browse", self.choose_llama),
             )
         )
-        form.addRow(self.label("cuda_hint"))
+        cuda_hint = self.label("cuda_hint")
+        cuda_hint.setObjectName("mutedMeta")
+        cuda_hint.setWordWrap(True)
+        form.addRow(cuda_hint)
         self.ollama_url = QLineEdit(self.config.ollama_url)
         form.addRow(self.label("ollama_url"), self.ollama_url)
         self.ollama_enabled = QCheckBox()
         self.ollama_enabled.setChecked(self.config.ollama_enabled)
         self._texts.append((self.ollama_enabled, "ollama_enabled"))
         form.addRow(self.ollama_enabled)
-        form.addRow(self.label("generation", title=True))
+        adv_outer.addWidget(make_divider())
+        gen_head = self.label("generation")
+        gen_head.setObjectName("drawerHeading")
+        adv_outer.addWidget(gen_head)
+        gen_form = QFormLayout()
+        gen_form.setContentsMargins(0, 2, 0, 0)
+        gen_form.setHorizontalSpacing(18)
+        gen_form.setVerticalSpacing(12)
+        gen_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        adv_outer.addLayout(gen_form)
         self.parameter_inputs = {}
         defaults = {
             "temperature": 0.7,
@@ -1150,7 +1379,7 @@ class MainWindow(QMainWindow):
                 box.setSingleStep(0.05)
             box.setValue(self.config.parameters.get(key, default))
             box.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-            form.addRow(self.label(key), box)
+            gen_form.addRow(self.label(key), box)
             self.parameter_inputs[key] = box
         self.device.currentIndexChanged.connect(self.execution_mode_changed)
         self.gpu_offload_mode.currentIndexChanged.connect(self.offload_mode_changed)
@@ -1158,58 +1387,156 @@ class MainWindow(QMainWindow):
         self.thinking = QCheckBox(self.tr("thinking"))
         self.thinking.setChecked(self.config.parameters.get("thinking", False))
         self._texts.append((self.thinking, "thinking"))
-        form.addRow(self.thinking)
+        gen_form.addRow(self.thinking)
         self.system_prompt = QPlainTextEdit(self.config.parameters.get("system_prompt", ""))
-        self.system_prompt.setMaximumHeight(100)
-        form.addRow(self.label("system_prompt"), self.system_prompt)
+        self.system_prompt.setMaximumHeight(96)
+        gen_form.addRow(self.label("system_prompt"), self.system_prompt)
 
-        footer_form = make_card()
-        footer_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
-        footer_form.addRow(self.label("settings_hint"))
-        footer_form.addRow(compact_row(self.button("save", self.save_settings, primary=True)))
+        about_sec, about_box, _ = make_section("settings_about")
         self.about = QLabel()
+        self.about.setObjectName("mutedMeta")
         self.about.setWordWrap(True)
         self.about.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        footer_form.addRow(self.about)
+        about_box.addWidget(self.about)
         self.updates = UpdatePanel(self.config, self.tr, self)
-        footer_form.addRow(self.updates)
+        about_box.addWidget(self.updates)
+
+        adv_pill = QPushButton(self.tr("advanced_settings"))
+        adv_pill.setObjectName("sectionPill")
+        adv_pill.setCheckable(True)
+        adv_pill.setCursor(Qt.PointingHandCursor)
+        self._texts.append((adv_pill, "advanced_settings"))
+        self.settings_nav_group.addButton(adv_pill)
+        nav_row.insertWidget(2, adv_pill)
+        nav_row.addStretch(1)
+
+        def scroll_to(widget):
+            if widget is self.advanced_settings and not self.advanced_toggle.isChecked():
+                self.advanced_toggle.setChecked(True)
+            self.settings_scroll.ensureWidgetVisible(widget, 16, 16)
+
+        for pill, sec in self.settings_nav_pills.values():
+            pill.clicked.connect(lambda _c=False, target=sec: scroll_to(target))
+        adv_pill.clicked.connect(lambda: scroll_to(self.advanced_settings))
+        self.settings_nav_pills["settings_appearance"][0].setChecked(True)
+
         container_layout.addStretch(1)
         scroll.setWidget(outer)
         scroll.setMinimumWidth(0)
-        self.pages.addWidget(scroll)
+        page_layout.addWidget(scroll, 1)
+
+        self.settings_save_bar = QFrame()
+        self.settings_save_bar.setObjectName("modelInspector")
+        self.settings_save_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.settings_save_bar.setMaximumWidth(850)
+        save_layout = QHBoxLayout(self.settings_save_bar)
+        save_layout.setContentsMargins(16, 10, 16, 10)
+        save_layout.setSpacing(12)
+        settings_hint = self.label("settings_hint")
+        settings_hint.setObjectName("subtleHint")
+        settings_hint.setWordWrap(True)
+        save_btn = self.button("save", self.save_settings, primary=True)
+        save_btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        save_layout.addWidget(settings_hint, 1)
+        save_layout.addWidget(save_btn)
+        save_wrap = QHBoxLayout()
+        save_wrap.setContentsMargins(0, 0, 0, 6)
+        save_wrap.addStretch(1)
+        save_wrap.addWidget(self.settings_save_bar, 10)
+        save_wrap.addStretch(1)
+        page_layout.addLayout(save_wrap)
+
+        self.pages.addWidget(settings_page)
 
     def _build_diagnostics(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 6, 0, 0)
-        layout.setSpacing(10)
+        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setSpacing(12)
+
+        top_strip = QFrame()
+        top_strip.setObjectName("toolbarStrip")
+        strip_layout = QHBoxLayout(top_strip)
+        strip_layout.setContentsMargins(0, 0, 0, 10)
+        strip_layout.setSpacing(10)
         diag_hint = self.label("diagnostics_hint")
         diag_hint.setObjectName("subtleHint")
-        layout.addWidget(diag_hint)
-        actions = QHBoxLayout()
-        actions.setContentsMargins(0, 0, 0, 0)
-        actions.setSpacing(8)
-        refresh_btn = self.button("refresh", self.refresh_diagnostics)
+        diag_hint.setWordWrap(True)
+        refresh_btn = self.button("refresh", self.refresh_diagnostics, primary=True)
         export_btn = self.button("export_report", self.export_report)
         refresh_btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         export_btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        actions.addWidget(refresh_btn)
-        actions.addWidget(export_btn)
-        actions.addStretch(1)
-        layout.addLayout(actions)
+        strip_layout.addWidget(diag_hint, 1)
+        strip_layout.addWidget(export_btn)
+        strip_layout.addWidget(refresh_btn)
+        layout.addWidget(top_strip)
+
+        tiles_grid = QGridLayout()
+        tiles_grid.setContentsMargins(0, 0, 0, 0)
+        tiles_grid.setSpacing(10)
+        self._diag_tiles = {}
+        for col, (tile_id, key) in enumerate(
+            (
+                ("backend", "diag_health_title"),
+                ("gpu", "diag_gpu_title"),
+                ("cpu", "diag_cpu_title"),
+                ("storage", "diag_storage_title"),
+            )
+        ):
+            tile = QFrame()
+            tile.setObjectName("metricTile")
+            tl = QVBoxLayout(tile)
+            tl.setContentsMargins(14, 10, 14, 10)
+            tl.setSpacing(3)
+            hdr = self.label(key)
+            hdr.setObjectName("metricTitle")
+            val = QLabel("—")
+            val.setObjectName("metricValue")
+            val.setTextFormat(Qt.PlainText)
+            sub = QLabel("")
+            sub.setObjectName("metricSub")
+            sub.setTextFormat(Qt.PlainText)
+            sub.setWordWrap(True)
+            tl.addWidget(hdr)
+            tl.addWidget(val)
+            tl.addWidget(sub)
+            tl.addStretch(1)
+            tiles_grid.addWidget(tile, 0, col)
+            tiles_grid.setColumnStretch(col, 1)
+            self._diag_tiles[tile_id] = (val, sub)
+        layout.addLayout(tiles_grid)
+
+        diag_splitter = QSplitter(Qt.Horizontal)
+        diag_splitter.setHandleWidth(6)
+
+        report_pane = QWidget()
+        rep_layout = QVBoxLayout(report_pane)
+        rep_layout.setContentsMargins(0, 0, 6, 0)
+        rep_layout.setSpacing(6)
         diag_title = self.label("diagnostics")
         diag_title.setObjectName("drawerHeading")
-        layout.addWidget(diag_title)
+        rep_layout.addWidget(diag_title)
         self.diagnostic_text = QPlainTextEdit()
         self.diagnostic_text.setReadOnly(True)
-        layout.addWidget(self.diagnostic_text, 2)
+        rep_layout.addWidget(self.diagnostic_text, 1)
+
+        logs_pane = QWidget()
+        logs_layout = QVBoxLayout(logs_pane)
+        logs_layout.setContentsMargins(6, 0, 0, 0)
+        logs_layout.setSpacing(6)
         events_title = self.label("events")
         events_title.setObjectName("drawerHeading")
-        layout.addWidget(events_title)
+        logs_layout.addWidget(events_title)
         self.logs = QPlainTextEdit()
         self.logs.setReadOnly(True)
         self.logs.document().setMaximumBlockCount(250)
-        layout.addWidget(self.logs, 1)
+        logs_layout.addWidget(self.logs, 1)
+
+        diag_splitter.addWidget(report_pane)
+        diag_splitter.addWidget(logs_pane)
+        diag_splitter.setStretchFactor(0, 11)
+        diag_splitter.setStretchFactor(1, 9)
+        layout.addWidget(diag_splitter, 1)
         self.pages.addWidget(page)
 
     def focus_history_search(self):
@@ -1251,9 +1578,41 @@ class MainWindow(QMainWindow):
             return True
         return super().eventFilter(watched, event)
 
+    def _set_composer_focused(self, focused: bool):
+        if hasattr(self, "composer_box"):
+            polish_property(self.composer_box, "focused", bool(focused))
+
+    def _set_mode_from_pill(self, mode_key: str):
+        idx = self.agent_panel.mode.findData(mode_key)
+        if idx >= 0 and self.agent_panel.mode.currentIndex() != idx:
+            self.agent_panel.mode.setCurrentIndex(idx)
+
+    def _sync_agent_banner(self):
+        if not hasattr(self, "agent_inline_banner"):
+            return
+        agent_mode = self.agent_panel.mode.currentData() == "agent"
+        drawer_open = hasattr(self, "context_button") and self.context_button.isChecked()
+        has_active = bool(self.agent_panel.active)
+        has_retry = not self.agent_panel.retry_button.isHidden()
+        status_txt = self.agent_panel.status.text().strip()
+        show = agent_mode and not drawer_open and (has_active or has_retry or bool(status_txt))
+        self.agent_inline_banner.setVisible(show)
+        self.agent_banner_retry_btn.setVisible(show and has_retry)
+        if show:
+            self.agent_banner_label.setText(status_txt or self.tr("agent_running_banner"))
+
     def _sync_mode_settings(self):
         agent_mode = self.agent_panel.mode.currentData() == "agent"
+        if hasattr(self, "mode_chat_btn") and hasattr(self, "mode_agent_btn"):
+            self.mode_chat_btn.blockSignals(True)
+            self.mode_agent_btn.blockSignals(True)
+            self.mode_chat_btn.setChecked(not agent_mode)
+            self.mode_agent_btn.setChecked(agent_mode)
+            self.mode_chat_btn.blockSignals(False)
+            self.mode_agent_btn.blockSignals(False)
         open_settings = self.context_button.isChecked()
+        if hasattr(self, "chat_drawer"):
+            self.chat_drawer.setVisible(open_settings)
         self.context_controls.setVisible(open_settings)
         if self.context_controls.layout():
             self.context_controls.layout().activate()
@@ -1263,12 +1622,16 @@ class MainWindow(QMainWindow):
         self.agent_panel.visibility()
         if self.agent_panel.layout():
             self.agent_panel.layout().activate()
+        self._sync_agent_banner()
         if (
             getattr(self, "pages", None)
             and self.pages.currentWidget()
             and self.pages.currentWidget().layout()
         ):
             self.pages.currentWidget().layout().activate()
+        self._render_resource_widgets()
+        self._render_model_gpu()
+        self._sync_model_combo_width()
         tip = (
             self.agent_panel.settings_toggle.text() if agent_mode else self.tr("context_configure")
         )
@@ -1309,13 +1672,19 @@ class MainWindow(QMainWindow):
         self.context_button.setIconSize(QSize(icon_px, icon_px))
         self.chat_refresh.setIcon(app_icon("refresh", fg, icon_px))
         self.chat_refresh.setIconSize(QSize(icon_px, icon_px))
+        if hasattr(self, "drawer_close_btn"):
+            close_px = self._scaled(14)
+            self.drawer_close_btn.setIcon(app_icon("close", fg, close_px))
+            self.drawer_close_btn.setIconSize(QSize(close_px, close_px))
         if hasattr(self, "send_button"):
-            btn_icon = self._scaled(14)
+            btn_icon = self._scaled(16)
+            self.send_button.setText("")
             self.send_button.setIcon(app_icon("send", accent_text, btn_icon))
             self.send_button.setIconSize(QSize(btn_icon, btn_icon))
         if hasattr(self, "stop_button"):
             danger = self._tokens.danger if hasattr(self, "_tokens") else "#f07078"
-            btn_icon = self._scaled(14)
+            btn_icon = self._scaled(15)
+            self.stop_button.setText("")
             self.stop_button.setIcon(app_icon("stop", danger, btn_icon))
             self.stop_button.setIconSize(QSize(btn_icon, btn_icon))
         if hasattr(self, "model_actions"):
@@ -1324,13 +1693,19 @@ class MainWindow(QMainWindow):
             self.model_actions.setIconSize(QSize(menu_icon, menu_icon))
 
     def _apply_scaled_metrics(self):
-        icon_btn = self._scaled(34)
+        icon_btn = self._scaled(32)
         for widget in (
             self.context_button,
             self.chat_refresh,
         ):
             widget.setFixedSize(icon_btn, icon_btn)
-        mode_fm = self.agent_panel.mode.fontMetrics()
+        if hasattr(self, "drawer_close_btn"):
+            self.drawer_close_btn.setFixedSize(self._scaled(28), self._scaled(28))
+        mode_fm = (
+            self.mode_chat_btn.fontMetrics()
+            if hasattr(self, "mode_chat_btn")
+            else self.agent_panel.mode.fontMetrics()
+        )
         widest_mode = max(
             (
                 mode_fm.horizontalAdvance(self.agent_panel.mode.itemText(i))
@@ -1338,36 +1713,64 @@ class MainWindow(QMainWindow):
             ),
             default=0,
         )
+        if hasattr(self, "mode_chat_btn") and hasattr(self, "mode_agent_btn"):
+            from PySide6.QtGui import QFontMetrics
+
+            bold_font = self.mode_agent_btn.font()
+            bold_font.setBold(True)
+            bold_fm = QFontMetrics(bold_font)
+            widest_bold = max(
+                (
+                    bold_fm.horizontalAdvance(self.agent_panel.mode.itemText(i))
+                    for i in range(self.agent_panel.mode.count())
+                ),
+                default=0,
+            )
+            seg_w = max(self._scaled(58), widest_bold + self._scaled(26))
+            seg_h = self._scaled(26)
+            for seg in (self.mode_chat_btn, self.mode_agent_btn):
+                seg.setFixedSize(seg_w, seg_h)
+            self.mode_switch.setFixedHeight(self._scaled(32))
         mode_w = max(self._scaled(124), widest_mode + self._scaled(64))
         self.agent_panel.mode.setFixedWidth(mode_w)
-        self.agent_panel.mode.setFixedHeight(self._scaled(34))
-        self.model_combo.setFixedHeight(self._scaled(34))
+        self.agent_panel.mode.setFixedHeight(self._scaled(32))
+        self.model_combo.setFixedHeight(self._scaled(32))
+        scale = self.config.ui_scale / 100
+        send_sz = max(24, round(17 * scale) * 2)
+        self.send_button.setFixedSize(send_sz, send_sz)
+        self.stop_button.setFixedSize(send_sz, send_sz)
+        if hasattr(self, "chat_drawer"):
+            self.chat_drawer.setFixedWidth(min(430, max(352, round(356 * min(1.20, scale)))))
         self.model_actions.setFixedSize(self._scaled(32), self._scaled(32))
+        self._render_resource_widgets()
+        self._render_model_gpu()
         self._sync_model_combo_width()
-        self.context_controls.setMaximumWidth(self._scaled(860))
-        self.composer_wrap.setMaximumWidth(self._scaled(860))
-        self.agent_panel.setMaximumWidth(self._scaled(860))
+        self.composer_wrap.setMaximumWidth(self._scaled(850))
+        self.onboarding.setMaximumWidth(self._scaled(540))
         if self.transcript.widget():
             self.transcript.widget().setMaximumWidth(self._scaled(860))
         self.settings_container.setMaximumWidth(self._scaled(850))
+        if hasattr(self, "settings_save_bar"):
+            self.settings_save_bar.setMaximumWidth(self._scaled(850))
         self.context_meter.setMaximumWidth(self._scaled(90))
         self.body_layout.setContentsMargins(
-            self._scaled(18), self._scaled(12), self._scaled(18), self._scaled(12)
+            self._scaled(16), self._scaled(10), self._scaled(16), self._scaled(10)
         )
         self._sync_chat_icons()
-        self.body_layout.setSpacing(self._scaled(10))
+        self.body_layout.setSpacing(self._scaled(8))
+
+    def _topbar_pane_width(self) -> int:
+        compact_w = self._scaled(56)
+        expanded_w = min(360, max(200, getattr(self.config, "sidebar_width", 240)))
+        sidebar_w = compact_w if self.config.sidebar_compact else expanded_w
+        drawer_w = 0
+        if hasattr(self, "chat_drawer") and not self.chat_drawer.isHidden():
+            drawer_w = self.chat_drawer.minimumWidth() or self.chat_drawer.width()
+        return max(self._scaled(260), self.width() - sidebar_w - drawer_w - self._scaled(16))
 
     def _sync_model_combo_width(self):
         if not hasattr(self, "model_combo"):
             return
-        compact_w = self._scaled(60)
-        expanded_w = self._scaled(getattr(self.config, "sidebar_width", 260))
-        sidebar_w = compact_w if self.config.sidebar_compact else expanded_w
-        pane_w = max(self._scaled(420), self.width() - sidebar_w - self._scaled(56))
-        mode_w = self.agent_panel.mode.width() or self._scaled(124)
-        reserved = mode_w + self._scaled(34 + 34 + 150)
-        available = max(self._scaled(160), pane_w - reserved)
-        max_cap = min(self._scaled(640), available)
         fm = self.model_combo.fontMetrics()
         widest_item = max(
             (
@@ -1376,15 +1779,18 @@ class MainWindow(QMainWindow):
             ),
             default=0,
         )
-        needed = widest_item + self._scaled(54) if widest_item > 0 else self._scaled(240)
-        min_w = min(self._scaled(180), max_cap)
-        target_max = max(min_w, min(max_cap, needed))
+        needed = widest_item + self._scaled(64) if widest_item > 0 else self._scaled(220)
+        min_w = self._scaled(100)
+        max_w = max(min_w, min(self._scaled(520), needed))
         self.model_combo.setMinimumWidth(min_w)
-        self.model_combo.setMaximumWidth(target_max)
+        self.model_combo.setMaximumWidth(max_w)
 
     def _sync_model_combo_tooltip(self):
         if hasattr(self, "model_combo"):
-            self.model_combo.setToolTip(self.model_combo.currentText() or "")
+            tip = (
+                self.model_combo.currentData(Qt.ToolTipRole) or self.model_combo.currentText() or ""
+            )
+            self.model_combo.setToolTip(tip)
 
     def _sync_history_toolbar(self):
         if self.config.sidebar_compact or not hasattr(self, "history_search_toggle"):
@@ -1414,10 +1820,26 @@ class MainWindow(QMainWindow):
         cfg_w = max(200, min(360, self.config.sidebar_width))
         actual_w = self.sidebar.width()
         effective_w = min(cfg_w, actual_w) if actual_w >= 180 else cfg_w
+        avail_new = effective_w - 2 * self._scaled(10) - self._scaled(32) - self._scaled(6)
+        full_new = self.tr("new_chat")
+        self.new_button.setText(full_new)
+        self.new_button.ensurePolished()
+        if self.new_button.minimumSizeHint().width() > avail_new:
+            chrome = max(
+                self._scaled(28),
+                self.new_button.minimumSizeHint().width()
+                - self.new_button.fontMetrics().horizontalAdvance(full_new),
+            )
+            self.new_button.setText(
+                self.new_button.fontMetrics().elidedText(
+                    full_new, Qt.ElideRight, max(24, avail_new - chrome)
+                )
+            )
+        self.nav[0].setText("")
         max_text_w = max(48, effective_w - self._scaled(76))
         for button, key in zip(
-            (self.new_button, *self.nav),
-            ("new_chat", "conversations_nav", "models", "settings", "diagnostics"),
+            (self.nav[1], self.nav[2], self.nav[3]),
+            ("models", "settings", "diagnostics"),
             strict=True,
         ):
             button.ensurePolished()
@@ -1425,6 +1847,9 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._render_resource_widgets()
+        if hasattr(self, "chat_gpu_pill"):
+            self._render_model_gpu()
         self._sync_model_combo_width()
         self._sync_history_toolbar()
 
@@ -1447,9 +1872,20 @@ class MainWindow(QMainWindow):
 
     def _render_resource_widgets(self, snapshot: ResourceSnapshot | None = None):
         snap = snapshot if snapshot is not None else self.resource_monitor.latest
+        full_summary = format_resource_summary(snap, self.tr)
         if hasattr(self, "resource_monitor_btn"):
-            self.resource_monitor_btn.setText(format_resource_summary(snap, self.tr))
-            self.resource_monitor_btn.setToolTip(self.tr("resources_tooltip"))
+            pane_w = self._topbar_pane_width()
+            if pane_w < self._scaled(500) and " · " in full_summary:
+                vram_parts = [p for p in full_summary.split(" · ") if "VRAM" in p]
+                ram_parts = [p for p in full_summary.split(" · ") if "RAM" in p]
+                display = (vram_parts or ram_parts or [full_summary])[0]
+            elif pane_w < self._scaled(820) and " · " in full_summary:
+                parts = [p for p in full_summary.split(" · ") if "RAM" in p]
+                display = " · ".join(parts[:2]) if parts else full_summary
+            else:
+                display = full_summary
+            self.resource_monitor_btn.setText(display)
+            self.resource_monitor_btn.setToolTip(full_summary + "\n" + self.tr("resources_tooltip"))
             self.resource_monitor_btn.setAccessibleName(self.tr("resources_label"))
             self.resource_monitor_btn.adjustSize()
             self.resource_monitor_btn.updateGeometry()
@@ -1489,9 +1925,9 @@ class MainWindow(QMainWindow):
 
     def _apply_sidebar(self):
         compact = self.config.sidebar_compact
-        compact_width = self._scaled(60)
-        btn_size = self._scaled(38)
-        icon_px = self._scaled(19 if compact else 15)
+        compact_width = self._scaled(56)
+        btn_size = self._scaled(36)
+        icon_px = self._scaled(18 if compact else 15)
         fg, accent, accent_text = self._theme_colors
         margin_h = max(4, (compact_width - 1 - btn_size) // 2) if compact else self._scaled(10)
         margin_v = self._scaled(10 if compact else 12)
@@ -1564,6 +2000,16 @@ class MainWindow(QMainWindow):
         self.history_panel.setVisible(not compact)
         self.nav_footer_divider.setVisible(not compact)
         self.compact_spacer.setVisible(compact)
+        if compact:
+            self.top_actions_grid.addWidget(self.new_button, 0, 0, Qt.AlignHCenter)
+            self.top_actions_grid.addWidget(self.nav[0], 1, 0, Qt.AlignHCenter)
+            self.top_actions_grid.setColumnStretch(0, 1)
+            self.top_actions_grid.setColumnStretch(1, 0)
+        else:
+            self.top_actions_grid.addWidget(self.new_button, 0, 0)
+            self.top_actions_grid.addWidget(self.nav[0], 0, 1)
+            self.top_actions_grid.setColumnStretch(0, 1)
+            self.top_actions_grid.setColumnStretch(1, 0)
         for button, key in zip(
             (self.new_button, *self.nav),
             ("new_chat", "conversations_nav", "models", "settings", "diagnostics"),
@@ -1575,31 +2021,39 @@ class MainWindow(QMainWindow):
             button.setToolTip(self.tr(key))
             button.setAccessibleName(self.tr(key))
             if compact:
+                if button is self.nav[0]:
+                    polish_property(button, "iconOnly", True)
                 button.setFixedSize(btn_size, btn_size)
                 button.setStyleSheet("")
                 button.setText("")
-                self.side_layout.setAlignment(button, Qt.AlignHCenter)
+                if button in (self.nav[1], self.nav[2], self.nav[3]):
+                    self.side_layout.setAlignment(button, Qt.AlignHCenter)
             else:
-                button.setMinimumSize(0, 0)
-                button.setMaximumSize(16777215, 16777215)
+                if button is self.nav[0]:
+                    polish_property(button, "iconOnly", True)
+                    nav_sz = self._scaled(32)
+                    button.setFixedSize(nav_sz, nav_sz)
+                    button.setText("")
+                else:
+                    polish_property(button, "iconOnly", False)
+                    button.setMinimumSize(0, 0)
+                    button.setMaximumSize(16777215, 16777215)
                 button.setStyleSheet("")
-                self.side_layout.setAlignment(button, Qt.Alignment())
+                if button in (self.nav[1], self.nav[2], self.nav[3]):
+                    self.side_layout.setAlignment(button, Qt.Alignment())
         self._sync_sidebar_nav_labels()
 
     def navigate(self, index):
         self.pages.setCurrentIndex(index)
+        is_chat = index == 0
+        self.chat_header_widget.setVisible(is_chat)
+        self.page_title.setVisible(not is_chat)
+        self.context_button.setVisible(is_chat)
         self.page_title.setText(self.tr(("chat", "models", "settings", "diagnostics")[index]))
         for i, button in enumerate(self.nav):
             button.setChecked(i == index)
         self._apply_sidebar()
-        effect = QGraphicsOpacityEffect(self.pages)
-        self.pages.setGraphicsEffect(effect)
-        self._animation = QPropertyAnimation(effect, b"opacity", self)
-        self._animation.setDuration(140)
-        self._animation.setStartValue(0.65)
-        self._animation.setEndValue(1.0)
-        self._animation.setEasingCurve(QEasingCurve.OutCubic)
-        self._animation.start()
+        self._render_model_gpu()
         if index == 3:
             self.refresh_diagnostics()
 
@@ -1609,6 +2063,25 @@ class MainWindow(QMainWindow):
             widget.setText(self.tr(key))
         self.page_title.setText(
             self.tr(("chat", "models", "settings", "diagnostics")[self.pages.currentIndex()])
+        )
+        if hasattr(self, "mode_chat_btn"):
+            self.mode_chat_btn.setText(self.tr("agent_chat"))
+            self.mode_agent_btn.setText(self.tr("agent_mode"))
+        if hasattr(self, "drawer_title"):
+            self.drawer_title.setText(self.tr("drawer_title"))
+            self.drawer_close_btn.setToolTip(self.tr("close_notice"))
+            self.drawer_close_btn.setAccessibleName(self.tr("close_notice"))
+        if hasattr(self, "composer_hint"):
+            self.composer_hint.setText(self.tr("composer_hint"))
+        if hasattr(self, "agent_banner_open_btn"):
+            self.agent_banner_open_btn.setText(self.tr("drawer_title"))
+            self.agent_banner_retry_btn.setText(self.tr("agent_retry"))
+        self.send_button.setToolTip(self.tr("send"))
+        self.send_button.setAccessibleName(self.tr("send"))
+        self.stop_button.setToolTip(self.tr("stop"))
+        self.stop_button.setAccessibleName(self.tr("stop"))
+        self.transcript.sync_empty_state(
+            self.tr, self._theme_colors[1] if hasattr(self, "_theme_colors") else None
         )
         self._apply_sidebar()
         self._update_chat_title()
@@ -1762,6 +2235,8 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(stylesheet)
         self._apply_scaled_metrics()
         self._apply_sidebar()
+        if getattr(self, "transcript", None):
+            self.transcript.sync_empty_state(self.tr, t.accent)
         if prev_dark is not None and prev_dark != t.dark and getattr(self, "transcript", None):
             self.transcript.locale = None
             self.render_messages()
@@ -2391,6 +2866,14 @@ class MainWindow(QMainWindow):
         busy = bool(self._gpu_saving or self.active_job or self.agent_panel.active)
         self.chat_gpu_layers.setEnabled(is_llama and mode == "manual" and not busy)
 
+    def _sync_chat_gpu_pill(self, label: str, tone: str, visible: bool):
+        if not hasattr(self, "chat_gpu_pill"):
+            return
+        self.chat_gpu_pill.setText(label)
+        polish_property(self.chat_gpu_pill, "tone", tone)
+        fits_topbar = self._topbar_pane_width() >= self._scaled(760)
+        self.chat_gpu_pill.setVisible(visible and fits_topbar and self.pages.currentIndex() == 0)
+
     def _render_model_gpu(self):
         if not hasattr(self, "chat_gpu_mode"):
             return
@@ -2402,6 +2885,7 @@ class MainWindow(QMainWindow):
         if not model:
             self.chat_gpu_layers.setEnabled(False)
             self.chat_gpu_status.setText(self.tr("context_choose_model"))
+            self._sync_chat_gpu_pill("", "", False)
             return
         if not is_llama:
             self.chat_gpu_mode.blockSignals(True)
@@ -2412,6 +2896,7 @@ class MainWindow(QMainWindow):
             self.chat_gpu_layers.blockSignals(False)
             self.chat_gpu_layers.setEnabled(False)
             self.chat_gpu_status.setText(self.tr("gpu_status_cpu_only"))
+            self._sync_chat_gpu_pill("CPU", "", True)
             return
         cfg = self._model_gpu_config(model)
         ctx_data = self.model_contexts.get(model["id"], {})
@@ -2494,6 +2979,18 @@ class MainWindow(QMainWindow):
         ):
             parts.append(self.tr("context_reload"))
         self.chat_gpu_status.setText(" · ".join(parts))
+        if applied_mode is not None:
+            if off_l and tot_l:
+                self._sync_chat_gpu_pill(f"GPU {off_l}/{tot_l}", "ok", True)
+            elif off_l:
+                self._sync_chat_gpu_pill(f"GPU {off_l}", "ok", True)
+            else:
+                self._sync_chat_gpu_pill("CPU", "warn", True)
+        else:
+            pill_tone = "warn" if cur_mode == "cpu" else ""
+            short_mode = {"auto": "Auto", "max": "Max", "manual": f"{cur_layers}L", "cpu": "CPU"}
+            label = "CPU" if cur_mode == "cpu" else f"GPU · {short_mode.get(cur_mode, cur_mode)}"
+            self._sync_chat_gpu_pill(label, pill_tone, True)
 
     def save_model_gpu(self):
         if self.agent_panel.active:
@@ -3034,13 +3531,15 @@ class MainWindow(QMainWindow):
                 self.tr("choose_model") if records else self.tr("no_model"), None
             )
             for record in records:
-                self.model_combo.addItem(f"{record['name']} · {record['backend']}", record["id"])
+                self.model_combo.addItem(record["name"], record["id"])
             index = self.model_combo.findData(selected)
             self.model_combo.setCurrentIndex(max(index, 0))
+            by_id = {record["id"]: record for record in records}
             for row in range(self.model_combo.count()):
-                if self.model_combo.itemData(row):
+                rec = by_id.get(self.model_combo.itemData(row))
+                if rec:
                     self.model_combo.setItemData(
-                        row, self.model_combo.itemText(row), Qt.ToolTipRole
+                        row, f"{rec['name']} · {rec['backend']}", Qt.ToolTipRole
                     )
             self.model_combo.blockSignals(False)
             self._sync_model_combo_tooltip()
@@ -3063,7 +3562,10 @@ class MainWindow(QMainWindow):
     def refresh_model_table(self):
         selected = self.selected_model()
         self.model_table.setHorizontalHeaderLabels(
-            [self.tr(k) for k in ("model_name", "size", "engine", "compatibility")]
+            [
+                self.tr(k)
+                for k in ("model_name", "quant_arch_col", "size", "engine", "compatibility")
+            ]
         )
         query = self.model_search.text().casefold().strip()
         favorites = self.config.favorite_models
@@ -3098,43 +3600,50 @@ class MainWindow(QMainWindow):
         selected_row = 0
         for row, record in enumerate(records):
             metadata = record.get("metadata", {})
-            description = " · ".join(
-                str(value)
-                for value in (
-                    record.get("format"),
-                    record.get("quantization"),
-                    metadata.get("architecture"),
+            quant_arch = (
+                " · ".join(
+                    str(value)
+                    for value in (
+                        record.get("quantization") or record.get("format"),
+                        metadata.get("architecture"),
+                    )
+                    if value
                 )
-                if value
+                or "—"
             )
-            title = (
-                ("★ " if record["id"] in favorites else "") + record["name"] + "\n" + description
-            )
+            title = ("★ " if record["id"] in favorites else "") + record["name"]
+            loaded_tok = self._loaded_models.get(record["id"])
+            status_text = self.tr(record["compatibility"])
+            if loaded_tok is not None:
+                status_text = f"{self.tr('model_loaded_badge')} · {status_text}"
+            tooltip_title = f"{title}\n{quant_arch}"
             for column, value in enumerate(
                 (
                     title,
+                    quant_arch,
                     human_size(record["size_bytes"]),
                     record["backend"],
-                    self.tr(record["compatibility"]),
+                    status_text,
                 )
             ):
                 item = QTableWidgetItem(value)
-                item.setToolTip(escape(value))
+                item.setToolTip(escape(tooltip_title if column == 0 else value))
                 item.setData(Qt.UserRole, record["id"])
-                if column == 3 and hasattr(self, "_tokens"):
-                    compat_color = {
-                        "compatible": self._tokens.success,
-                        "tight": self._tokens.warning,
-                        "incompatible": self._tokens.danger,
-                    }.get(record.get("compatibility"))
-                    if compat_color:
-                        item.setForeground(QColor(compat_color))
+                if column == 4 and hasattr(self, "_tokens"):
+                    if loaded_tok is not None:
+                        item.setForeground(QColor(self._tokens.accent))
+                    else:
+                        compat_color = {
+                            "compatible": self._tokens.success,
+                            "tight": self._tokens.warning,
+                            "incompatible": self._tokens.danger,
+                        }.get(record.get("compatibility"))
+                        if compat_color:
+                            item.setForeground(QColor(compat_color))
                 self.model_table.setItem(row, column, item)
             if selected and selected["id"] == record["id"]:
                 selected_row = row
-        self.model_table.verticalHeader().setDefaultSectionSize(
-            max(54, round(54 * self.config.ui_scale / 100))
-        )
+        self.model_table.verticalHeader().setDefaultSectionSize(self._scaled(42))
         if records:
             self.model_table.selectRow(selected_row)
         self.model_table.blockSignals(False)
@@ -3185,22 +3694,28 @@ class MainWindow(QMainWindow):
         if not record:
             self.model_detail.clear()
         if record:
+            mem_info = self.tr("memory_estimate", size=human_size(record.get("size_bytes")))
             self.model_detail.setText(
-                f"{record['name']} · {record['format']} · {record.get('quantization') or '—'}\n"
+                f"{record['name']} · {record['format']} · {record.get('quantization') or '—'} · "
+                f"{mem_info}\n"
                 f"{self.tr('license')}: {record.get('license') or self.tr('unknown')}"
             )
             details = self.model_detail.text()
             capabilities = record.get("capabilities") or []
             if capabilities:
-                details += "\n" + " · ".join(capabilities)
+                details += " · " + " · ".join(capabilities)
             self.model_detail.setText(details)
             if record["backend"] == "llama.cpp":
 
                 def context_received(settings):
                     current = self.selected_model()
+                    applied = settings.get("applied_tokens")
+                    if applied is not None:
+                        self._loaded_models[record["id"]] = applied
+                    else:
+                        self._loaded_models.pop(record["id"], None)
                     if self._closing or not current or current["id"] != record["id"]:
                         return
-                    applied = settings.get("applied_tokens")
                     status = (
                         self.tr("model_running_context", tokens=applied)
                         if applied is not None
@@ -3308,10 +3823,17 @@ class MainWindow(QMainWindow):
     def unload_model(self):
         record = self.selected_model()
         if record:
+
+            def unloaded(_):
+                self._loaded_models.pop(record["id"], None)
+                self.notify(self.tr("unloaded"))
+                self._refresh_model_context()
+                self.refresh_model_table()
+
             self.api.request(
                 "POST",
                 TEXT + f"/models/{record['id']}/unload",
-                success=lambda _: (self.notify(self.tr("unloaded")), self._refresh_model_context()),
+                success=unloaded,
             )
 
     def remove_model(self):
@@ -3528,6 +4050,10 @@ class MainWindow(QMainWindow):
             "POST", TEXT + "/downloads", payload, success=lambda _: self.refresh_downloads()
         )
 
+    def _transfer_queue_selected(self, row: int):
+        if 0 <= row < self.download_list.count() and self.download_list.currentIndex() != row:
+            self.download_list.setCurrentIndex(row)
+
     def refresh_downloads(self):
         if not self.is_connected or self._closing:
             return
@@ -3537,25 +4063,47 @@ class MainWindow(QMainWindow):
             self.downloads = records
             self.download_list.blockSignals(True)
             self.download_list.clear()
+            if hasattr(self, "transfers_queue"):
+                self.transfers_queue.blockSignals(True)
+                self.transfers_queue.clear()
             for record in records:
-                self.download_list.addItem(
-                    f"{record['source']['filename']} · {self.tr(record['state'])}"
-                    + (f" · {record['percent']:.0f}%" if record.get("percent") is not None else ""),
-                    record["id"],
-                )
+                pct = f" · {record['percent']:.0f}%" if record.get("percent") is not None else ""
+                label = f"{record['source']['filename']} · {self.tr(record['state'])}{pct}"
+                self.download_list.addItem(label, record["id"])
+                if hasattr(self, "transfers_queue"):
+                    row_label = (
+                        f"{record['source']['filename']}   —   {self.tr(record['state'])}{pct}"
+                    )
+                    if record.get("source", {}).get("repository"):
+                        row_label = f"{record['source']['repository']} / {row_label}"
+                    self.transfers_queue.addItem(row_label)
             index = self.download_list.findData(current)
-            self.download_list.setCurrentIndex(max(index, 0))
+            target_idx = max(index, 0)
+            self.download_list.setCurrentIndex(target_idx)
             self.download_list.blockSignals(False)
+            if hasattr(self, "transfers_queue"):
+                if records:
+                    self.transfers_queue.setCurrentRow(target_idx)
+                self.transfers_queue.blockSignals(False)
             self._show_download_progress()
 
         self.api.request("GET", TEXT + "/downloads", success=received)
 
     def _show_download_progress(self, *_):
         record = self.selected_download()
-        self.transfers_empty.setVisible(not self.downloads)
-        self.download_list.setVisible(bool(self.downloads))
+        has_list = bool(self.downloads)
+        self.transfers_empty.setVisible(not has_list)
+        self.download_list.setVisible(has_list)
         self.download_progress.setVisible(record is not None)
         self.download_status.setVisible(record is not None)
+        if hasattr(self, "transfers_queue"):
+            show_q = has_list and self.transfers_queue.count() > 0
+            self.transfers_queue.setVisible(show_q)
+            self.transfer_queue_heading.setVisible(show_q)
+            if show_q and 0 <= self.download_list.currentIndex() < self.transfers_queue.count():
+                self.transfers_queue.blockSignals(True)
+                self.transfers_queue.setCurrentRow(self.download_list.currentIndex())
+                self.transfers_queue.blockSignals(False)
         percent = record.get("percent") if record else None
         self.download_progress.setRange(0, 0 if record and percent is None else 100)
         if percent is not None:
@@ -3563,6 +4111,20 @@ class MainWindow(QMainWindow):
         elif not record:
             self.download_progress.setValue(0)
         state = record.get("state") if record else None
+        if hasattr(self, "transfer_state_badge"):
+            self.transfer_state_badge.setVisible(record is not None and bool(state))
+            if state:
+                self.transfer_state_badge.setText(self.tr(state))
+                tone = (
+                    "ok"
+                    if state == "completed"
+                    else "error"
+                    if state == "failed"
+                    else "warn"
+                    if state in {"cancelled", "interrupted", "queued"}
+                    else "ok"
+                )
+                polish_property(self.transfer_state_badge, "tone", tone)
         self.cancel_download_button.setVisible(state in {"queued", "running"})
         self.resume_download_button.setVisible(state in {"failed", "cancelled", "interrupted"})
         self.import_download_button.setVisible(
@@ -3570,13 +4132,27 @@ class MainWindow(QMainWindow):
         )
         if not record:
             self.download_status.clear()
+            if hasattr(self, "transfer_error_banner"):
+                self.transfer_error_banner.hide()
             return
         speed, eta = record.get("speed_bytes_per_second"), record.get("eta_seconds")
         details = []
+        if percent is not None:
+            details.append(f"{percent:.0f}%")
         if speed is not None:
             details.append(self.tr("download_speed", value=human_size(speed)))
         if eta is not None:
             details.append(self.tr("download_eta", seconds=int(eta)))
+        err_msg = record.get("error_code") or record.get("import_error")
+        if hasattr(self, "transfer_error_banner"):
+            if err_msg:
+                translated = self.tr.catalog.get(str(err_msg)) or str(err_msg)
+                self.transfer_error_label.setText(
+                    self.tr("transfer_error_prefix", error=translated)
+                )
+                self.transfer_error_banner.show()
+            else:
+                self.transfer_error_banner.hide()
         if record.get("import_error"):
             details.append(self.tr("model_import_failed"))
         elif record.get("model_id"):
@@ -3831,6 +4407,40 @@ class MainWindow(QMainWindow):
                             f"{record['error_code'] or '—'}"
                         )
                 self.diagnostic_text.setPlainText("\n".join(lines))
+                if hasattr(self, "_diag_tiles"):
+                    avail_engines = [
+                        r["info"]["id"] for r in records if r.get("info", {}).get("available")
+                    ]
+                    val, sub = self._diag_tiles["backend"]
+                    val.setText(self.tr("ready" if avail_engines else "offline"))
+                    sub.setText(", ".join(avail_engines) or self.tr("none"))
+                    nv = next(
+                        (g for r in records for g in r.get("nvidia_devices", [])),
+                        None,
+                    )
+                    gpu_val, gpu_sub = self._diag_tiles["gpu"]
+                    if nv:
+                        gpu_val.setText(nv["name"])
+                        gpu_sub.setText(
+                            f"{human_size(nv['free_bytes'])} / {human_size(nv['total_bytes'])}"
+                        )
+                    elif devices:
+                        gpu_val.setText(", ".join(devices))
+                        gpu_sub.setText(llama.get("execution_device") or "CUDA")
+                    else:
+                        gpu_val.setText("CPU")
+                        gpu_sub.setText(self.tr("none"))
+                    cpu_val, cpu_sub = self._diag_tiles["cpu"]
+                    cpu_val.setText(f"{hardware['cpu_architecture']} · {hardware['cpu_count']}")
+                    cpu_sub.setText(
+                        f"{human_size(hardware['ram_available_bytes'])} / "
+                        f"{human_size(hardware['ram_total_bytes'])}"
+                    )
+                    st_val, st_sub = self._diag_tiles["storage"]
+                    st_val.setText(human_size(hardware["disk_free_bytes"]))
+                    st_sub.setText(
+                        f"v{distribution_version()} · {provenance.get('channel') or 'source'}"
+                    )
 
             self.api.request("GET", TEXT + "/diagnostics", success=hardware_received)
 

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QTreeWidget,
     QTreeWidgetItem,
@@ -56,9 +57,7 @@ class AgentPanel(QWidget):
         self.settings_box = QWidget()
         settings_layout = QVBoxLayout(self.settings_box)
         settings_layout.setContentsMargins(0, 0, 0, 0)
-        settings_layout.setSpacing(6)
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
+        settings_layout.setSpacing(8)
         self.mode = QComboBox()
         self.mode.setObjectName("agentMode")
         self.mode.addItem(main.tr("agent_chat"), "chat")
@@ -72,25 +71,37 @@ class AgentPanel(QWidget):
         self.steps.setToolTip(main.tr("agent_step_count"))
         self.protocol_label = QLabel(main.tr("agent_protocol_label"))
         self.protocol = QComboBox()
+        self.protocol.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.protocol.setMinimumContentsLength(5)
         self.protocol.addItem("Auto", "auto")
         self.protocol.addItem("JSON", "structured")
         self.protocol.setToolTip(main.tr("agent_protocol_tooltip"))
         self.web_access = QCheckBox(main.tr("agent_web_access"))
         self.web_access.setToolTip(main.tr("agent_web_tooltip"))
         self.folder = QPushButton(main.tr("agent_folder"))
-        row.addWidget(self.steps_label)
-        row.addWidget(self.steps)
-        row.addWidget(self.protocol_label)
-        row.addWidget(self.protocol)
-        row.addWidget(self.web_access)
-        row.addWidget(self.folder)
-        row.addStretch()
-        settings_layout.addLayout(row)
+        self.folder.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        steps_row = QHBoxLayout()
+        steps_row.setContentsMargins(0, 0, 0, 0)
+        steps_row.setSpacing(8)
+        steps_row.addWidget(self.steps_label, 1)
+        steps_row.addWidget(self.steps)
+        settings_layout.addLayout(steps_row)
+
+        proto_row = QHBoxLayout()
+        proto_row.setContentsMargins(0, 0, 0, 0)
+        proto_row.setSpacing(8)
+        proto_row.addWidget(self.protocol_label, 1)
+        proto_row.addWidget(self.protocol)
+        settings_layout.addLayout(proto_row)
+
+        settings_layout.addWidget(self.web_access)
+        settings_layout.addWidget(self.folder)
         self.details = QFrame()
-        self.details.setObjectName("agentCard")
+        self.details.setObjectName("drawerSection")
         inner = QVBoxLayout(self.details)
-        inner.setContentsMargins(12, 10, 12, 10)
-        inner.setSpacing(6)
+        inner.setContentsMargins(10, 10, 10, 10)
+        inner.setSpacing(8)
         self.hint = QLabel(main.tr("agent_hint"))
         self.hint.setObjectName("mutedMeta")
         self.hint.setWordWrap(True)
@@ -101,12 +112,10 @@ class AgentPanel(QWidget):
         self.compatibility_label.setTextFormat(Qt.PlainText)
         self.compatibility_label.setWordWrap(True)
         self.compatibility_test = QPushButton(main.tr("agent_test_model"))
+        self.compatibility_test.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.compatibility_test.clicked.connect(self.test_model)
-        cap_row = QHBoxLayout()
-        cap_row.setSpacing(8)
-        cap_row.addWidget(self.compatibility_label, 1)
-        cap_row.addWidget(self.compatibility_test)
-        settings_layout.addLayout(cap_row)
+        settings_layout.addWidget(self.compatibility_label)
+        settings_layout.addWidget(self.compatibility_test)
         self.folders = QListWidget()
         self.folders.setMaximumHeight(52)
         self.folders.hide()
@@ -142,8 +151,9 @@ class AgentPanel(QWidget):
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll.setWidget(self.details)
-        self.scroll.setMaximumHeight(185)
         self.scroll.setMinimumHeight(44)
         layout.addWidget(self.scroll)
         layout.addWidget(self.status)
@@ -296,12 +306,14 @@ class AgentPanel(QWidget):
         self.scroll.setVisible(enabled and show_details)
         if enabled and show_details:
             min_h = 96 if settings_open else 44
-            target_h = min(240, max(min_h, self.details.sizeHint().height() + 4))
+            target_h = max(min_h, self.details.sizeHint().height() + 4)
             self.scroll.setMinimumHeight(target_h)
-            self.scroll.setMaximumHeight(240)
+            self.scroll.setMaximumHeight(max(target_h + 16, 480))
         self.status.setVisible(enabled and has_status)
         self.retry_button.setVisible(enabled and has_retry)
         self.setVisible(enabled and (show_details or has_status or has_retry))
+        if hasattr(self.main, "_sync_agent_banner"):
+            self.main._sync_agent_banner()
 
     def load(self, conversation):
         self.conversation = conversation
