@@ -619,3 +619,56 @@ def test_cancel_acknowledges_approved_commit_before_return(tmp_path, monkeypatch
         await agents.service.generations.close()
 
     asyncio.run(exercise())
+
+
+def test_folder_grant_file_in_root_and_list_files_target_continuation(tmp_path):
+    async def exercise():
+        target_dir = tmp_path / "OmniCore-agent-test"
+        target_dir.mkdir()
+        (target_dir / "test.txt").write_text("OMNICORE_AGENT_TEST_84729", encoding="utf-8")
+
+        agents, conv, engine = setup(
+            tmp_path,
+            [
+                tool("list_files", path=str(target_dir)),
+                tool("read_text", path="test.txt"),
+                json.dumps({"result": 543219}),
+            ],
+        )
+        agents.service.store.save_job(
+            "agent-settings",
+            conv.id,
+            {"mode": "agent", "max_steps": 6, "protocol": "auto", "web_access": False},
+        )
+        first = await agents.submit(conv.id, AgentRequest(content="Check the directory and read."))
+        await agents.tasks[first["id"]]
+        failed_run = agents.record(first["id"])
+        assert failed_run["state"] == "failed"
+        assert failed_run["error_code"] == "agent_folder_not_granted"
+        assert failed_run["needs_folder_grant"] is True
+        assert failed_run["requested_folder_path"] == str(target_dir)
+
+        # Grant with subfolders=False: both direct folder and direct child file are covered.
+        agents.grant_folder(conv.id, str(target_dir), False, allow_write=False, subfolders=False)
+        grants = list(agents.files.grants.values())
+        assert agents._grant_covers_target(grants, None, str(target_dir / "test.txt")) is True
+
+        # Prompt must place Granted folders in system message, not a trailing user turn.
+        assert engine.messages[0][0].role == "system"
+        assert "Granted folders (file tools only):" in engine.messages[0][0].content
+        assert engine.messages[0][-1].role == "user"
+        assert engine.messages[0][-1].content == "Check the directory and read."
+
+        resumed = await agents.retry(first["id"])
+        await agents.tasks[resumed["id"]]
+        completed = agents.record(resumed["id"])
+        assert completed["state"] == "completed"
+        assert completed["steps"][0]["tool"] == "read_text"
+        assert completed["steps"][0]["state"] == "completed"
+        user_msgs = [m for m in agents.service.history.messages(conv.id) if m.role == "user"]
+        assert len(user_msgs) == 1
+        assert parse_turn(json.dumps({"result": 543219}), False).text == "543219"
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())

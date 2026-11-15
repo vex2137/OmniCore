@@ -49,7 +49,11 @@ class ToolEngine:
             )
             yield TextChunk(content=raw, finish_reason="stop")
             return
-        grants = json.loads(messages[2].content.split(": ", 1)[1])
+        sys_content = messages[0].content
+        grants_raw = sys_content.split("Granted folders (file tools only): ", 1)[1].split(
+            ". Available tools:", 1
+        )[0]
+        grants = json.loads(grants_raw)
         calls = sum('"kind": "tool"' in m.content for m in messages if m.role == "assistant")
         if calls == 0:
             response = {
@@ -493,8 +497,11 @@ def test_hotfix2_context_presets_inline_folder_continue_and_stop_button(
         async def stream(self, model, messages, parameters):
             self.calls += 1
             if self.calls == 1:
-                grants_msg = messages[-1].content
-                grant_id = json.loads(grants_msg.split(": ", 1)[1])[0]["id"]
+                sys_content = messages[0].content
+                grants_raw = sys_content.split("Granted folders (file tools only): ", 1)[1].split(
+                    ". Available tools:", 1
+                )[0]
+                grant_id = json.loads(grants_raw)[0]["id"]
                 yield TextChunk(
                     content=json.dumps(
                         {

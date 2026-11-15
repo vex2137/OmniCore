@@ -58,10 +58,12 @@ def messages_for_turn(base, rounds, record, parameters):
                 "approximate": True,
             }
             return messages
-        if len(base) > 3:
+        if len(base) > 2:
             base.pop(1)
         elif len(recent) > 1:
             recent.pop(0)
+        elif summary:
+            summary = []
         else:
             # Never silently discard the newest tool result or the current task.
             raise TextError("agent_context_limit", 422)

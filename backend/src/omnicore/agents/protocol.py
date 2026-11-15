@@ -66,10 +66,12 @@ _INT_PARAM_NAMES = {"max_results"}
 
 
 def _extract_final_text(mapping: dict) -> str | None:
-    for key in ("text", "answer", "response", "content", "final"):
+    for key in ("text", "answer", "response", "content", "final", "result"):
         val = mapping.get(key)
         if isinstance(val, str) and val.strip():
             return val
+        if isinstance(val, (int, float)) and not isinstance(val, bool):
+            return str(val)
     return None
 
 
@@ -248,7 +250,14 @@ def _parse_non_native(response: str) -> dict:
                 k: v for k, v in data.items() if k not in {"tool", "call_id", "step_id", "text"}
             }
             data = {"kind": "tool", "name": data["tool"], "arguments": args}
-        elif data and set(data.keys()) <= {"final", "answer", "text", "response", "content"}:
+        elif data and set(data.keys()) <= {
+            "final",
+            "answer",
+            "text",
+            "response",
+            "content",
+            "result",
+        }:
             val = _extract_final_text(data)
             if val is not None:
                 data = {"kind": "final", "text": val}

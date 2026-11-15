@@ -195,7 +195,7 @@ class SafeMarkdown(QTextBrowser):
         base = super().sizeHint()
         if self._compact_width:
             return QSize(
-                min(self._ideal_width, self.viewport().width() or self._ideal_width),
+                self._ideal_width,
                 self.height() or base.height(),
             )
         return QSize(0, self.height() or base.height())
@@ -294,7 +294,7 @@ class MessageCard(QFrame):
             bubble = QFrame(self)
             bubble.setObjectName("userBubble")
             bubble.setMaximumWidth(600)
-            bubble.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+            bubble.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
             self.bubble = bubble
             self.layout_ = QVBoxLayout(bubble)
             self.layout_.setContentsMargins(14, 9, 14, 9)

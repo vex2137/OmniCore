@@ -1663,6 +1663,7 @@ class MainWindow(QMainWindow):
         status_txt = self.agent_panel.status.text().strip()
         show = agent_mode and not drawer_open and (has_active or has_retry or bool(status_txt))
         self.agent_inline_banner.setVisible(show)
+        self.agent_banner_retry_btn.setText(self.agent_panel.retry_button.text())
         self.agent_banner_retry_btn.setVisible(show and has_retry)
         if show:
             self.agent_banner_label.setText(status_txt or self.tr("agent_running_banner"))

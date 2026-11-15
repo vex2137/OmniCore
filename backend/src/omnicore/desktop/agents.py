@@ -247,7 +247,11 @@ class AgentPanel(QWidget):
                     continue
                 gpath = Path(gpath_raw)
                 if expanded.is_absolute():
-                    if expanded == gpath or (grant.get("subfolders") and gpath in expanded.parents):
+                    if (
+                        expanded == gpath
+                        or (expanded.parent == gpath and not expanded.is_dir())
+                        or (grant.get("subfolders") and gpath in expanded.parents)
+                    ):
                         return True
                 elif requested.lstrip("./").casefold() == gpath.name.casefold():
                     return True
@@ -550,6 +554,10 @@ class AgentPanel(QWidget):
         self.busy(True)
 
         def received(record):
+            for existing in self.runs:
+                if existing.get("id") == run_id:
+                    existing["needs_folder_grant"] = False
+                    existing["continued_by"] = record["id"]
             self.active = record["id"]
             self.retry_id = None
             self.render([record])
@@ -723,8 +731,6 @@ class AgentPanel(QWidget):
             return
         if isinstance(run, dict) and run.get("id"):
             self.folder_grant_cancelled_runs.discard(run["id"])
-            self.retry_id = run["id"]
-            self.retry_button.setText(self.main.tr("agent_continue_task"))
         self.api.request(
             "POST",
             BASE + f"/conversations/{self.conversation}/folders",
@@ -737,6 +743,7 @@ class AgentPanel(QWidget):
                 "persistent": persistent,
             },
             success=lambda _: self.refresh_folders(),
+            failure=self.main.show_error,
         )
 
     def revoke_folder(self):

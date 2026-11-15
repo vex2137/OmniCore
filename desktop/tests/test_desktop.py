@@ -2051,7 +2051,9 @@ def test_sidebar_and_chat_geometry_no_left_gap_or_clipping(desktop, qtbot):
                 continue
             left = child.mapTo(container, QPoint(0, 0)).x()
             right = child.mapTo(container, QPoint(child.width() - 1, 0)).x()
-            assert left >= 0, f"{label}: child {child.objectName() or type(child).__name__} left={left} < 0"
+            assert left >= 0, (
+                f"{label}: child {child.objectName() or type(child).__name__} left={left} < 0"
+            )
             assert right < cw, (
                 f"{label}: child {child.objectName() or type(child).__name__} right={right} >= {cw}"
             )
@@ -2082,7 +2084,8 @@ def test_sidebar_and_chat_geometry_no_left_gap_or_clipping(desktop, qtbot):
             f"{w.sidebar.width()} + {w.shell.handleWidth()}"
         )
         assert w.main_pane.geometry().right() + 1 == w.width(), (
-            f"{label}: main_pane.right+1={w.main_pane.geometry().right() + 1} != w.width={w.width()}"
+            f"{label}: main_pane.right+1={w.main_pane.geometry().right() + 1} "
+            f"!= w.width={w.width()}"
         )
         assert w.topbar.geometry().x() == 0, f"{label}: topbar.x={w.topbar.geometry().x()}"
         assert w.topbar.width() == w.main_pane.width(), (
@@ -2093,7 +2096,9 @@ def test_sidebar_and_chat_geometry_no_left_gap_or_clipping(desktop, qtbot):
         _assert_no_horizontal_overflow(w.topbar, f"{label}/topbar")
 
         if not expect_compact:
-            assert "…" not in w.new_button.text(), f"{label}: new_button truncated: {w.new_button.text()!r}"
+            assert "…" not in w.new_button.text(), (
+                f"{label}: new_button truncated: {w.new_button.text()!r}"
+            )
             hp_y = w.history_panel.mapTo(w.sidebar, QPoint(0, 0)).y()
             st_y = w.history_search_toggle.mapTo(w.sidebar, QPoint(0, 0)).y()
             nb_bottom = w.new_button.mapTo(w.sidebar, QPoint(0, w.new_button.height())).y()
@@ -2143,3 +2148,107 @@ def test_sidebar_and_chat_geometry_no_left_gap_or_clipping(desktop, qtbot):
                     expect_compact=False,
                     target_sb_width=sb_width,
                 )
+
+
+def test_long_user_message_bubble_width_and_folder_continuation_ui(
+    desktop, qtbot, monkeypatch, tmp_path
+):
+    from PySide6.QtWidgets import QApplication, QFileDialog, QPushButton
+
+    from omnicore.desktop.transcript import MessageCard
+
+    w = desktop
+    w.resize(1280, 820)
+    long_prompt = (
+        "Please inspect the authorized directory /home/lunex/OmniCore-agent-test, "
+        "read test.txt carefully, and return the exact verification marker found inside "
+        "without truncating or wrapping the user message bubble into a narrow vertical column."
+    )
+    w.messages = [{"id": "u-long", "role": "user", "content": long_prompt}]
+    w.render_messages()
+    QApplication.processEvents()
+    qtbot.wait(10)
+    QApplication.processEvents()
+
+    for scale in (100, 150):
+        w.ui_scale.setValue(scale)
+        QApplication.processEvents()
+        qtbot.wait(10)
+        QApplication.processEvents()
+        cards = w.transcript.findChildren(MessageCard)
+        assert cards
+        assert cards[0].bubble.width() >= 420, (
+            f"scale={scale}: user bubble too narrow ({cards[0].bubble.width()}px)"
+        )
+
+    w.resize(1440, 900)
+    QApplication.processEvents()
+    cards = w.transcript.findChildren(MessageCard)
+    assert cards[0].bubble.width() >= 420
+
+    # Verify folder authorization -> Continue task UI flow
+    target_dir = tmp_path / "OmniCore-agent-test"
+    target_dir.mkdir()
+    w.current_id = "conv-grant-1"
+    w.is_connected = True
+    w.agent_panel.conversation = "conv-grant-1"
+    w.agent_panel.mode.setCurrentIndex(w.agent_panel.mode.findData("agent"))
+    run_obj = {
+        "id": "run-grant-1",
+        "conversation_id": "conv-grant-1",
+        "state": "failed",
+        "error_code": "agent_folder_not_granted",
+        "needs_folder_grant": True,
+        "requested_folder_path": str(target_dir / "test.txt"),
+        "request_message_id": "u-long",
+        "steps": [],
+        "plan": [],
+    }
+    w.agent_panel.runs = [run_obj]
+    w.render_messages()
+    QApplication.processEvents()
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **kw: str(target_dir))
+    monkeypatch.setattr(
+        w.agent_panel, "confirm_folder_grant", lambda p: (True, False, False, False, False)
+    )
+
+    def fake_request(method, path, payload=None, *, success=None, failure=None, **_kwargs):
+        if method == "POST" and path.endswith("/folders") and success:
+            success(
+                {
+                    "id": "grant-1",
+                    "path": str(target_dir),
+                    "sensitive": False,
+                    "allow_write": False,
+                    "subfolders": False,
+                    "persistent": False,
+                }
+            )
+        elif method == "GET" and path.endswith("/folders") and success:
+            success(
+                [
+                    {
+                        "id": "grant-1",
+                        "path": str(target_dir),
+                        "sensitive": False,
+                        "allow_write": False,
+                        "subfolders": False,
+                        "persistent": False,
+                    }
+                ]
+            )
+
+    monkeypatch.setattr(w.agent_panel.api, "request", fake_request)
+    w.agent_panel.grant_folder(run_obj)
+    QApplication.processEvents()
+
+    assert w.agent_panel.retry_id == "run-grant-1"
+    assert w.agent_banner_retry_btn.text() == w.tr("agent_continue_task")
+    cards = w.transcript.findChildren(MessageCard)
+    cont_btns = [
+        b
+        for b in cards[0].findChildren(QPushButton)
+        if b.text() == w.tr("agent_continue_task") and not b.isHidden()
+    ]
+    assert len(cont_btns) == 1
