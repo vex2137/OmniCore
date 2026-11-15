@@ -2033,3 +2033,113 @@ def test_message_card_error_buttons_retry_in_place_and_gpu_snapshot_sync(
     assert len(post_calls) == 1
     assert post_calls[0][1] == "/api/v1/text/conversations/conv-retry-1/generations"
     assert post_calls[0][2]["content"] == "Retry prompt"
+
+
+def test_sidebar_and_chat_geometry_no_left_gap_or_clipping(desktop, qtbot):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QApplication, QWidget
+
+    w = desktop
+
+    def _assert_no_horizontal_overflow(container: QWidget, label: str) -> None:
+        cw = container.width()
+        for child in container.findChildren(QWidget):
+            if child.isWindow() or not child.isVisibleTo(container):
+                continue
+            if child.width() <= 0 or child.height() <= 0:
+                continue
+            left = child.mapTo(container, QPoint(0, 0)).x()
+            right = child.mapTo(container, QPoint(child.width() - 1, 0)).x()
+            assert left >= 0, f"{label}: child {child.objectName() or type(child).__name__} left={left} < 0"
+            assert right < cw, (
+                f"{label}: child {child.objectName() or type(child).__name__} right={right} >= {cw}"
+            )
+
+    def _assert_layout_geometry(label: str, *, expect_compact: bool, target_sb_width: int) -> None:
+        QApplication.processEvents()
+        qtbot.wait(10)
+        QApplication.processEvents()
+
+        cw = w.centralWidget()
+        assert cw is not None
+        assert cw.geometry().x() == 0, f"{label}: centralWidget.x={cw.geometry().x()}"
+        assert w.shell.geometry().x() == 0, f"{label}: shell.x={w.shell.geometry().x()}"
+        assert w.sidebar.geometry().x() == 0, f"{label}: sidebar.x={w.sidebar.geometry().x()}"
+        assert w.sidebar.mapTo(w, QPoint(0, 0)).x() == 0, f"{label}: sidebar mapped x != 0"
+
+        if expect_compact:
+            expected_sb_w = w.sidebar.maximumWidth()
+            assert w.sidebar.minimumWidth() == expected_sb_w
+        else:
+            expected_sb_w = target_sb_width
+            assert w.sidebar.width() == expected_sb_w, (
+                f"{label}: sidebar.width={w.sidebar.width()} != expected={expected_sb_w}"
+            )
+
+        assert w.main_pane.geometry().x() == w.sidebar.width() + w.shell.handleWidth(), (
+            f"{label}: main_pane.x={w.main_pane.geometry().x()} != "
+            f"{w.sidebar.width()} + {w.shell.handleWidth()}"
+        )
+        assert w.main_pane.geometry().right() + 1 == w.width(), (
+            f"{label}: main_pane.right+1={w.main_pane.geometry().right() + 1} != w.width={w.width()}"
+        )
+        assert w.topbar.geometry().x() == 0, f"{label}: topbar.x={w.topbar.geometry().x()}"
+        assert w.topbar.width() == w.main_pane.width(), (
+            f"{label}: topbar.width={w.topbar.width()} != main_pane.width={w.main_pane.width()}"
+        )
+
+        _assert_no_horizontal_overflow(w.sidebar, f"{label}/sidebar")
+        _assert_no_horizontal_overflow(w.topbar, f"{label}/topbar")
+
+        if not expect_compact:
+            assert "…" not in w.new_button.text(), f"{label}: new_button truncated: {w.new_button.text()!r}"
+            hp_y = w.history_panel.mapTo(w.sidebar, QPoint(0, 0)).y()
+            st_y = w.history_search_toggle.mapTo(w.sidebar, QPoint(0, 0)).y()
+            nb_bottom = w.new_button.mapTo(w.sidebar, QPoint(0, w.new_button.height())).y()
+            sample_y = max(hp_y + 1, min(st_y - 2, (max(hp_y, nb_bottom) + st_y) // 2))
+            sample_x = max(4, min(w.sidebar.width() - 5, w.sidebar.width() // 2))
+            img = w.sidebar.grab().toImage()
+            dpr = img.devicePixelRatio() or 1.0
+            px = img.pixelColor(int(sample_x * dpr), int(sample_y * dpr))
+            expected_bg = QColor(w._tokens.sidebar)
+            assert px == expected_bg, (
+                f"{label}: sidebar cutout color {px.name()} at ({sample_x}, {sample_y}) "
+                f"!= {expected_bg.name()} (bg={w._tokens.bg})"
+            )
+            btn_img = w.new_button.grab().toImage()
+            btn_dpr = btn_img.devicePixelRatio() or 1.0
+            btn_px = btn_img.pixelColor(int(6 * btn_dpr), int(6 * btn_dpr))
+            assert btn_px == QColor(w._tokens.accent_button), (
+                f"{label}: new_button fill {btn_px.name()} != {w._tokens.accent_button}"
+            )
+
+    for res_w, res_h in ((1280, 720), (1600, 900), (1920, 1080)):
+        w.resize(res_w, res_h)
+        for scale in (100, 150):
+            w.ui_scale.setValue(scale)
+            for sb_width in (232, 240, 280):
+                if w.config.sidebar_compact:
+                    w.toggle_sidebar()
+                w.resize_sidebar(sb_width)
+                _assert_layout_geometry(
+                    f"{res_w}x{res_h}@{scale}%/expanded/{sb_width}",
+                    expect_compact=False,
+                    target_sb_width=sb_width,
+                )
+
+                w.toggle_sidebar()
+                assert w.config.sidebar_compact is True
+                _assert_layout_geometry(
+                    f"{res_w}x{res_h}@{scale}%/compact/{sb_width}",
+                    expect_compact=True,
+                    target_sb_width=sb_width,
+                )
+
+                w.toggle_sidebar()
+                assert w.config.sidebar_compact is False
+                _assert_layout_geometry(
+                    f"{res_w}x{res_h}@{scale}%/restored/{sb_width}",
+                    expect_compact=False,
+                    target_sb_width=sb_width,
+                )

@@ -387,6 +387,8 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
             background: transparent;
             padding: 0;
         }}
+        QFrame#sidebar QWidget#historyPanel,
+        QWidget#historyPanel,
         QWidget#compactSpacer {{
             background: transparent;
         }}
@@ -442,7 +444,7 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
             border-color: {t.accent_border};
         }}
         QFrame#sidebar QPushButton#primary {{
-            padding: 6px 6px;
+            padding: 6px 4px;
             border-radius: 9px;
         }}
         QPushButton#historySearchTrigger {{
@@ -484,6 +486,7 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
         QListWidget#conversations, QListWidget#conversations > QWidget {{
             background: {t.sidebar};
             border: none;
+            border-radius: 0px;
             padding: 0;
             outline: none;
         }}
@@ -1189,6 +1192,9 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
         QSplitter::handle {{
             background: {t.border_subtle};
             width: 1px;
+        }}
+        QSplitter#mainShell::handle {{
+            background: transparent;
         }}
         QToolTip {{
             background: {t.elevated};

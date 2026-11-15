@@ -234,6 +234,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"OmniCore · {distribution_version()}")
         self.resize(1280, 820)
         self.setMinimumSize(720, 460)
+        self.setContentsMargins(0, 0, 0, 0)
         self._build()
         api.error.connect(self.show_error)
         api.snapshot.connect(self.generation_snapshot)
@@ -289,13 +290,16 @@ class MainWindow(QMainWindow):
 
     def _build(self):
         root = QWidget()
+        root.setObjectName("centralHost")
         layout = QHBoxLayout(root)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         self.setCentralWidget(root)
         self.shell = QSplitter(Qt.Horizontal)
+        self.shell.setObjectName("mainShell")
+        self.shell.setContentsMargins(0, 0, 0, 0)
         self.shell.setChildrenCollapsible(False)
-        self.shell.setHandleWidth(4)
+        self.shell.setHandleWidth(1)
         layout.addWidget(self.shell)
         self.width_save_timer = QTimer(self)
         self.width_save_timer.setSingleShot(True)
@@ -343,6 +347,7 @@ class MainWindow(QMainWindow):
 
         self._history_search_open = False
         self.history_panel = QWidget()
+        self.history_panel.setObjectName("historyPanel")
         left = QVBoxLayout(self.history_panel)
         left.setContentsMargins(0, 4, 0, 0)
         left.setSpacing(6)
@@ -414,14 +419,21 @@ class MainWindow(QMainWindow):
         self.shell.addWidget(self.sidebar)
 
         main = QWidget()
+        main.setObjectName("mainPane")
+        main.setMinimumWidth(360)
+        main.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.main_pane = main
         self.body_layout = QVBoxLayout(main)
         body = self.body_layout
-        body.setContentsMargins(16, 10, 16, 10)
-        body.setSpacing(8)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
         self.topbar = QFrame()
         self.topbar.setObjectName("appTopbar")
-        topbar_layout = QHBoxLayout(self.topbar)
-        topbar_layout.setContentsMargins(0, 0, 0, 8)
+        self.topbar_layout = QHBoxLayout(self.topbar)
+        topbar_layout = self.topbar_layout
+        topbar_layout.setContentsMargins(
+            self._scaled(16), self._scaled(10), self._scaled(16), self._scaled(10)
+        )
         topbar_layout.setSpacing(8)
         self.chat_header_widget = QWidget()
         self.chat_header_widget.setMinimumWidth(0)
@@ -464,6 +476,11 @@ class MainWindow(QMainWindow):
         topbar_layout.addWidget(self.context_button)
         body.addWidget(self.topbar)
 
+        self.alerts_layout = QVBoxLayout()
+        self.alerts_layout.setContentsMargins(self._scaled(16), 0, self._scaled(16), 0)
+        self.alerts_layout.setSpacing(self._scaled(8))
+        body.addLayout(self.alerts_layout)
+
         self.resource_details_frame = QFrame()
         self.resource_details_frame.setObjectName("resourceDetails")
         self.resource_details_frame.hide()
@@ -476,7 +493,7 @@ class MainWindow(QMainWindow):
         self.resource_details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         res_layout.addWidget(self.resource_details_label)
         self.resource_monitor_btn.toggled.connect(self.resource_details_frame.setVisible)
-        body.addWidget(self.resource_details_frame)
+        self.alerts_layout.addWidget(self.resource_details_frame)
 
         self.notice_card = QFrame()
         self.notice_card.setObjectName("noticeCard")
@@ -526,7 +543,7 @@ class MainWindow(QMainWindow):
         nd_layout.addWidget(self.notice_details_label)
         self.notice_details_toggle.toggled.connect(self.notice_details_frame.setVisible)
         notice_layout.addWidget(self.notice_details_frame)
-        body.addWidget(self.notice_card)
+        self.alerts_layout.addWidget(self.notice_card)
         self._sync_backend_pid()
         self.resource_monitor.start()
         self.onboarding = QFrame()
@@ -552,12 +569,17 @@ class MainWindow(QMainWindow):
         self.onboarding.setVisible(not self.config.onboarding_complete)
         self.pages = QStackedWidget()
         self.pages.setMinimumWidth(0)
+        self.pages.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+        self.pages.setContentsMargins(0, 0, 0, 0)
+        if self.pages.layout():
+            self.pages.layout().setContentsMargins(0, 0, 0, 0)
         body.addWidget(self.pages, 1)
         self._build_chat()
         self._build_models()
         self._build_settings()
         self._build_diagnostics()
         self.shell.addWidget(main)
+        self.shell.setStretchFactor(0, 0)
         self.shell.setStretchFactor(1, 1)
         self._apply_sidebar()
         self.nav[0].setChecked(True)
@@ -569,11 +591,15 @@ class MainWindow(QMainWindow):
         page = QWidget()
         outer = QHBoxLayout(page)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(12)
+        outer.setSpacing(0)
         pane = QWidget()
+        self.chat_pane = pane
         chat = QVBoxLayout(pane)
-        chat.setContentsMargins(0, 0, 0, 0)
-        chat.setSpacing(8)
+        self.chat_pane_layout = chat
+        chat.setContentsMargins(
+            self._scaled(16), self._scaled(8), self._scaled(16), self._scaled(10)
+        )
+        chat.setSpacing(self._scaled(8))
 
         self.model_combo = ModelComboBox()
         self.model_combo.setMinimumWidth(160)
@@ -890,7 +916,10 @@ class MainWindow(QMainWindow):
     def _build_models(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 4, 0, 0)
+        self.models_page_layout = layout
+        layout.setContentsMargins(
+            self._scaled(16), self._scaled(10), self._scaled(16), self._scaled(10)
+        )
         layout.setSpacing(10)
         self.model_tabs = QTabWidget()
         layout.addWidget(self.model_tabs, 1)
@@ -1171,7 +1200,10 @@ class MainWindow(QMainWindow):
     def _build_settings(self):
         settings_page = QWidget()
         page_layout = QVBoxLayout(settings_page)
-        page_layout.setContentsMargins(0, 4, 0, 0)
+        self.settings_page_layout = page_layout
+        page_layout.setContentsMargins(
+            self._scaled(16), self._scaled(10), self._scaled(16), self._scaled(10)
+        )
         page_layout.setSpacing(10)
         scroll = QScrollArea()
         scroll.setFrameShape(QFrame.NoFrame)
@@ -1482,7 +1514,10 @@ class MainWindow(QMainWindow):
     def _build_diagnostics(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 4, 0, 0)
+        self.diagnostics_page_layout = layout
+        layout.setContentsMargins(
+            self._scaled(16), self._scaled(10), self._scaled(16), self._scaled(10)
+        )
         layout.setSpacing(12)
 
         top_strip = QFrame()
@@ -1681,7 +1716,9 @@ class MainWindow(QMainWindow):
         if self.config.sidebar_compact:
             return
         self.config.sidebar_width = max(200, min(360, self.sidebar.width()))
-        self._apply_sidebar()
+        self._sync_history_toolbar()
+        self._sync_sidebar_nav_labels()
+        self._sync_responsive_chat_layout()
         self.sidebar_width.blockSignals(True)
         self.sidebar_width.setValue(self.config.sidebar_width)
         self.sidebar_width.blockSignals(False)
@@ -1784,21 +1821,38 @@ class MainWindow(QMainWindow):
         if hasattr(self, "settings_save_bar"):
             self.settings_save_bar.setMaximumWidth(self._scaled(850))
         self.context_meter.setMaximumWidth(self._scaled(90))
-        self.body_layout.setContentsMargins(
+        self.body_layout.setContentsMargins(0, 0, 0, 0)
+        self.body_layout.setSpacing(0)
+        self.topbar_layout.setContentsMargins(
             self._scaled(16), self._scaled(10), self._scaled(16), self._scaled(10)
         )
+        self.alerts_layout.setContentsMargins(self._scaled(16), 0, self._scaled(16), 0)
+        self.alerts_layout.setSpacing(self._scaled(8))
+        if hasattr(self, "chat_pane_layout"):
+            self.chat_pane_layout.setContentsMargins(
+                self._scaled(16), self._scaled(8), self._scaled(16), self._scaled(10)
+            )
+            self.chat_pane_layout.setSpacing(self._scaled(8))
+        for page_layout in (
+            getattr(self, "models_page_layout", None),
+            getattr(self, "settings_page_layout", None),
+            getattr(self, "diagnostics_page_layout", None),
+        ):
+            if page_layout is not None:
+                page_layout.setContentsMargins(
+                    self._scaled(16), self._scaled(10), self._scaled(16), self._scaled(10)
+                )
         self._sync_responsive_chat_layout()
         self._render_resource_widgets()
         self._render_model_gpu()
         self._sync_chat_icons()
-        self.body_layout.setSpacing(self._scaled(8))
 
     def _sync_responsive_chat_layout(self):
         scale = self.config.ui_scale / 100
         compact_w = self._scaled(56)
         expanded_w = min(360, max(200, getattr(self.config, "sidebar_width", 240)))
         sidebar_w = compact_w if self.config.sidebar_compact else expanded_w
-        avail = max(320, self.width() - sidebar_w - 8)
+        avail = max(320, self.width() - sidebar_w - 1)
         if hasattr(self, "chat_drawer"):
             base_drawer = min(376, max(296, round(324 * min(1.16, scale))))
             drawer_w = min(base_drawer, max(236, int(avail * 0.42)))
@@ -1847,13 +1901,19 @@ class MainWindow(QMainWindow):
             )
             self.model_combo.setToolTip(tip)
 
+    def _sidebar_metrics(self) -> tuple[int, int]:
+        """Return (margin_h, row_gap) for the expanded sidebar."""
+        expanded_w = max(200, min(360, self.config.sidebar_width))
+        if self.config.ui_scale > 100 and expanded_w < self._scaled(220):
+            return max(6, self._scaled(7)), max(4, self._scaled(4))
+        return self._scaled(10), self._scaled(6)
+
     def _sync_history_toolbar(self):
         if self.config.sidebar_compact or not hasattr(self, "history_search_toggle"):
             return
-        margin_h = self._scaled(10)
+        margin_h, row_gap = self._sidebar_metrics()
         header_btn = self._scaled(32)
         header_icon = self._scaled(15)
-        row_gap = self._scaled(6)
         cfg_w = max(200, min(360, self.config.sidebar_width))
         actual_w = self.sidebar.width()
         sidebar_w = min(cfg_w, actual_w) if actual_w >= 180 else cfg_w
@@ -1872,10 +1932,11 @@ class MainWindow(QMainWindow):
     def _sync_sidebar_nav_labels(self):
         if self.config.sidebar_compact or not hasattr(self, "nav"):
             return
+        margin_h, row_gap = self._sidebar_metrics()
         cfg_w = max(200, min(360, self.config.sidebar_width))
         actual_w = self.sidebar.width()
         effective_w = min(cfg_w, actual_w) if actual_w >= 180 else cfg_w
-        avail_new = effective_w - 2 * self._scaled(10) - self._scaled(32) - self._scaled(6)
+        avail_new = effective_w - 2 * margin_h - self._scaled(32) - row_gap - 1
         full_new = self.tr("new_chat")
         self.new_button.setText(full_new)
         self.new_button.ensurePolished()
@@ -1985,17 +2046,18 @@ class MainWindow(QMainWindow):
         btn_size = self._scaled(36)
         icon_px = self._scaled(18 if compact else 15)
         fg, accent, accent_text = self._theme_colors
-        margin_h = max(4, (compact_width - 1 - btn_size) // 2) if compact else self._scaled(10)
+        expanded_margin_h, row_gap = self._sidebar_metrics()
+        margin_h = max(4, (compact_width - 1 - btn_size) // 2) if compact else expanded_margin_h
         margin_v = self._scaled(10 if compact else 12)
         self.side_layout.setContentsMargins(margin_h, margin_v, margin_h, margin_v)
-        self.side_layout.setSpacing(self._scaled(6))
+        self.side_layout.setSpacing(row_gap if not compact else self._scaled(6))
         self.sidebar.setProperty("compact", compact)
         self.sidebar.style().unpolish(self.sidebar)
         self.sidebar.style().polish(self.sidebar)
         self.sidebar_header.setContentsMargins(
             0 if compact else self._scaled(2), 0, 0, self._scaled(4)
         )
-        self.sidebar_header.setSpacing(0 if compact else self._scaled(6))
+        self.sidebar_header.setSpacing(0 if compact else row_gap)
         self.side_layout.setAlignment(
             self.sidebar_header, Qt.AlignHCenter if compact else Qt.Alignment()
         )
@@ -2008,7 +2070,7 @@ class MainWindow(QMainWindow):
         toggle_icon = self._scaled(19 if compact else 14)
         header_btn = self._scaled(32)
         header_icon = self._scaled(15)
-        row_gap = self._scaled(6)
+        self.top_actions_grid.setSpacing(row_gap)
         self.history_toolbar.setSpacing(row_gap)
         self.history_toolbar.setContentsMargins(0, 0, 0, self._scaled(4))
         self.history_search_toggle.setIcon(app_icon("search", fg, header_icon))
@@ -2040,7 +2102,7 @@ class MainWindow(QMainWindow):
         self.sidebar.setMinimumWidth(compact_width if compact else 200)
         self.sidebar.setMaximumWidth(compact_width if compact else 360)
         if self.shell.count() > 1:
-            handle_w = 1 if compact else 4
+            handle_w = 1
             self.shell.setHandleWidth(handle_w)
             width = compact_width if compact else max(200, min(360, self.config.sidebar_width))
             self.shell.setSizes([width, max(1, self.width() - width - handle_w)])
@@ -2056,14 +2118,20 @@ class MainWindow(QMainWindow):
         self.history_panel.setVisible(not compact)
         self.nav_footer_divider.setVisible(not compact)
         self.compact_spacer.setVisible(compact)
+        self.top_actions_grid.removeWidget(self.new_button)
+        self.top_actions_grid.removeWidget(self.nav[0])
         if compact:
+            self.new_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             self.top_actions_grid.addWidget(self.new_button, 0, 0, Qt.AlignHCenter)
             self.top_actions_grid.addWidget(self.nav[0], 1, 0, Qt.AlignHCenter)
             self.top_actions_grid.setColumnStretch(0, 1)
             self.top_actions_grid.setColumnStretch(1, 0)
         else:
+            self.new_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             self.top_actions_grid.addWidget(self.new_button, 0, 0)
             self.top_actions_grid.addWidget(self.nav[0], 0, 1)
+            self.top_actions_grid.setAlignment(self.new_button, Qt.Alignment())
+            self.top_actions_grid.setAlignment(self.nav[0], Qt.Alignment())
             self.top_actions_grid.setColumnStretch(0, 1)
             self.top_actions_grid.setColumnStretch(1, 0)
         for button, key in zip(
