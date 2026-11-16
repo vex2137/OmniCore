@@ -1,5 +1,6 @@
 """Small agent controls using RC8's Qt transport, themes and existing composer."""
 
+import inspect
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
@@ -672,7 +673,9 @@ class AgentPanel(QWidget):
         return dialog
 
     def confirm_folder_grant(self, path: str) -> tuple[bool, bool, bool, bool, bool]:
-        if not getattr(QMessageBox.question, "__module__", "").startswith("PySide6"):
+        # Tests patch QMessageBox.question with a plain Python function (legacy flow).
+        # Native PySide6 methods have ``__module__ is None``; never call str methods on it.
+        if inspect.isfunction(QMessageBox.question):
             if (
                 QMessageBox.question(
                     self,

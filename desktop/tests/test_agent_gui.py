@@ -600,3 +600,82 @@ def test_hotfix2_context_presets_inline_folder_continue_and_stop_button(
     assert not w.stop_button.isVisible()
     assert w.generation_status.text() == w.tr("ready")
     assert [m["role"] for m in w.messages] == ["user", "assistant"]
+
+
+def test_real_folder_confirm_dialog_then_continue_reads_original_file(
+    agent_window, qtbot, monkeypatch, tmp_path
+):
+    """Regression: confirm_folder_grant raised AttributeError in real PySide6
+    (QMessageBox.question.__module__ is None), so no grant POST was ever sent and
+    `Continue task` never appeared. Only QFileDialog is stubbed; the real confirmation
+    dialog is accepted through the GUI."""
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication, QDialog
+
+    from omnicore.desktop.transcript import MessageCard
+
+    w, service = agent_window
+    panel = w.agent_panel
+    target = tmp_path / "OmniCore-agent-test"
+    target.mkdir()
+    (target / "test.txt").write_text("secret-content-42")
+    seen = []
+
+    class ReadEngine(ToolEngine):
+        async def stream(self, model, messages, parameters):
+            if any("untrusted_tool_result" in m.content for m in messages):
+                seen.append(messages[-1].content)
+                yield TextChunk(
+                    content=json.dumps({"kind": "final", "text": "DONE"}), finish_reason="stop"
+                )
+                return
+            yield TextChunk(
+                content=json.dumps(
+                    {
+                        "kind": "tool",
+                        "name": "read_text",
+                        "arguments": {"path": str(target / "test.txt")},
+                    }
+                ),
+                finish_reason="stop",
+            )
+
+    service.engines["llama.cpp"] = ReadEngine()
+    w.model_combo.setCurrentIndex(1)
+    qtbot.mouseClick(w.new_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: bool(w.current_id))
+    qtbot.waitUntil(lambda: not panel.settings_loading)
+    panel.mode.setCurrentIndex(panel.mode.findData("agent"))
+    qtbot.waitUntil(lambda: not panel.settings_saving)
+    w.composer.setPlainText("read test.txt")
+    qtbot.mouseClick(w.send_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: panel.active is None and len(panel.runs) == 1, timeout=15000)
+    qtbot.waitUntil(
+        lambda: any(
+            c.agent_grant_button is not None for c in w.transcript.findChildren(MessageCard)
+        )
+    )
+    card = next(c for c in w.transcript.findChildren(MessageCard) if c.agent_grant_button)
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: str(target))
+
+    def accept_real_dialog():
+        dialog = panel.folder_dialog
+        assert isinstance(dialog, QDialog)
+        dialog.accept()
+
+    def schedule():
+        QTimer.singleShot(200, accept_real_dialog)
+
+    schedule()
+    qtbot.mouseClick(card.agent_grant_button, Qt.LeftButton)
+    QApplication.processEvents()
+    qtbot.waitUntil(lambda: len(panel.granted_folders) == 1, timeout=5000)
+    ready = next(
+        c for c in w.transcript.findChildren(MessageCard) if c.agent_continue_button is not None
+    )
+    assert ready.agent_continue_button.isVisible()
+    assert ready.agent_continue_button.isEnabled()
+    qtbot.mouseClick(ready.agent_continue_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: panel.active is None and bool(seen), timeout=15000)
+    assert "secret-content-42" in seen[0]
