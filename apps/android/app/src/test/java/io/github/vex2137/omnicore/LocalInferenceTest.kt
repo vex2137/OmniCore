@@ -275,4 +275,79 @@ http.server.HTTPServer(("127.0.0.1", port), Handler).serve_forever()
         assertEquals(1, vm.state.value.conversations.size)
         vm.pause()
     }
+
+    @Test
+    fun safPickerPauseResumeAndImportFromMultipleFoldersRegistersModelsWithoutConnectionError() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val dir = tempDir()
+            val downloads = File(dir, "Download").apply { mkdirs() }
+            val otherFolder = File(dir, "Documents/AI").apply { mkdirs() }
+            val modelA = File(downloads, "LFM3-1.7B-Q8_0.gguf").also { writeFakeGguf(it) }
+            val modelB = File(otherFolder, "Qwen3.5-4B-Q4_K_M.gguf").also { writeFakeGguf(it) }
+            val badFile = File(downloads, "corrupt.gguf").apply { writeText("not gguf") }
+
+            val settings =
+                object : ClientSettings {
+                    override var url = ""
+                    override var localMode = true
+                    override var trustedLan = false
+                    override var theme = "system"
+                    override var language = "en-US"
+                    override var conversationId: String? = null
+                    override var generationId: String? = null
+                    override var parameters = Parameters()
+
+                    override fun storeToken(token: String) {}
+
+                    override fun readToken() = ""
+                }
+            val engine =
+                LocalLlamaEngine(
+                    binaryProvider = { File(dir, "libomnicore_llama.so") },
+                    sdkLevel = 34,
+                )
+            val repo =
+                LocalOmniRepository(
+                    null,
+                    engine,
+                    LocalModelStore(dir),
+                    LocalConversationStore(dir),
+                    dispatcher,
+                )
+            val vm =
+                OmniViewModel(
+                    settings = settings,
+                    io = dispatcher,
+                    localRepository = { repo },
+                )
+            advanceUntilIdle()
+            assertTrue(vm.state.value.connected)
+            assertTrue(vm.state.value.localMode)
+
+            // Simulate system file picker opening (onStop -> pause), returning (onStart -> resume),
+            // and immediately firing the ActivityResult callback before/during resume.
+            vm.pause()
+            vm.resume()
+            vm.importModel(modelA.absolutePath)
+            advanceUntilIdle()
+            assertNull(vm.state.value.error)
+            assertEquals(1, vm.state.value.models.size)
+            assertEquals("LFM3-1.7B-Q8_0", vm.state.value.models[0].name)
+
+            // Simulate importing from a second folder while connectLocal() is busy (activity recreate).
+            vm.connectLocal()
+            vm.importModel(modelB.absolutePath)
+            advanceUntilIdle()
+            assertNull(vm.state.value.error)
+            assertEquals(2, vm.state.value.models.size)
+
+            // Invalid GGUF must report invalid_gguf, never not_connected or connection_error.
+            vm.importModel(badFile.absolutePath)
+            advanceUntilIdle()
+            assertEquals("invalid_gguf", vm.state.value.error)
+            assertEquals(2, vm.state.value.models.size)
+            vm.pause()
+        }
 }

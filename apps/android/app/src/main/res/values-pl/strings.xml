@@ -161,6 +161,14 @@ Pobrać ten plik na komputer backendu?</string>
   <string name="mode_on_device">Lokalnie na telefonie (Offline)</string>
   <string name="mode_remote">Zdalny backend</string>
   <string name="import_local_model">Importuj GGUF z urządzenia</string>
+  <string name="local_ready">Gotowy lokalnie</string>
+  <string name="local_engine_unavailable">Silnik lokalny niedostępny</string>
+  <string name="error_invalid_gguf">Wybrany plik nie jest prawidłowym modelem GGUF.</string>
+  <string name="error_insufficient_storage">Za mało wolnego miejsca na urządzeniu, aby zaimportować ten model.</string>
+  <string name="error_model_import">Nie udało się odczytać ani skopiować wybranego pliku GGUF.</string>
+  <string name="error_model_not_found">Nie można otworzyć pliku modelu lub plik nie jest już dostępny.</string>
+  <string name="error_model_permission">Brak uprawnień do odczytu wybranego pliku modelu.</string>
+  <string name="error_model_load">Nie udało się załadować modelu lokalnie. Sprawdź rozmiar, format i dostępną pamięć RAM.</string>
   <string name="error_gpu">Backend nie mógł użyć GPU. Wybierz Auto dla fallback CPU lub sprawdź diagnostykę silnika na komputerze.</string>
   <string name="launcher_name">OmniCore RC</string>
 </resources>

@@ -83,6 +83,7 @@ class OmniViewModel(
     private var recovery: Job? = null
     private var pending: GenerationRequest? = null
     private var pendingConversation: String? = null
+    private var pendingImport: String? = null
 
     init {
         if (settings.localMode && localRepository != null) connectLocal()
@@ -106,16 +107,27 @@ class OmniViewModel(
     }
 
     private fun action(block: suspend (OmniRepository) -> Unit) {
-        val service =
-            api
-                ?: run {
-                    mutable.update { it.copy(error = "not_connected") }
-                    return
-                }
+        val existing = api
+        val localFactory = localRepository
+        if (existing == null && !(mutable.value.localMode && localFactory != null)) {
+            mutable.update { it.copy(error = "not_connected") }
+            return
+        }
         if (mutable.value.busy) return
         mutable.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             try {
+                val service =
+                    existing
+                        ?: withContext(io) {
+                            localFactory!!().also { created ->
+                                api = created
+                            }
+                        }
+                if (existing == null) {
+                    val health = withContext(io) { service.health() }
+                    mutable.update { it.copy(connected = true, health = health, reconnecting = false) }
+                }
                 block(service)
             } catch (e: Exception) {
                 error(e)
@@ -182,6 +194,11 @@ class OmniViewModel(
                 error(e)
             } finally {
                 mutable.update { it.copy(busy = false, connecting = false) }
+                val queuedImport = pendingImport
+                if (queuedImport != null && mutable.value.connected) {
+                    pendingImport = null
+                    importModel(queuedImport)
+                }
             }
         }
     }
@@ -649,8 +666,11 @@ class OmniViewModel(
         val wasPaused = paused
         paused = false
         if (wasPaused) {
-            if (mutable.value.localMode && localRepository != null) connectLocal()
-            else if (settings.url.isNotBlank()) connect()
+            if (mutable.value.localMode && localRepository != null) {
+                if (api == null) connectLocal()
+            } else if (settings.url.isNotBlank()) {
+                connect()
+            }
         }
     }
 
@@ -717,9 +737,15 @@ class OmniViewModel(
         refresh(service)
     }
 
-    fun importModel(path: String) = action { service ->
-        service.importModel(path)
-        refresh(service)
+    fun importModel(path: String) {
+        if (mutable.value.busy && mutable.value.localMode) {
+            pendingImport = path
+            return
+        }
+        action { service ->
+            service.importModel(path)
+            refresh(service)
+        }
     }
 
     override fun onCleared() {

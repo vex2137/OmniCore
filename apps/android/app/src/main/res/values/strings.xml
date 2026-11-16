@@ -161,6 +161,14 @@ Download this file onto the backend computer?</string>
   <string name="mode_on_device">On-device (Offline)</string>
   <string name="mode_remote">Remote backend</string>
   <string name="import_local_model">Import GGUF from device</string>
+  <string name="local_ready">On-device ready</string>
+  <string name="local_engine_unavailable">Local engine unavailable</string>
+  <string name="error_invalid_gguf">Selected file is not a valid GGUF model.</string>
+  <string name="error_insufficient_storage">Not enough free storage on the device to import this model.</string>
+  <string name="error_model_import">Could not read or copy the selected GGUF file.</string>
+  <string name="error_model_not_found">Model file could not be opened or is no longer accessible.</string>
+  <string name="error_model_permission">Permission to read the selected model file was denied.</string>
+  <string name="error_model_load">Failed to load the model on-device. Check model size, format, and available RAM.</string>
   <string name="error_gpu">The backend could not use GPU. Select Auto for CPU fallback, or check engine diagnostics on the computer.</string>
   <string name="launcher_name">OmniCore RC</string>
 </resources>

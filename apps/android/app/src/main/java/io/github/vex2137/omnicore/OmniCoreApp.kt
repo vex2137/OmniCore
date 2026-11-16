@@ -67,11 +67,15 @@ fun OmniCoreApp(vm: OmniViewModel, onLanguage: (String) -> Unit) {
                 R.string.nav_diagnostics,
             )
         val statusLabel =
-            when (state.connectionStatus) {
-                ConnectionStatus.Connected -> R.string.connected
-                ConnectionStatus.Connecting -> R.string.connecting
-                ConnectionStatus.Disconnected -> R.string.disconnected
-                ConnectionStatus.Unauthorized -> R.string.auth_failed
+            when {
+                state.localMode && state.connected ->
+                    if (state.engines.firstOrNull()?.info?.available == false)
+                        R.string.local_engine_unavailable
+                    else R.string.local_ready
+                state.connectionStatus == ConnectionStatus.Connected -> R.string.connected
+                state.connectionStatus == ConnectionStatus.Connecting -> R.string.connecting
+                state.connectionStatus == ConnectionStatus.Disconnected -> R.string.disconnected
+                else -> R.string.auth_failed
             }
         val icons =
             listOf(
@@ -194,6 +198,13 @@ private fun ErrorBanner(code: String, dismiss: () -> Unit) {
             "gpu_layers_required" -> R.string.error_gpu
             "out_of_memory" -> R.string.error_memory
             "engine_unavailable" -> R.string.error_engine
+            "invalid_gguf" -> R.string.error_invalid_gguf
+            "insufficient_storage" -> R.string.error_insufficient_storage
+            "model_import_failed" -> R.string.error_model_import
+            "model_not_found" -> R.string.error_model_not_found
+            "model_permission_denied" -> R.string.error_model_permission
+            "model_load_failed",
+            "model_load_timeout" -> R.string.error_model_load
             "stream_disconnected" -> R.string.error_stream
             else -> R.string.error_generic
         }

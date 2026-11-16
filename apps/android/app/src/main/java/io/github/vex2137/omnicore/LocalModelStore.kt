@@ -74,8 +74,11 @@ class LocalModelStore(private val rootDir: File) {
             )
         }
         val (displayName, reportedSize) = queryUriMeta(context, uri)
+        val fallbackName = uri.lastPathSegment?.substringAfterLast(':')?.substringAfterLast('/')
         val cleanName =
-            (displayName ?: "model.gguf").substringAfterLast('/').ifBlank { "model.gguf" }
+            (displayName ?: fallbackName ?: "model.gguf")
+                .substringAfterLast('/')
+                .ifBlank { "model.gguf" }
         val baseName = cleanName.removeSuffix(".gguf").removeSuffix(".GGUF").ifBlank { "Model" }
 
         synchronized(lock) {
@@ -84,10 +87,6 @@ class LocalModelStore(private val rootDir: File) {
             }
         }
 
-        // Validate GGUF magic before allocating storage.
-        context.contentResolver.openInputStream(uri)?.use { validateGgufHeader(it) }
-            ?: throw ApiFailure("model_not_found")
-
         if (reportedSize > 0 && modelsDir.usableSpace < reportedSize + 64L * 1024L * 1024L) {
             throw ApiFailure("insufficient_storage")
         }
@@ -95,30 +94,51 @@ class LocalModelStore(private val rootDir: File) {
         val id = UUID.randomUUID().toString().replace("-", "")
         val part = File(modelsDir, "$id.gguf.partial")
         val target = File(modelsDir, "$id.gguf")
-        var copied = 0L
         try {
-            context.contentResolver.openInputStream(uri)?.use { input ->
+            val stream =
+                try {
+                    context.contentResolver.openInputStream(uri)
+                } catch (_: SecurityException) {
+                    throw ApiFailure("model_permission_denied")
+                } ?: throw ApiFailure("model_not_found")
+
+            stream.use { input ->
+                val header = ByteArray(8)
+                DataInputStream(input).let { data ->
+                    try {
+                        data.readFully(header)
+                    } catch (_: Exception) {
+                        throw ApiFailure("invalid_gguf")
+                    }
+                }
+                validateGgufHeaderBytes(header)
                 FileOutputStream(part).use { out ->
+                    out.write(header)
                     val buf = ByteArray(1024 * 1024)
                     while (true) {
                         val n = input.read(buf)
                         if (n == -1) break
                         out.write(buf, 0, n)
-                        copied += n
                     }
                     out.fd.sync()
                 }
-            } ?: throw ApiFailure("model_not_found")
-            Files.move(
-                part.toPath(),
-                target.toPath(),
-                StandardCopyOption.REPLACE_EXISTING,
-                StandardCopyOption.ATOMIC_MOVE,
-            )
+            }
+            try {
+                Files.move(
+                    part.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE,
+                )
+            } catch (_: UnsupportedOperationException) {
+                Files.move(part.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
         } catch (e: Exception) {
             part.delete()
             target.delete()
             if (e is ApiFailure) throw e
+            if (e is SecurityException) throw ApiFailure("model_permission_denied")
+            if (e is java.io.FileNotFoundException) throw ApiFailure("model_not_found")
             throw ApiFailure("model_import_failed")
         }
 
@@ -213,9 +233,13 @@ class LocalModelStore(private val rootDir: File) {
             } catch (_: Exception) {
                 throw ApiFailure("invalid_gguf")
             }
-            // GGUF magic bytes are 'G','G','U','F' (0x46554747 LE / 0x47475546 BE).
+            validateGgufHeaderBytes(header)
+        }
+
+        fun validateGgufHeaderBytes(header: ByteArray) {
             if (
-                header[0] != 'G'.code.toByte() ||
+                header.size < 8 ||
+                    header[0] != 'G'.code.toByte() ||
                     header[1] != 'G'.code.toByte() ||
                     header[2] != 'U'.code.toByte() ||
                     header[3] != 'F'.code.toByte()
