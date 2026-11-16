@@ -942,7 +942,7 @@ class MainWindow(QMainWindow):
         sync_btn = self.button("sync_ollama", self.sync_ollama)
         refresh_btn = self.button("refresh", self.refresh_models)
         for btn in (import_btn, self.scan_button, sync_btn, refresh_btn):
-            btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         action_bar = QHBoxLayout()
         action_bar.setContentsMargins(0, 0, 0, 0)
         action_bar.setSpacing(8)
@@ -951,8 +951,9 @@ class MainWindow(QMainWindow):
         action_bar.addWidget(sync_btn)
         models_hint = self.label("model_hint")
         models_hint.setObjectName("mutedMeta")
-        action_bar.addStretch(1)
-        action_bar.addWidget(models_hint)
+        models_hint.setWordWrap(True)
+        models_hint.setMinimumWidth(0)
+        action_bar.addWidget(models_hint, 1)
         action_bar.addWidget(refresh_btn)
         controls_layout.addLayout(action_bar)
 
@@ -1906,7 +1907,7 @@ class MainWindow(QMainWindow):
         """Return (margin_h, row_gap) for the expanded sidebar."""
         expanded_w = max(200, min(360, self.config.sidebar_width))
         if self.config.ui_scale > 100 and expanded_w < self._scaled(220):
-            return max(6, self._scaled(7)), max(4, self._scaled(4))
+            return 6, 4
         return self._scaled(10), self._scaled(6)
 
     def _sync_history_toolbar(self):
@@ -1937,7 +1938,8 @@ class MainWindow(QMainWindow):
         cfg_w = max(200, min(360, self.config.sidebar_width))
         actual_w = self.sidebar.width()
         effective_w = min(cfg_w, actual_w) if actual_w >= 180 else cfg_w
-        avail_new = effective_w - 2 * margin_h - self._scaled(32) - row_gap - 1
+        nav_w = self.nav[0].width() or self._scaled(32)
+        avail_new = effective_w - 2 * margin_h - nav_w - row_gap - 1
         full_new = self.tr("new_chat")
         self.new_button.setText(full_new)
         self.new_button.ensurePolished()
@@ -2156,8 +2158,11 @@ class MainWindow(QMainWindow):
             else:
                 if button is self.nav[0]:
                     polish_property(button, "iconOnly", True)
-                    nav_sz = self._scaled(32)
-                    button.setFixedSize(nav_sz, nav_sz)
+                    expanded_w = max(200, min(360, self.config.sidebar_width))
+                    tight_scaled = self.config.ui_scale > 100 and expanded_w < self._scaled(220)
+                    nav_w = self._scaled(28) if tight_scaled else self._scaled(32)
+                    nav_h = self._scaled(32)
+                    button.setFixedSize(nav_w, nav_h)
                     button.setText("")
                 else:
                     polish_property(button, "iconOnly", False)
