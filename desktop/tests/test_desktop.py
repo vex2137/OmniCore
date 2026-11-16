@@ -5,7 +5,15 @@ from importlib.resources import files
 
 import httpx
 from PySide6.QtCore import QProcess, Qt
-from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QInputDialog,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QWidget,
+)
 
 from omnicore.desktop.config import DesktopConfig, config_path, data_path
 
@@ -22,13 +30,13 @@ def request(window, method, path, payload=None):
         return response.json()
 
 
-def fixture_gguf():
+def fixture_gguf(name: str = "GUI fixture"):
     def string(value):
         encoded = value.encode()
         return struct.pack("<Q", len(encoded)) + encoded
 
     data = b"GGUF" + struct.pack("<IQQ", 3, 1, 2)
-    for key, value in (("general.architecture", "llama"), ("general.name", "GUI fixture")):
+    for key, value in (("general.architecture", "llama"), ("general.name", name)):
         data += string(key) + struct.pack("<I", 8) + string(value)
     data += string("test.weight") + struct.pack("<IQIQ", 1, 4, 0, 0)
     return data + b"\0" * (-len(data) % 32) + struct.pack("<ffff", 0, 0, 0, 0)
@@ -101,12 +109,12 @@ def test_native_import_and_model_selection_no_ollama(desktop, qtbot, monkeypatch
 def test_settings_locale_theme_persist_and_restart(desktop, qtbot):
     w = desktop
     w.language.setCurrentIndex(w.language.findData("en-US"))
-    assert w.new_button.text() == "+ New conversation"
-    w.theme.setCurrentIndex(w.theme.findData("dark"))
+    assert w.new_button.text() == "New chat"
+    w.theme.setCurrentIndex(w.theme.findData("midnight"))
     dark_styles = w.styleSheet()
-    assert "#10151f" in dark_styles
+    assert "#0d1118" in dark_styles
     w.theme.setCurrentIndex(w.theme.findData("light"))
-    assert "#f5f6fa" in w.styleSheet()
+    assert "#f4f6fa" in w.styleSheet()
     w.theme.setCurrentIndex(w.theme.findData("system"))
     w.parameter_inputs["max_tokens"].setValue(37)
     w.save_settings()
@@ -400,9 +408,12 @@ def test_native_markdown_code_model_identity_statistics_and_safe_resources(qtbot
     assert any(
         "Strong" in b.toPlainText() and "**Strong**" not in b.toPlainText() for b in browsers
     )
+    stat_labels = card.findChildren(QLabel)
     assert any(
-        "Output tokens: 2" in label.text() and "token limit" in label.text()
-        for label in card.findChildren(QLabel)
+        "2 tok." in label.text() and "token limit" in label.toolTip() for label in stat_labels
+    )
+    assert any(
+        "0.10 s TTFT" in label.text() and "token limit" in label.toolTip() for label in stat_labels
     )
     assert card.findChild(QPlainTextEdit).toPlainText() == 'print("hello")'
     copy = next(button for button in card.findChildren(QPushButton) if button.text() == "Copy code")
@@ -468,3 +479,1776 @@ def test_long_history_is_incremental_and_earlier_messages_remain_accessible(qtbo
     assert len(widget.cards) == 120
     widget.more.click()
     assert len(widget.cards) == 180
+
+
+def test_model_tabs_separate_transfers(desktop):
+    tabs = desktop.model_tabs
+    assert tabs.count() == 3
+    assert tabs.widget(2).isAncestorOf(desktop.download_list)
+    assert not tabs.widget(2).isAncestorOf(desktop.download_button)
+    assert tabs.widget(1).isAncestorOf(desktop.download_button)
+    assert not tabs.widget(1).isAncestorOf(desktop.download_list)
+
+
+def test_desktop_theme_variants_survive_reload(desktop, tmp_path):
+    config_file = tmp_path / "desktop.json"
+    for name in ("system", "light", "midnight", "graphite", "oled", "ocean", "forest"):
+        index = desktop.theme.findData(name)
+        assert index >= 0
+        desktop.theme.setCurrentIndex(index)
+        assert desktop.config.theme == name
+        desktop.config.save(config_file)
+        assert DesktopConfig.load(config_file).theme == name
+
+
+def test_sidebar_compact_preserves_history_and_setting(desktop, qtbot, tmp_path):
+    w = desktop
+    assert w.sidebar.width() == 240
+    qtbot.mouseClick(w.sidebar_toggle, Qt.LeftButton)
+    assert w.sidebar.width() == 56
+    assert w.history_panel.isHidden()
+    path = tmp_path / "desktop.json"
+    w.config.save(path)
+    assert DesktopConfig.load(path).sidebar_compact
+    qtbot.mouseClick(w.sidebar_toggle, Qt.LeftButton)
+    assert w.sidebar.width() == 240
+    assert not w.history_panel.isHidden()
+
+
+def test_sidebar_width_is_persistent_and_restored_after_compacting(desktop, tmp_path):
+    window = desktop
+    window.sidebar_width.setValue(280)
+    assert window.sidebar.width() == 280
+    window.toggle_sidebar()
+    assert window.sidebar.width() == 56
+    window.toggle_sidebar()
+    assert window.sidebar.width() == 280
+    path = tmp_path / "prefs.json"
+    window.config.save(path)
+    assert DesktopConfig.load(path).sidebar_width == 280
+
+
+def test_regeneration_branches_without_deleting_original(desktop, qtbot, monkeypatch):
+    w = desktop
+    record = request(w, "POST", "/api/v1/text/conversations", {"title": "Original"})
+    source = record["id"]
+    url = f"/api/v1/text/conversations/{source}"
+    for role, content in (
+        ("user", "First"),
+        ("assistant", "One"),
+        ("user", "Second"),
+        ("assistant", "Two"),
+    ):
+        request(w, "POST", url + "/messages", {"role": role, "content": content})
+    w.current_id = source
+    captured = []
+    monkeypatch.setattr(w, "send_message", lambda: captured.append(w.composer.toPlainText()))
+    w.regenerate_answer()
+    qtbot.waitUntil(lambda: bool(captured))
+    assert captured == ["Second"]
+    assert w.current_id != source
+    original = request(w, "GET", url + "/messages")
+    assert [m["content"] for m in original] == ["First", "One", "Second", "Two"]
+    branch = request(w, "GET", f"/api/v1/text/conversations/{w.current_id}/messages")
+    assert [m["content"] for m in branch] == ["First", "One"]
+
+
+def test_context_meter_uses_last_request_not_history(desktop):
+    w = desktop
+    w.messages = [
+        {
+            "role": "assistant",
+            "content": "Answer",
+            "statistics": {
+                "context_used_tokens": 128,
+                "context_limit_tokens": 512,
+                "execution_device": "CUDA0",
+                "gpu_offloaded_layers": 25,
+            },
+        }
+    ]
+    w.render_messages()
+    assert w.context_meter.value() == 25
+    assert "128/512" in w.context_usage.text()
+    assert "GPU" in w.context_usage.text()
+    w.messages = [{"role": "user", "content": "A long history" * 100}]
+    w.render_messages()
+    assert w.context_meter.isHidden()
+    assert "128/512" not in w.context_usage.text()
+
+
+def test_pin_updates_real_history_without_duplicates(desktop, qtbot):
+    w = desktop
+    record = request(w, "POST", "/api/v1/text/conversations", {"title": "Pin me"})
+    w.refresh_conversations(record["id"])
+    qtbot.waitUntil(lambda: len(w.conversations) == 1)
+    w.pin_conversation(record)
+    qtbot.waitUntil(lambda: bool(w.conversations[0].get("pinned")))
+    assert w.conversation_list.count() == 1
+    assert request(w, "GET", f"/api/v1/text/conversations/{record['id']}")["pinned"]
+
+
+def test_capture_real_sidebar_chat_if_requested(desktop, qtbot):
+    from pathlib import Path
+
+    output = os.environ.get("OMNICORE_VISUAL_OUTPUT")
+    if not output:
+        return
+    destination = Path(output)
+    destination.mkdir(parents=True, exist_ok=True)
+    w = desktop
+    w.onboarding.hide()
+    record = request(w, "POST", "/api/v1/text/conversations", {"title": "RC8 — UI review"})
+    url = f"/api/v1/text/conversations/{record['id']}"
+    for role, content in (
+        ("user", "How do I connect a local GGUF model?"),
+        (
+            "assistant",
+            "## Local models\n\n1. Import your GGUF.\n2. Select the engine.\n\n"
+            "```python\nprint('OmniCore')\n```",
+        ),
+    ):
+        request(w, "POST", url + "/messages", {"role": role, "content": content})
+    request(w, "PATCH", url, {"pinned": True})
+    w.refresh_conversations(record["id"])
+    qtbot.waitUntil(lambda: len(w.messages) == 2)
+    for width, height in ((1280, 720), (1366, 768), (1920, 1080), (2560, 1440)):
+        w.resize(width, height)
+        qtbot.wait(100)
+        assert w.grab().save(str(destination / f"chat-{width}x{height}.png"))
+    w.toggle_sidebar()
+    qtbot.wait(100)
+    assert w.grab().save(str(destination / "chat-compact.png"))
+
+
+def test_composer_enter_shift_enter_and_growth(qtbot):
+    from omnicore.desktop.composer import Composer
+
+    composer = Composer()
+    qtbot.addWidget(composer)
+    composer.show()
+    composer.setPlainText("Draft")
+    with qtbot.waitSignal(composer.submitted):
+        qtbot.keyClick(composer, Qt.Key_Return)
+    assert composer.toPlainText() == "Draft"
+    qtbot.keyClick(composer, Qt.Key_Return, Qt.ShiftModifier)
+    assert "\n" in composer.toPlainText()
+    composer.setPlainText("Line\n" * 50)
+    assert 72 <= composer.height() <= 160
+
+
+def test_model_search_sort_favorites_and_selection(desktop, tmp_path):
+    w = desktop
+    w.models = [
+        dict(
+            id=str(i),
+            backend="llama.cpp",
+            name=name,
+            size_bytes=size,
+            compatibility="unverified",
+            format="GGUF",
+            quantization="Q4_K_M",
+            location="/fixture",
+            metadata={"architecture": "llama"},
+        )
+        for i, (name, size) in enumerate((("Zulu", 300), ("Alpha", 100), ("Beta", 200)))
+    ]
+    w.refresh_model_table()
+    assert w.selected_model()["name"] == "Alpha"
+    w.model_sort.setCurrentIndex(w.model_sort.findData("sort_size"))
+    assert w.model_table.item(0, 0).data(Qt.UserRole) == "0"
+    w.model_search.setText("beta")
+    assert w.model_table.rowCount() == 1
+    assert w.selected_model()["name"] == "Beta"
+    w.toggle_favorite_model()
+    w.model_search.clear()
+    w.favorites_only.setChecked(True)
+    assert w.model_table.rowCount() == 1
+    path = tmp_path / "preferences.json"
+    w.config.save(path)
+    assert DesktopConfig.load(path).favorite_models == ["2"]
+    w.toggle_favorite_model()
+    assert w.model_table.rowCount() == 0
+    assert not w.models_empty.isHidden()
+    w.favorites_only.setChecked(False)
+    w.models[0]["name"] = "<img src=file:///private>"
+    w.model_search.setText("<img")
+    assert "&lt;img" in w.model_table.item(0, 0).toolTip()
+
+
+def test_history_groups_collapse_without_losing_records(desktop, qtbot, tmp_path):
+    w = desktop
+    for title in ("One", "Two"):
+        request(w, "POST", "/api/v1/text/conversations", {"title": title})
+    w.refresh_conversations()
+    qtbot.waitUntil(lambda: w.conversation_list.count() == 2)
+    w.toggle_history_group("today")
+    assert not w.conversation_list.item(0).isHidden()
+    assert w.conversation_list.item(1).isHidden()
+    path = tmp_path / "prefs.json"
+    w.config.save(path)
+    assert "today" in DesktopConfig.load(path).collapsed_history
+    w.toggle_history_group("today")
+    assert not w.conversation_list.item(1).isHidden()
+    assert len(request(w, "GET", "/api/v1/text/conversations")) == 2
+
+
+def test_theme_previews_and_accent_persist(desktop, monkeypatch, tmp_path):
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QColorDialog
+
+    w = desktop
+    assert w.theme.count() == 7
+    assert all(not w.theme.itemIcon(i).isNull() for i in range(7))
+    monkeypatch.setattr(QColorDialog, "getColor", lambda *args: QColor("#24aabb"))
+    w.choose_accent()
+    path = tmp_path / "prefs.json"
+    w.config.save(path)
+    assert DesktopConfig.load(path).accent == "#24aabb"
+    assert "#24aabb" in w.styleSheet()
+    w.reset_accent()
+    assert w.config.accent == ""
+
+
+def test_context_details_disclose_actual_data(desktop, qtbot):
+    w = desktop
+    w.messages = [
+        {
+            "role": "assistant",
+            "content": "Answer",
+            "statistics": {
+                "input_tokens": 120,
+                "output_tokens": 30,
+                "context_used_tokens": 150,
+                "context_limit_tokens": 2048,
+                "finish_reason": "stop",
+            },
+        }
+    ]
+    w.render_messages()
+    qtbot.mouseClick(w.context_toggle, Qt.LeftButton)
+    assert not w.context_details.isHidden()
+    assert "120" in w.context_details.text() and "150/2048" in w.context_details.text()
+    qtbot.mouseClick(w.context_toggle, Qt.LeftButton)
+    assert w.context_details.isHidden()
+
+
+def test_assistant_footer_regenerates_specific_message(qtbot):
+    from PySide6.QtWidgets import QToolButton
+
+    from omnicore.desktop.i18n import Translator
+    from omnicore.desktop.transcript import ChatTranscript
+
+    transcript = ChatTranscript()
+    qtbot.addWidget(transcript)
+    transcript.can_regenerate = True
+    message = {"id": "first", "role": "assistant", "content": "Original answer"}
+    transcript.set_messages([message], Translator("en-US"))
+    retry = next(
+        b
+        for b in transcript.cards[0].findChildren(QToolButton)
+        if b.accessibleName() == "Regenerate"
+    )
+    with qtbot.waitSignal(transcript.regenerate_requested) as signal:
+        qtbot.mouseClick(retry, Qt.LeftButton)
+    assert signal.args == [message]
+
+
+def test_regeneration_from_earlier_answer_uses_earlier_history(desktop, qtbot, monkeypatch):
+    w = desktop
+    record = request(w, "POST", "/api/v1/text/conversations", {"title": "Original"})
+    source = record["id"]
+    url = f"/api/v1/text/conversations/{source}"
+    messages = [
+        request(w, "POST", url + "/messages", {"role": role, "content": content})
+        for role, content in (
+            ("user", "First"),
+            ("assistant", "One"),
+            ("user", "Second"),
+            ("assistant", "Two"),
+        )
+    ]
+    w.current_id = source
+    captured = []
+    monkeypatch.setattr(w, "send_message", lambda: captured.append(w.composer.toPlainText()))
+    w.regenerate_answer(messages[1])
+    qtbot.waitUntil(lambda: bool(captured))
+    assert captured == ["First"]
+    assert request(w, "GET", f"/api/v1/text/conversations/{w.current_id}/messages") == []
+    assert len(request(w, "GET", url + "/messages")) == 4
+
+
+def test_capture_new_rc8_views_if_requested(desktop, qtbot):
+    from pathlib import Path
+
+    output = os.environ.get("OMNICORE_VISUAL_OUTPUT")
+    if not output:
+        return
+    destination = Path(output)
+    destination.mkdir(parents=True, exist_ok=True)
+    w = desktop
+    w.onboarding.hide()
+    for name in ("Local GGUF UI fixture", "Second local UI fixture"):
+        path = data_path() / "models" / (name + ".gguf")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(fixture_gguf())
+        request(w, "POST", "/api/v1/text/models/import", {"path": str(path)})
+    w.refresh_models()
+    qtbot.waitUntil(lambda: len(w.models) == 2)
+    w.navigate(1)
+    qtbot.wait(150)
+    assert w.grab().save(str(destination / "my-models.png"))
+    w.navigate(2)
+    w.theme.setCurrentIndex(w.theme.findData("ocean"))
+    qtbot.wait(150)
+    assert w.grab().save(str(destination / "appearance-settings.png"))
+    w.theme.showPopup()
+    qtbot.wait(100)
+    assert w.theme.view().grab().save(str(destination / "all-theme-previews.png"))
+    w.theme.hidePopup()
+    w.navigate(0)
+    for title in ("First review", "Second review"):
+        request(w, "POST", "/api/v1/text/conversations", {"title": title})
+    w.refresh_conversations()
+    qtbot.waitUntil(lambda: len(w.conversations) == 2)
+    w.toggle_history_group("today")
+    qtbot.wait(100)
+    assert w.grab().save(str(destination / "collapsed-history.png"))
+    w.context_toggle.setChecked(True)
+    qtbot.wait(100)
+    assert w.grab().save(str(destination / "context-details-unavailable.png"))
+
+
+def test_chat_header_stays_aligned_across_modes_and_scales(desktop, qtbot):
+    w = desktop
+    w.resize(1100, 760)
+    w.show()
+    qtbot.waitExposed(w)
+    for scale in (80, 100, 150):
+        w.ui_scale.setValue(scale)
+        qtbot.wait(50)
+        w.agent_panel.mode.setCurrentIndex(w.agent_panel.mode.findData("chat"))
+        qtbot.wait(30)
+        chat_geometries = (
+            w.model_combo.geometry(),
+            w.mode_switch.geometry(),
+            w.agent_panel.mode.geometry(),
+            w.context_button.geometry(),
+            w.chat_refresh.geometry(),
+        )
+        w.agent_panel.mode.setCurrentIndex(w.agent_panel.mode.findData("agent"))
+        qtbot.wait(30)
+        agent_geometries = (
+            w.model_combo.geometry(),
+            w.mode_switch.geometry(),
+            w.agent_panel.mode.geometry(),
+            w.context_button.geometry(),
+            w.chat_refresh.geometry(),
+        )
+        assert chat_geometries == agent_geometries
+        assert not w.agent_panel.settings_toggle.isVisible()
+
+    w.agent_panel.mode.setCurrentIndex(w.agent_panel.mode.findData("chat"))
+    w.context_button.setChecked(True)
+    qtbot.wait(20)
+    assert w.context_controls.isVisible()
+    assert not w.agent_panel.details.isVisible()
+
+    w.agent_panel.mode.setCurrentIndex(w.agent_panel.mode.findData("agent"))
+    qtbot.wait(20)
+    assert w.context_controls.isVisible()
+    assert w.agent_panel.details.isVisible()
+
+
+def test_history_header_search_toggles_focuses_and_filters(desktop, qtbot):
+    w = desktop
+    w.resize(1100, 760)
+    w.show()
+    qtbot.waitExposed(w)
+    first = request(w, "POST", "/api/v1/text/conversations", {"title": "Alpha Topic"})
+    second = request(w, "POST", "/api/v1/text/conversations", {"title": "Beta Topic"})
+    request(
+        w,
+        "POST",
+        f"/api/v1/text/conversations/{second['id']}/messages",
+        {"role": "user", "content": "needle_in_message_body"},
+    )
+    w.refresh_conversations()
+    qtbot.waitUntil(lambda: len(w.conversations) == 2)
+    assert w.nav[0].isVisible()
+    assert w.history_search_toggle.isVisible()
+    assert w.history_menu_btn.isVisible()
+    assert not w.history_search.isVisible()
+
+    qtbot.mouseClick(w.history_search_toggle, Qt.LeftButton)
+    qtbot.wait(20)
+    assert w.nav[0].isVisible()
+    assert not w.history_search_toggle.isVisible()
+    assert not w.history_menu_btn.isVisible()
+    assert w.history_search.isVisible()
+    assert w.history_search_close.isVisible()
+    assert w.history_search.hasFocus()
+
+    w.history_search.setText("needle_in_message_body")
+    qtbot.waitUntil(lambda: [c["id"] for c in w.conversations] == [second["id"]])
+
+    qtbot.keyClick(w.history_search, Qt.Key_Escape)
+    qtbot.waitUntil(lambda: len(w.conversations) == 2)
+    assert w.nav[0].isVisible()
+    assert w.history_search_toggle.isVisible()
+    assert w.history_menu_btn.isVisible()
+    assert not w.history_search.isVisible()
+    assert w.history_search.text() == ""
+    assert first["id"] in {c["id"] for c in w.conversations}
+
+
+def test_history_toolbar_controls_fit_narrow_and_expanded_widths(desktop, qtbot):
+    w = desktop
+    w.resize(1100, 760)
+    w.show()
+    qtbot.waitExposed(w)
+    for width, scale in ((200, 100), (200, 150), (260, 100), (340, 120)):
+        w.ui_scale.setValue(scale)
+        w.sidebar_width.setValue(width)
+        w.resize_sidebar(width)
+        qtbot.wait(25)
+        for btn in (w.nav[0], w.history_search_toggle, w.history_menu_btn):
+            assert btn.isVisible()
+            assert btn.width() >= btn.minimumSizeHint().width()
+        if width >= 260 and scale <= 120:
+            assert w.history_search_toggle.text() != ""
+        # Search toolbar sits inside history_panel without crowding beside Conversations nav button.
+        assert w.nav[0].geometry().bottom() <= w.history_panel.geometry().top()
+        # No horizontal overlap between search trigger and overflow menu controls.
+        assert w.history_search_toggle.geometry().right() < w.history_menu_btn.geometry().left()
+        assert w.history_menu_btn.geometry().right() <= w.history_panel.width()
+
+        # Open compact search row and verify height, focus, and nav stability.
+        w.open_history_search()
+        qtbot.wait(25)
+        assert w.history_search.isVisible()
+        assert w.history_search_close.isVisible()
+        assert not w.history_search_toggle.isVisible()
+        assert w.nav[0].isVisible()
+        assert w.history_search.height() >= 26
+        assert w.history_search.geometry().right() < w.history_search_close.geometry().left()
+        assert w.history_search_close.geometry().right() <= w.history_panel.width()
+
+        # Closing search restores the search trigger cleanly.
+        w.close_history_search()
+        qtbot.wait(25)
+        assert not w.history_search.isVisible()
+        assert w.history_search_toggle.isVisible()
+
+    w.toggle_sidebar()
+    qtbot.wait(20)
+    assert w.config.sidebar_compact is True
+    assert not w.history_panel.isVisible()
+    assert w.nav[0].isVisible()
+    w.toggle_sidebar()
+    qtbot.wait(20)
+    assert w.history_panel.isVisible()
+    assert w.history_search_toggle.isVisible()
+
+
+def test_history_group_rows_do_not_overlap_headings_or_titles(desktop, qtbot):
+    w = desktop
+    w.resize(1100, 760)
+    w.show()
+    qtbot.waitExposed(w)
+    request(w, "POST", "/api/v1/text/conversations", {"title": "Very Long Conversation Title"})
+    w.refresh_conversations()
+    qtbot.waitUntil(lambda: w.conversation_list.count() == 1)
+    for scale in (100, 150):
+        w.ui_scale.setValue(scale)
+        qtbot.wait(50)
+        item = w.conversation_list.item(0)
+        row = w.conversation_list.itemWidget(item)
+        assert row is not None
+        row.adjustSize()
+        row.layout().activate()
+        heading = row.findChild(QPushButton, "historyHeading")
+        title_row = row.findChild(QWidget, "historyTitleRow")
+        title = row.findChild(QLabel, "historyItemTitle")
+        assert heading is not None and title_row is not None and title is not None
+        assert heading.geometry().bottom() < title_row.geometry().top()
+        assert item.sizeHint().height() >= title_row.geometry().bottom()
+
+
+def test_history_multigroup_real_rendered_geometry_across_scales(desktop, qtbot):
+    from datetime import UTC, datetime, timedelta
+
+    w = desktop
+    w.resize(1280, 760)
+    w.show()
+    qtbot.waitExposed(w)
+    now = datetime.now(UTC)
+    offsets = (
+        ("today", "Dzisiaj rozmowa pierwsza", timedelta(hours=1)),
+        ("yesterday", "Wczoraj rozmowa druga", timedelta(days=1, hours=2)),
+        ("week", "Ostatnie 7 dni rozmowa", timedelta(days=4)),
+        ("month", "Ostatnie 30 dni rozmowa", timedelta(days=15)),
+        ("older", "Starsza rozmowa archiwalna", timedelta(days=45)),
+    )
+    for _group, title, _delta in offsets:
+        request(w, "POST", "/api/v1/text/conversations", {"title": title})
+    w.refresh_conversations()
+    qtbot.waitUntil(lambda: len(w.conversations) == 5)
+    for idx, (_group, _title, delta) in enumerate(offsets):
+        w.conversations[idx]["updated_at"] = (now - delta).isoformat()
+    w._fill_conversations()
+    QApplication.processEvents()
+
+    for scale in (80, 90, 100, 125, 150):
+        w.ui_scale.setValue(scale)
+        qtbot.wait(50)
+        QApplication.processEvents()
+        if scale in (100, 125) and (cap := os.environ.get("OMNICORE_CAPTURE_DIR")):
+            w.grab().save(f"{cap}/verify_multigroup_{scale}.png")
+        headings = []
+        for i in range(w.conversation_list.count()):
+            item = w.conversation_list.item(i)
+            row = w.conversation_list.itemWidget(item)
+            assert row is not None
+            rect = w.conversation_list.visualItemRect(item)
+            assert rect.height() >= row.height()
+            heading = row.findChild(QPushButton, "historyHeading")
+            title_lbl = row.findChild(QLabel, "historyItemTitle")
+            assert heading is not None and title_lbl is not None
+            headings.append(heading)
+            assert heading.isVisible()
+            assert heading.height() >= heading.fontMetrics().height() + 4
+            assert title_lbl.height() >= title_lbl.fontMetrics().height() + 4
+            title_row = row.findChild(QWidget, "historyTitleRow")
+            assert title_row is not None
+            assert heading.geometry().bottom() < title_row.geometry().top()
+            assert row.height() >= title_row.geometry().bottom()
+        assert len({h.height() for h in headings}) == 1
+
+
+def test_model_selector_popup_tooltip_and_responsive_header(desktop, qtbot):
+    w = desktop
+    w.show()
+    qtbot.waitExposed(w)
+    names = [
+        "LFM3-1.7B-Q8_0.gguf",
+        "DeepSeek-V4-Pro-Qwen3.5-9B-UNCENSORED-heretic.i1-Q4_K_M.gguf",
+    ]
+    models_dir = data_path() / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        path = models_dir / name
+        path.write_bytes(fixture_gguf(name[:-5]))
+        request(w, "POST", "/api/v1/text/models/import", {"path": str(path)})
+    w.refresh_models()
+    qtbot.waitUntil(lambda: w.model_combo.count() >= 3)
+
+    idx = next(
+        i
+        for i in range(w.model_combo.count())
+        if "DeepSeek-V4-Pro-Qwen3.5-9B-UNCENSORED-heretic" in w.model_combo.itemText(i)
+    )
+    w.model_combo.setCurrentIndex(idx)
+    full_label = w.model_combo.itemText(idx)
+    full_tip = f"{full_label} · llama.cpp"
+    assert full_label == "DeepSeek-V4-Pro-Qwen3.5-9B-UNCENSORED-heretic.i1-Q4_K_M"
+    assert w.model_combo.toolTip() == full_tip
+    assert w.model_combo.itemData(idx, Qt.ToolTipRole) == full_tip
+
+    w.model_combo.showPopup()
+    QApplication.processEvents()
+    needed = w.model_combo.view().fontMetrics().horizontalAdvance(full_label)
+    assert w.model_combo.view().minimumWidth() >= min(needed, w.width() - 48)
+    w.model_combo.hidePopup()
+
+    for width, height in ((1024, 720), (1440, 900), (1920, 1080)):
+        w.resize(width, height)
+        QApplication.processEvents()
+        w.agent_panel.mode.setCurrentIndex(0)
+        QApplication.processEvents()
+        chat_geos = (
+            w.model_combo.geometry(),
+            w.chat_refresh.geometry(),
+            w.mode_switch.geometry(),
+            w.context_button.geometry(),
+        )
+        assert chat_geos[0].width() >= 140
+        assert chat_geos[0].right() <= chat_geos[1].left()
+        assert chat_geos[1].right() <= chat_geos[2].left()
+        assert w.chat_header_widget.geometry().right() <= chat_geos[3].left()
+        w.agent_panel.mode.setCurrentIndex(1)
+        QApplication.processEvents()
+        agent_geos = (
+            w.model_combo.geometry(),
+            w.chat_refresh.geometry(),
+            w.mode_switch.geometry(),
+            w.context_button.geometry(),
+        )
+        assert chat_geos == agent_geos
+
+
+def test_expandable_error_card_in_notice_and_transcript(desktop, qtbot):
+    from PySide6.QtWidgets import QFrame, QToolButton
+
+    w = desktop
+    w.show()
+    qtbot.waitExposed(w)
+
+    w.show_error("out_of_memory", component="llama.cpp", target="DeepSeek-V4")
+    assert w.notice_card.isVisible()
+    assert w.notice.text() == w.tr("out_of_memory")
+    assert w.notice_details_toggle.isVisible()
+    assert not w.notice_details_frame.isVisible()
+
+    qtbot.mouseClick(w.notice_details_toggle, Qt.LeftButton)
+    QApplication.processEvents()
+    assert w.notice_details_frame.isVisible()
+    details = w.notice_details_label.text()
+    assert "out_of_memory" in details
+    assert "llama.cpp (DeepSeek-V4)" in details
+
+    w.show_error("Traceback (most recent call last) token=SECRET_123")
+    assert "SECRET_123" not in w.notice.text()
+    assert "SECRET_123" not in w.notice_details_label.text()
+    assert "unknown_error" in w.notice_details_label.text()
+
+    qtbot.mouseClick(w.notice_close, Qt.LeftButton)
+    assert not w.notice_card.isVisible()
+
+    w.messages = [
+        {"role": "user", "content": "test"},
+        {
+            "role": "assistant",
+            "content": "",
+            "status": "failed",
+            "error_code": "agent_context_limit",
+            "model_name": "DeepSeek-V4",
+        },
+    ]
+    w.render_messages()
+    QApplication.processEvents()
+    cards = w.transcript.findChildren(QFrame, "errorCard")
+    assert len(cards) == 1
+    toggle = cards[0].findChild(QPushButton, "compactToggle")
+    box = cards[0].findChild(QFrame, "errorDetailsBox")
+    assert toggle is not None and box is not None
+    assert not box.isVisible()
+    qtbot.mouseClick(toggle, Qt.LeftButton)
+    assert box.isVisible()
+    labels = "\n".join(lbl.text() for lbl in box.findChildren(QLabel))
+    assert "agent_context_limit" in labels
+    assert isinstance(w.notice_close, QToolButton)
+
+
+def test_message_statistics_summary_details_and_missing_dash(desktop, qtbot):
+    from PySide6.QtWidgets import QFrame
+
+    w = desktop
+    w.show()
+    qtbot.waitExposed(w)
+    w.messages = [
+        {
+            "role": "assistant",
+            "content": "Complete stats reply",
+            "model_name": "DeepSeek-V4",
+            "statistics": {
+                "ttft_seconds": 0.25,
+                "tokens_per_second": 31.5,
+                "input_tokens": 40,
+                "output_tokens": 120,
+                "total_tokens": 160,
+                "generation_seconds": 3.81,
+                "total_task_seconds": 4.9,
+                "model_load_seconds": 1.05,
+                "execution_model": "DeepSeek-V4",
+                "execution_device": "gpu",
+                "gpu_offloaded_layers": 24,
+                "gpu_total_layers": 40,
+                "gpu_offload_mode": "auto",
+                "context_used_tokens": 160,
+                "context_limit_tokens": 8192,
+                "finish_reason": "stop",
+            },
+        },
+        {
+            "role": "assistant",
+            "content": "Partial stats reply",
+            "model_name": "Tiny",
+            "statistics": {
+                "output_tokens": 12,
+                "execution_device": "cpu",
+            },
+        },
+    ]
+    w.render_messages()
+    QApplication.processEvents()
+
+    detail_boxes = w.transcript.findChildren(QFrame, "messageStatsDetails")
+    assert len(detail_boxes) == 2
+    first_text = "\n".join(lbl.text() for lbl in detail_boxes[0].findChildren(QLabel))
+    assert "160" in first_text
+    assert "24/40" in first_text
+    assert "auto" in first_text
+    assert w.tr("finish_stop") in first_text
+
+    second_text = "\n".join(lbl.text() for lbl in detail_boxes[1].findChildren(QLabel))
+    assert "—" in second_text
+    assert "0.00 s" not in second_text
+
+
+def test_resource_monitor_widgets_and_proc_helpers(desktop, qtbot, tmp_path):
+    from omnicore.desktop.resources import (
+        ResourceSnapshot,
+        compute_cpu_percent,
+        find_related_pids,
+        read_meminfo,
+    )
+
+    assert compute_cpu_percent((100, 1000), (150, 1200)) == 75.0
+    mem_file = tmp_path / "meminfo"
+    mem_file.write_text("MemTotal:       16777216 kB\nMemAvailable:    8388608 kB\n")
+    used, total = read_meminfo(mem_file)
+    assert total == 16777216 * 1024 and used == 8388608 * 1024
+
+    proc = tmp_path / "proc"
+    for pid, name, ppid in (
+        (100, "omnicore", 1),
+        (101, "uvicorn", 100),
+        (102, "llama-server", 101),
+        (999, "unrelated", 1),
+    ):
+        d = proc / str(pid)
+        d.mkdir(parents=True)
+        (d / "stat").write_text(f"{pid} ({name}) S {ppid} 1 1 0")
+    app_pids, engine_pids = find_related_pids([100], proc_root=proc)
+    assert app_pids == {100, 101}
+    assert engine_pids == {102}
+
+    w = desktop
+    w.show()
+    qtbot.waitExposed(w)
+
+    snap = ResourceSnapshot(
+        cpu_percent=42.0,
+        cpu_temp_c=61.0,
+        ram_used_bytes=8 * 1024**3,
+        ram_total_bytes=32 * 1024**3,
+        gpu_name="RTX 4060",
+        gpu_util_percent=None,
+        vram_used_bytes=None,
+        vram_total_bytes=None,
+        app_ram_bytes=250 * 1024**2,
+        engine_ram_bytes=900 * 1024**2,
+        engine_vram_bytes=None,
+    )
+    w._apply_resource_snapshot(snap)
+    summary = w.resource_monitor_btn.text()
+    assert "42%" in summary
+    assert "61°C" in summary
+    assert "GPU: —" in summary and "VRAM: —" in summary
+
+    assert not w.resource_details_frame.isVisible()
+    qtbot.mouseClick(w.resource_monitor_btn, Qt.LeftButton)
+    assert w.resource_details_frame.isVisible()
+    assert "llama-server" in w.resource_details_label.text()
+
+    w.close()
+    assert w.resource_monitor._thread is None
+
+
+def test_history_menu_delete_all_conversations_with_confirmation(desktop, qtbot, monkeypatch):
+    w = desktop
+    w.show()
+    qtbot.waitExposed(w)
+
+    models_dir = data_path() / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    gguf_path = models_dir / "kept-for-history-test.gguf"
+    gguf_path.write_bytes(fixture_gguf("Kept Model"))
+    imported = request(w, "POST", "/api/v1/text/models/import", {"path": str(gguf_path)})
+    w.refresh_models()
+    qtbot.waitUntil(lambda: any(m["id"] == imported["id"] for m in w.models))
+
+    for title in ("First chat", "Second chat"):
+        created = request(
+            w, "POST", "/api/v1/text/conversations", {"title": title, "model_id": imported["id"]}
+        )
+        request(
+            w,
+            "POST",
+            f"/api/v1/text/conversations/{created['id']}/messages",
+            {"role": "user", "content": f"Message in {title}"},
+        )
+    w.refresh_conversations()
+    qtbot.waitUntil(lambda: len(w.conversations) == 2 and bool(w.current_id))
+
+    assert w.history_menu_btn.isVisible()
+    menu = w._build_history_menu()
+    texts = [action.text() for action in menu.actions() if not action.isSeparator()]
+    assert w.tr("delete_selected_conversation") in texts
+    assert w.tr("delete_all_conversations") in texts
+    assert all(action.isEnabled() for action in menu.actions() if not action.isSeparator())
+
+    # Cancelling confirmation preserves all conversations.
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.Cancel)
+    w.delete_all_conversations()
+    QApplication.processEvents()
+    assert len(w.conversations) == 2
+
+    # Active generation prevents destructive deletion cleanly.
+    w.active_job = "busy-job"
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.Yes)
+    w.delete_all_conversations()
+    assert w.notice_card.isVisible()
+    assert w.notice.text() == w.tr("conversation_busy")
+    assert len(w.conversations) == 2
+    w.active_job = None
+
+    # Confirmed deletion clears conversations, messages, and sidebar while preserving models.
+    w.delete_all_conversations()
+    qtbot.waitUntil(lambda: len(w.conversations) == 0 and w.conversation_list.count() == 0)
+    assert w.current_id is None
+    assert w.messages == []
+    assert w.notice.text() == w.tr("all_conversations_deleted")
+    assert gguf_path.exists()
+    assert any(m["id"] == imported["id"] for m in w.models)
+
+
+def test_gpu_offload_mode_controls_and_preserves_context(desktop, qtbot):
+    w = desktop
+    w.navigate(2)
+
+    modes = [w.gpu_offload_mode.itemData(i) for i in range(w.gpu_offload_mode.count())]
+    assert modes == ["auto", "max", "manual", "cpu"]
+
+    # Default auto disables manual gpu_layers spinbox.
+    assert w.gpu_offload_mode.currentData() == "auto"
+    assert not w.parameter_inputs["gpu_layers"].isEnabled()
+
+    # Manual enables spinbox and persists explicit layer count.
+    w.gpu_offload_mode.setCurrentIndex(w.gpu_offload_mode.findData("manual"))
+    assert w.parameter_inputs["gpu_layers"].isEnabled()
+    w.parameter_inputs["gpu_layers"].setValue(24)
+    w.save_settings()
+    saved = DesktopConfig.load().parameters
+    assert saved["gpu_offload_mode"] == "manual"
+    assert saved["gpu_layers"] == 24
+
+    # Manual model context is preserved regardless of gpu_offload_mode.
+    fake_gguf = {"id": "gguf-1", "backend": "llama.cpp", "metadata": {"context_length": 32768}}
+    w.model_contexts["gguf-1"] = {
+        "mode": "manual",
+        "effective_tokens": 16384,
+        "automatic_tokens": 8192,
+    }
+    params_manual = w._parameters_for_model(fake_gguf)
+    assert params_manual["context_size"] == 16384
+    assert params_manual["gpu_offload_mode"] == "manual"
+
+    # Max GPU mode disables spinbox and saves max mode while preserving context.
+    w.gpu_offload_mode.setCurrentIndex(w.gpu_offload_mode.findData("max"))
+    assert not w.parameter_inputs["gpu_layers"].isEnabled()
+    w.save_settings()
+    saved = DesktopConfig.load().parameters
+    assert saved["gpu_offload_mode"] == "max"
+    assert w._parameters_for_model(fake_gguf)["context_size"] == 16384
+
+    # CPU mode syncs processing device and sets gpu_layers to 0.
+    w.gpu_offload_mode.setCurrentIndex(w.gpu_offload_mode.findData("cpu"))
+    assert w.device.currentData() == "cpu"
+    assert w.parameter_inputs["gpu_layers"].value() == 0
+    w.save_settings()
+    saved = DesktopConfig.load().parameters
+    assert saved["device"] == "cpu"
+    assert saved["gpu_offload_mode"] == "cpu"
+    assert saved["gpu_layers"] == 0
+
+    # Context usage header displays GPU offloaded/total layers when present.
+    w.messages = [
+        {"role": "user", "content": "Hi"},
+        {
+            "role": "assistant",
+            "content": "Hello",
+            "statistics": {
+                "context_used_tokens": 128,
+                "context_limit_tokens": 8192,
+                "execution_device": "CUDA0",
+                "gpu_offloaded_layers": 27,
+                "gpu_total_layers": 32,
+                "gpu_offload_mode": "auto",
+            },
+        },
+    ]
+    w.render_messages()
+    assert "GPU 27/32" in w.context_usage.text()
+    assert "auto (27/32)" in w.context_details.text()
+
+
+def test_no_duplicate_folder_permission_cards_in_transcript_render(desktop, qtbot):
+    from omnicore.desktop.transcript import MessageCard
+
+    w = desktop
+    w.resize(1100, 760)
+    w.show()
+    qtbot.waitExposed(w)
+    w.current_id = "conv-dedup"
+    run = {
+        "id": "run-folder-1",
+        "conversation_id": "conv-dedup",
+        "request_message_id": "msg-user-1",
+        "response_message_id": "msg-ast-1",
+        "state": "failed",
+        "error_code": "agent_folder_not_granted",
+        "needs_folder_grant": True,
+        "steps": [],
+    }
+    w.agent_panel.runs = [run]
+    w.messages = [
+        {"id": "msg-user-1", "role": "user", "content": "wyświetl pliki w folderze Pobrane"},
+        {"id": "msg-ast-1", "role": "assistant", "content": "", "status": "completed"},
+    ]
+    w.render_messages()
+    grant_cards = [
+        card
+        for card in w.transcript.findChildren(MessageCard)
+        if card.agent_grant_button is not None
+    ]
+    assert len(grant_cards) == 1
+
+    # Casual message without a grant-requiring run renders zero folder permission buttons.
+    w.agent_panel.runs = [
+        {
+            "id": "run-chat-1",
+            "conversation_id": "conv-dedup",
+            "request_message_id": "msg-user-2",
+            "response_message_id": "msg-ast-2",
+            "state": "completed",
+            "needs_folder_grant": False,
+            "steps": [],
+        }
+    ]
+    w.messages = [
+        {"id": "msg-user-2", "role": "user", "content": "co tam"},
+        {
+            "id": "msg-ast-2",
+            "role": "assistant",
+            "content": "Wszystko dobrze!",
+            "status": "completed",
+        },
+    ]
+    w.render_messages()
+    grant_cards_chat = [
+        card
+        for card in w.transcript.findChildren(MessageCard)
+        if card.agent_grant_button is not None
+    ]
+    assert len(grant_cards_chat) == 0
+
+
+def test_expanded_chat_panel_exposes_per_model_gpu_settings_and_reload_indicator(desktop, qtbot):
+    from omnicore.desktop.resources import ResourceSnapshot
+
+    w = desktop
+    w.resize(1280, 720)
+    w.show()
+    qtbot.waitExposed(w)
+
+    models_dir = data_path() / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    gguf_path = models_dir / "gpu-ui-test.gguf"
+    gguf_path.write_bytes(fixture_gguf("GPU UI Model"))
+    imported = request(w, "POST", "/api/v1/text/models/import", {"path": str(gguf_path)})
+    w.refresh_models()
+    qtbot.waitUntil(lambda: any(m["id"] == imported["id"] for m in w.models))
+    idx = next(
+        i for i in range(w.model_combo.count()) if w.model_combo.itemData(i) == imported["id"]
+    )
+    w.model_combo.setCurrentIndex(idx)
+
+    qtbot.mouseClick(w.context_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: w.context_controls.isVisible())
+
+    for scale in (100, 150):
+        w.ui_scale.setValue(scale)
+        qtbot.wait(25)
+        assert w.context_controls.isVisible()
+        assert w.chat_gpu_label.isVisible()
+        assert w.chat_gpu_mode.isVisible()
+        assert w.chat_gpu_layers.isVisible()
+        assert w.chat_gpu_save.isVisible()
+        assert w.chat_gpu_status.isVisible()
+        assert w.chat_gpu_mode.geometry().top() >= w.context_status.geometry().bottom()
+        assert w.chat_gpu_mode.geometry().bottom() <= w.chat_gpu_layers.geometry().top()
+        assert w.chat_gpu_layers.geometry().right() < w.chat_gpu_save.geometry().left()
+        assert w.chat_gpu_mode.geometry().right() <= w.context_controls.width()
+        assert w.chat_gpu_save.geometry().right() <= w.context_controls.width()
+
+    w.ui_scale.setValue(100)
+    qtbot.wait(25)
+    assert [w.chat_gpu_mode.itemData(i) for i in range(w.chat_gpu_mode.count())] == [
+        "auto",
+        "max",
+        "manual",
+        "cpu",
+    ]
+    assert not w.chat_gpu_layers.isEnabled()
+
+    w.chat_gpu_mode.setCurrentIndex(w.chat_gpu_mode.findData("manual"))
+    assert w.chat_gpu_layers.isEnabled()
+    w.chat_gpu_layers.setValue(21)
+    qtbot.mouseClick(w.chat_gpu_save, Qt.LeftButton)
+    qtbot.waitUntil(
+        lambda: (
+            not w._gpu_saving
+            and w.model_contexts.get(imported["id"], {}).get("gpu", {}).get("gpu_layers") == 21
+        )
+    )
+    assert (
+        request(w, "GET", f"/api/v1/text/models/{imported['id']}/context")["gpu"]["gpu_layers"]
+        == 21
+    )
+
+    params = w._parameters_for_model(w.selected_model())
+    assert params["gpu_offload_mode"] == "manual"
+    assert params["gpu_layers"] == 21
+    assert params["device"] == "auto"
+
+    # Resource monitor VRAM telemetry and applied-vs-configured reload indicator show in status.
+    w._apply_resource_snapshot(
+        ResourceSnapshot(
+            cpu_percent=12.0,
+            cpu_temp_c=None,
+            ram_used_bytes=4 * 1024**3,
+            ram_total_bytes=16 * 1024**3,
+            gpu_name="RTX 4060",
+            gpu_util_percent=30.0,
+            vram_used_bytes=2048 * 1024**2,
+            vram_total_bytes=8188 * 1024**2,
+            app_ram_bytes=100 * 1024**2,
+            engine_ram_bytes=200 * 1024**2,
+            engine_vram_bytes=1024 * 1024**2,
+        )
+    )
+    ctx_snapshot = dict(w.model_contexts[imported["id"]])
+    ctx_snapshot["gpu"] = {
+        **ctx_snapshot["gpu"],
+        "vram_total_bytes": None,
+        "vram_free_bytes": None,
+        "applied_mode": "auto",
+        "applied_requested_layers": 15,
+        "applied_offloaded_layers": 15,
+        "applied_total_layers": 32,
+        "applied_device": "cuda",
+    }
+    w.model_contexts[imported["id"]] = ctx_snapshot
+    w._render_model_gpu()
+    status_text = w.chat_gpu_status.text()
+    assert "15/32" in status_text
+    assert "VRAM" in status_text
+    assert w.tr("context_reload") in status_text
+
+
+def test_stage2_screens_and_action_bar_accessibility(desktop, qtbot):
+    w = desktop
+    w.onboarding.hide()
+
+    # Stage 1 action toolbar keyboard focus reveals full opacity cleanly.
+    w.transcript.can_regenerate = True
+    w.transcript.set_messages(
+        [
+            {"id": "u1", "role": "user", "content": "Hello", "state": "done"},
+            {"id": "a1", "role": "assistant", "content": "World", "state": "done"},
+        ],
+        w.tr,
+    )
+    card = w.transcript.cards[-1]
+    assert card._action_buttons
+    assert card._action_buttons[0].focusPolicy() == Qt.StrongFocus
+    w.activateWindow()
+    card._action_buttons[0].setFocus(Qt.TabFocusReason)
+    qtbot.waitUntil(lambda: card._hover_effects[0].opacity() >= 0.99, timeout=3000)
+
+    # Models Local 5-column table & Transfers error banner / state badge.
+    assert w.model_table.columnCount() == 5
+    w.navigate(1)
+    w.model_tabs.setCurrentIndex(2)
+    failed_dl = {
+        "id": "dl-err",
+        "state": "failed",
+        "percent": 18.0,
+        "error_code": "network_timeout",
+        "source": {"repository": "org/repo", "filename": "model-Q4_K_M.gguf"},
+    }
+    w.downloads = [failed_dl]
+    w.download_list.clear()
+    w.download_list.addItem("model-Q4_K_M.gguf", "dl-err")
+    w.download_list.setCurrentIndex(0)
+    w._show_download_progress()
+    assert w.transfer_state_badge.isVisible()
+    assert w.transfer_error_banner.isVisible()
+    w.downloads = []
+    w.download_list.clear()
+    w._show_download_progress()
+    assert not w.transfer_error_banner.isVisible()
+
+    # Settings quick-jump nav pills and docked save bar remain visible regardless of scroll.
+    w.navigate(2)
+    assert set(w.settings_nav_pills) == {
+        "settings_appearance",
+        "settings_engine",
+        "settings_about",
+    }
+    assert w.settings_save_bar.isVisible()
+
+    # Diagnostics KPI tiles populate from backend diagnostics snapshot.
+    w.navigate(3)
+    w.refresh_diagnostics()
+    qtbot.waitUntil(lambda: w._diag_tiles["cpu"][0].text() != "—", timeout=5000)
+    for tile_key in ("backend", "gpu", "cpu", "storage"):
+        val_lbl, sub_lbl = w._diag_tiles[tile_key]
+        assert val_lbl.text() and val_lbl.text() != "—"
+        assert sub_lbl.text()
+
+
+def test_model_switch_isolates_historical_gpu_context_and_identity(desktop, qtbot):
+    from omnicore.desktop.transcript import MessageCard
+
+    w = desktop
+    w.onboarding.hide()
+    models_dir = data_path() / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    qwen_path = models_dir / "Qwen_Qwen3.5-4B-Q8_0.gguf"
+    deepseek_path = models_dir / "DeepSeek-V4-Pro-Qwen3.5-9B-UNCENSORED-heretic.i1-Q4_K_M.gguf"
+    qwen_path.write_bytes(fixture_gguf("Qwen3.5 4B"))
+    deepseek_path.write_bytes(fixture_gguf("DeepSeek V4 Pro Qwen3.5 9B"))
+
+    qwen = request(w, "POST", "/api/v1/text/models/import", {"path": str(qwen_path)})
+    deepseek = request(w, "POST", "/api/v1/text/models/import", {"path": str(deepseek_path)})
+    w.refresh_models()
+    qtbot.waitUntil(
+        lambda: (
+            w.model_combo.findData(qwen["id"]) >= 0 and w.model_combo.findData(deepseek["id"]) >= 0
+        )
+    )
+
+    conv = request(
+        w,
+        "POST",
+        "/api/v1/text/conversations",
+        {"title": "Model Isolation", "model_id": qwen["id"]},
+    )
+    w.refresh_conversations(conv["id"])
+    qtbot.waitUntil(lambda: w.current_id == conv["id"])
+
+    w.model_combo.setCurrentIndex(w.model_combo.findData(qwen["id"]))
+    w.context_button.setChecked(True)
+    qtbot.waitUntil(lambda: w.context_controls.isVisible())
+
+    # Switching CPU -> Max must restore gpu_layers to 99 rather than leaving 0.
+    w.chat_gpu_mode.setCurrentIndex(w.chat_gpu_mode.findData("cpu"))
+    assert w.chat_gpu_layers.value() == 0
+    w.chat_gpu_mode.setCurrentIndex(w.chat_gpu_mode.findData("max"))
+    assert w.chat_gpu_layers.value() == 99
+
+    # Populate historical assistant turns belonging to DeepSeek 9B with different layer counts.
+    w.messages = [
+        {"id": "u1", "role": "user", "content": "Prompt 1", "state": "done"},
+        {
+            "id": "a1",
+            "role": "assistant",
+            "content": "Fast response",
+            "state": "done",
+            "model_id": deepseek["id"],
+            "model_name": deepseek["name"],
+            "statistics": {
+                "execution_model": deepseek["name"],
+                "execution_device": "CUDA0",
+                "gpu_offloaded_layers": 33,
+                "gpu_total_layers": 34,
+                "tokens_per_second": 26.63,
+                "context_used_tokens": 1836,
+                "context_limit_tokens": 2048,
+            },
+        },
+        {
+            "id": "a2",
+            "role": "assistant",
+            "content": "Slower response",
+            "state": "done",
+            "model_id": deepseek["id"],
+            "statistics": {
+                "execution_model": deepseek["name"],
+                "execution_device": "CUDA0",
+                "gpu_offload_mode": "auto",
+                "gpu_offload_reason": "vram_partial_offload",
+                "gpu_offloaded_layers": 7,
+                "gpu_total_layers": 34,
+                "tokens_per_second": 14.34,
+                "context_used_tokens": 101,
+                "context_limit_tokens": 32768,
+            },
+        },
+    ]
+    w.render_messages()
+
+    # Selected model remains Qwen3.5 4B; cards retain DeepSeek identity; meter ignores DeepSeek.
+    assert w.model_combo.currentData() == qwen["id"]
+    cards = [c for c in w.transcript.findChildren(MessageCard) if c.message["role"] == "assistant"]
+    assert len(cards) == 2
+    assert deepseek["name"] in cards[0].findChild(QLabel, "messageAuthor").text()
+    assert deepseek["name"] in cards[1].findChild(QLabel, "messageAuthor").text()
+    stats0 = " ".join(lbl.text() for lbl in cards[0].findChildren(QLabel, "messageStats"))
+    stats1 = " ".join(lbl.text() for lbl in cards[1].findChildren(QLabel, "messageStats"))
+    assert "33/34" in stats0
+    assert "7/34" in stats1
+    assert "1836/2048" not in w.context_usage.text()
+    assert "101/32768" not in w.context_usage.text()
+    assert w.context_meter.isHidden()
+
+    # Reduced offload + pending reload distinguish configured vs running and show reload control.
+    w.model_contexts[qwen["id"]] = {
+        **w.model_contexts.get(qwen["id"], {}),
+        "mode": "manual",
+        "manual_tokens": 8192,
+        "effective_tokens": 8192,
+        "maximum": 32768,
+        "auto_reason": "manual",
+        "memory_warning": None,
+        "applied_tokens": 4096,
+        "gpu": {
+            "configured": True,
+            "gpu_offload_mode": "auto",
+            "gpu_layers": 99,
+            "device": "auto",
+            "applied_mode": "auto",
+            "applied_requested_layers": 7,
+            "applied_offloaded_layers": 7,
+            "applied_total_layers": 34,
+            "applied_device": "CUDA0",
+            "applied_reason": "vram_partial_offload",
+        },
+    }
+    w._gpu_dirty = False
+    w._context_dirty = False
+    w._render_model_context()
+    assert w.tr("gpu_reason_vram_partial_offload") in w.chat_gpu_status.text()
+    assert w.tr("context_reload") in w.context_status.text()
+    assert w.context_reload_btn.isVisible()
+    assert w.chat_gpu_pill.property("tone") == "warn"
+
+
+def test_chat_layout_drawer_reclaim_scroll_clearance_and_scaled_720p(desktop, qtbot):
+    from omnicore.desktop.transcript import MessageCard
+
+    w = desktop
+    w.onboarding.hide()
+    w.resize(1280, 720)
+    w.show()
+    qtbot.waitExposed(w)
+
+    # Drawer collapse reclaims center width and keeps unsaved settings state.
+    w.context_button.setChecked(True)
+    qtbot.waitUntil(lambda: w.chat_drawer.isVisible())
+    open_width = w.transcript.width()
+    w.chat_gpu_mode.setCurrentIndex(w.chat_gpu_mode.findData("manual"))
+    w.chat_gpu_layers.setValue(24)
+    w.context_button.setChecked(False)
+    qtbot.waitUntil(lambda: w.chat_drawer.isHidden())
+    qtbot.wait(30)
+    closed_width = w.transcript.width()
+    assert closed_width > open_width + 150
+    w.context_button.setChecked(True)
+    qtbot.waitUntil(lambda: w.chat_drawer.isVisible())
+    assert w.chat_gpu_mode.currentData() == "manual"
+    assert w.chat_gpu_layers.value() == 24
+
+    # Long conversation scrolls last card + action bar cleanly above composer.
+    long_body = ("Line of generated explanation with wrapped markdown content.\n" * 6).strip()
+    w.messages = [
+        {
+            "id": f"m{i}",
+            "role": "user" if i % 2 == 0 else "assistant",
+            "content": long_body,
+            "state": "done",
+        }
+        for i in range(10)
+    ]
+    w.render_messages()
+    qtbot.wait(80)
+    last_card = w.transcript.findChildren(MessageCard)[-1]
+    vp_rect = w.transcript.viewport().rect()
+    last_bottom_in_vp = last_card.mapTo(w.transcript.viewport(), last_card.rect().bottomLeft()).y()
+    assert last_bottom_in_vp <= vp_rect.bottom() + 2
+    assert w.transcript.geometry().bottom() <= w.composer_wrap.geometry().top() + 4
+
+    # 1280x720 @ 150% UI scale and 853x480 logical fractional-scale viewport stay within bounds.
+    for size, scale in (((1280, 720), 150), ((853, 480), 100)):
+        w.resize(*size)
+        w.ui_scale.setValue(scale)
+        qtbot.wait(50)
+        assert w.chat_drawer.width() < w.width() * 0.5
+        assert w.model_combo.geometry().right() <= w.width()
+        assert w.context_button.geometry().right() <= w.width()
+        assert w.chat_gpu_save.geometry().right() <= w.context_controls.width() + 2
+        assert w.composer_box.geometry().bottom() <= w.height()
+
+
+def test_error_localization_and_sanitization(desktop, qtbot):
+    from PySide6.QtWidgets import QFrame
+
+    from omnicore.desktop.i18n import Translator
+
+    w = desktop
+    w.show()
+    qtbot.waitExposed(w)
+
+    en = Translator("en-US")
+    pl = Translator("pl-PL")
+    assert en("model_directory_unauthorized") == "This model's directory is not authorized."
+    assert pl("model_directory_unauthorized") == "Katalog tego modelu nie jest autoryzowany."
+
+    w.language.setCurrentIndex(w.language.findData("en-US"))
+    w.config.locale = "en-US"
+    w.retranslate()
+    w.show_error(
+        "model_directory_unauthorized",
+        component="llama.cpp",
+        target="/mnt/models/foo.gguf?token=SECRET_Q&Authorization=Bearer%20SECRET_B",
+    )
+    assert w.notice_card.isVisible()
+    assert w.notice.text() == en("model_directory_unauthorized")
+    qtbot.mouseClick(w.notice_details_toggle, Qt.LeftButton)
+    QApplication.processEvents()
+    details_en = w.notice_details_label.text()
+    assert "model_directory_unauthorized" in details_en
+    assert "SECRET_Q" not in details_en
+    assert "SECRET_B" not in details_en
+    assert "/mnt/models/foo.gguf" in details_en
+
+    w.show_error("unsupported_architecture", component="llama.cpp", target="Bearer SECRET_TOKEN")
+    assert "SECRET_TOKEN" not in w.notice_details_label.text()
+
+    w.language.setCurrentIndex(w.language.findData("pl-PL"))
+    w.config.locale = "pl-PL"
+    w.retranslate()
+    w.show_error(
+        "unsupported_architecture",
+        component="llama.cpp",
+        target="http://localhost:8000/v1?api_key=TOPSECRET",
+    )
+    assert w.notice.text() == pl("unsupported_architecture")
+    if not w.notice_details_frame.isVisible():
+        qtbot.mouseClick(w.notice_details_toggle, Qt.LeftButton)
+        QApplication.processEvents()
+    details_pl = w.notice_details_label.text()
+    assert "unsupported_architecture" in details_pl
+    assert "TOPSECRET" not in details_pl
+
+    w.language.setCurrentIndex(w.language.findData("en-US"))
+    w.config.locale = "en-US"
+    w.retranslate()
+    for code in ("model_file_missing", "invalid_path", "unsupported_architecture"):
+        w.messages = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "", "status": "failed", "error_code": code},
+        ]
+        w.render_messages()
+        QApplication.processEvents()
+        boxes = w.transcript.findChildren(QFrame, "errorDetailsBox")
+        assert len(boxes) == 1
+        text = "\n".join(lbl.text() for lbl in boxes[0].findChildren(QLabel))
+        assert code in text
+
+
+def test_authorize_model_directory_rejects_symlink_and_persists_real_root(desktop, qtbot, tmp_path):
+    w = desktop
+    w.show()
+    qtbot.waitExposed(w)
+
+    ext_dir = tmp_path / "external_models"
+    ext_dir.mkdir()
+    real_gguf = ext_dir / "real.gguf"
+    real_gguf.write_bytes(b"GGUF" + b"\x00" * 64)
+
+    sym_dir = tmp_path / "sym_dir"
+    sym_dir.mkdir()
+    sym_gguf = sym_dir / "linked.gguf"
+    sym_gguf.symlink_to(real_gguf)
+
+    roots_before = list(w.config.model_roots)
+    pid_before = w.session.process.processId()
+    w.authorize_model_directory({"id": "m-sym", "name": "Linked", "location": str(sym_gguf)})
+    QApplication.processEvents()
+    assert list(w.config.model_roots) == roots_before
+    assert list(DesktopConfig.load().model_roots) == roots_before
+    assert w.session.process.processId() == pid_before
+    assert w.notice_card.isVisible()
+    assert w.notice.text() == w.tr("invalid_path")
+
+    w.new_conversation()
+    qtbot.waitUntil(lambda: bool(w.current_id))
+    conv_id = w.current_id
+
+    w.authorize_model_directory({"id": "m-real", "name": "Real", "location": str(real_gguf)})
+    qtbot.waitUntil(lambda: w.is_connected and not w._health_pending, timeout=20000)
+    assert str(ext_dir.resolve()) in w.config.model_roots
+    assert str(ext_dir.resolve()) in DesktopConfig.load().model_roots
+    assert any(c["id"] == conv_id for c in w.conversations)
+
+
+def test_message_card_error_buttons_retry_in_place_and_gpu_snapshot_sync(
+    desktop, qtbot, monkeypatch
+):
+    from omnicore.desktop.i18n import Translator
+    from omnicore.desktop.transcript import ChatTranscript
+
+    transcript = ChatTranscript()
+    transcript.can_regenerate = True
+    qtbot.addWidget(transcript)
+    transcript.resize(700, 600)
+    transcript.show()
+
+    messages = [
+        {"role": "user", "content": "Hello"},
+        {
+            "role": "assistant",
+            "content": "",
+            "status": "failed",
+            "error_code": "model_directory_unauthorized",
+            "model_id": "m1",
+            "model_name": "LFM3",
+        },
+    ]
+    transcript.set_messages(messages, Translator("en-US"))
+    qtbot.wait(30)
+    card = transcript.cards[1]
+    assert card.authorize_dir_button is not None
+    auth_requests = []
+    card.authorize_directory_requested.connect(auth_requests.append)
+    qtbot.mouseClick(card.authorize_dir_button, Qt.LeftButton)
+    assert len(auth_requests) == 1
+
+    retry_messages = [
+        {"role": "user", "content": "Hello"},
+        {
+            "role": "assistant",
+            "content": "",
+            "status": "failed",
+            "error_code": "out_of_memory",
+            "model_id": "m1",
+            "model_name": "LFM3",
+        },
+    ]
+    transcript.set_messages(retry_messages, Translator("en-US"))
+    qtbot.wait(30)
+    retry_card = transcript.cards[1]
+    assert retry_card.authorize_dir_button is None
+    assert retry_card.error_retry_button is not None
+    retry_requests = []
+    transcript.regenerate_requested.connect(retry_requests.append)
+    qtbot.mouseClick(retry_card.error_retry_button, Qt.LeftButton)
+    assert len(retry_requests) == 1
+
+    w = desktop
+    w.models = [
+        {"id": "m1", "name": "LFM3", "backend": "llama.cpp", "location": "/mnt/models/m1.gguf"}
+    ]
+    w.model_combo.clear()
+    w.model_combo.addItem("LFM3", "m1")
+    w.model_combo.setCurrentIndex(0)
+    w.model_contexts["m1"] = {
+        "mode": "auto",
+        "maximum": 32768,
+        "manual_tokens": 8192,
+        "automatic_tokens": 8192,
+        "effective_tokens": 8192,
+        "applied_tokens": 8192,
+        "active": True,
+        "loaded_model_name": "LFM3",
+        "auto_reason": "memory_estimated",
+        "memory_kind": "vram",
+        "memory_warning": False,
+        "gpu": {
+            "gpu_offload_mode": "manual",
+            "gpu_layers": 12,
+            "device": "auto",
+            "applied_requested_layers": 12,
+            "applied_offloaded_layers": None,
+            "applied_total_layers": None,
+        },
+    }
+    w._render_model_context()
+    w.active_job = "job-sync"
+    w.generation_snapshot(
+        {
+            "id": "job-sync",
+            "model_id": "m1",
+            "state": "completed",
+            "sequence": 1,
+            "content": "Done",
+            "gpu_offload_mode": "manual",
+            "gpu_offloaded_layers": 12,
+            "gpu_total_layers": 25,
+            "execution_device": "CUDA0",
+        }
+    )
+    gpu_state = w.model_contexts["m1"]["gpu"]
+    assert gpu_state["applied_offloaded_layers"] == 12
+    assert gpu_state["applied_total_layers"] == 25
+    assert gpu_state["applied_device"] == "CUDA0"
+    assert gpu_state["applied_mode"] == "manual"
+    assert "12/25" in w.chat_gpu_status.text(), (
+        f"gpu={gpu_state!r} "
+        f"chat_gpu_status={w.chat_gpu_status.text()!r} "
+        f"ctx_status={w.context_status.text()!r}"
+    )
+
+    w.current_id = "conv-retry-1"
+    w.is_connected = True
+    w.active_job = None
+    w._submitting = False
+    w.composer.clear()
+    export_messages = [
+        {"id": "u-1", "role": "user", "content": "Retry prompt"},
+        {
+            "id": "a-1",
+            "role": "assistant",
+            "content": "",
+            "status": "failed",
+            "error_code": "out_of_memory",
+            "model_id": "m1",
+        },
+    ]
+    w.messages = list(export_messages)
+    submitted = []
+
+    def fake_request(method, path, payload=None, *, success=None, failure=None, **_kwargs):
+        submitted.append((method, path, payload))
+        if method == "GET" and path.endswith("/export") and success:
+            success({"title": "Test", "messages": list(export_messages)})
+
+    monkeypatch.setattr(w.api, "request", fake_request)
+    w.regenerate_answer(export_messages[1])
+    post_calls = [item for item in submitted if item[0] == "POST"]
+    assert len(post_calls) == 1
+    assert post_calls[0][1] == "/api/v1/text/conversations/conv-retry-1/generations"
+    assert post_calls[0][2]["content"] == "Retry prompt"
+
+
+def test_sidebar_and_chat_geometry_no_left_gap_or_clipping(desktop, qtbot):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QApplication, QWidget
+
+    w = desktop
+
+    def _assert_no_horizontal_overflow(container: QWidget, label: str) -> None:
+        cw = container.width()
+        for child in container.findChildren(QWidget):
+            if child.isWindow() or not child.isVisibleTo(container):
+                continue
+            if child.width() <= 0 or child.height() <= 0:
+                continue
+            left = child.mapTo(container, QPoint(0, 0)).x()
+            right = child.mapTo(container, QPoint(child.width() - 1, 0)).x()
+            assert left >= 0, (
+                f"{label}: child {child.objectName() or type(child).__name__} left={left} < 0"
+            )
+            assert right < cw, (
+                f"{label}: child {child.objectName() or type(child).__name__} right={right} >= {cw}"
+            )
+
+    def _assert_layout_geometry(label: str, *, expect_compact: bool, target_sb_width: int) -> None:
+        QApplication.processEvents()
+        qtbot.wait(10)
+        QApplication.processEvents()
+
+        cw = w.centralWidget()
+        assert cw is not None
+        assert cw.geometry().x() == 0, f"{label}: centralWidget.x={cw.geometry().x()}"
+        assert w.shell.geometry().x() == 0, f"{label}: shell.x={w.shell.geometry().x()}"
+        assert w.sidebar.geometry().x() == 0, f"{label}: sidebar.x={w.sidebar.geometry().x()}"
+        assert w.sidebar.mapTo(w, QPoint(0, 0)).x() == 0, f"{label}: sidebar mapped x != 0"
+
+        if expect_compact:
+            expected_sb_w = w.sidebar.maximumWidth()
+            assert w.sidebar.minimumWidth() == expected_sb_w
+        else:
+            expected_sb_w = target_sb_width
+            assert w.sidebar.width() == expected_sb_w, (
+                f"{label}: sidebar.width={w.sidebar.width()} != expected={expected_sb_w}"
+            )
+
+        assert w.main_pane.geometry().x() == w.sidebar.width() + w.shell.handleWidth(), (
+            f"{label}: main_pane.x={w.main_pane.geometry().x()} != "
+            f"{w.sidebar.width()} + {w.shell.handleWidth()}"
+        )
+        assert w.main_pane.geometry().right() + 1 == w.width(), (
+            f"{label}: main_pane.right+1={w.main_pane.geometry().right() + 1} "
+            f"!= w.width={w.width()}"
+        )
+        assert w.topbar.geometry().x() == 0, f"{label}: topbar.x={w.topbar.geometry().x()}"
+        assert w.topbar.width() == w.main_pane.width(), (
+            f"{label}: topbar.width={w.topbar.width()} != main_pane.width={w.main_pane.width()}"
+        )
+
+        _assert_no_horizontal_overflow(w.sidebar, f"{label}/sidebar")
+        _assert_no_horizontal_overflow(w.topbar, f"{label}/topbar")
+
+        if not expect_compact:
+            assert "…" not in w.new_button.text(), (
+                f"{label}: new_button truncated: {w.new_button.text()!r}"
+            )
+            hp_y = w.history_panel.mapTo(w.sidebar, QPoint(0, 0)).y()
+            st_y = w.history_search_toggle.mapTo(w.sidebar, QPoint(0, 0)).y()
+            nb_bottom = w.new_button.mapTo(w.sidebar, QPoint(0, w.new_button.height())).y()
+            sample_y = max(hp_y + 1, min(st_y - 2, (max(hp_y, nb_bottom) + st_y) // 2))
+            sample_x = max(4, min(w.sidebar.width() - 5, w.sidebar.width() // 2))
+            img = w.sidebar.grab().toImage()
+            dpr = img.devicePixelRatio() or 1.0
+            px = img.pixelColor(int(sample_x * dpr), int(sample_y * dpr))
+            expected_bg = QColor(w._tokens.sidebar)
+            assert px == expected_bg, (
+                f"{label}: sidebar cutout color {px.name()} at ({sample_x}, {sample_y}) "
+                f"!= {expected_bg.name()} (bg={w._tokens.bg})"
+            )
+            btn_img = w.new_button.grab().toImage()
+            btn_dpr = btn_img.devicePixelRatio() or 1.0
+            btn_px = btn_img.pixelColor(int(6 * btn_dpr), int(6 * btn_dpr))
+            assert btn_px == QColor(w._tokens.accent_button), (
+                f"{label}: new_button fill {btn_px.name()} != {w._tokens.accent_button}"
+            )
+
+    for res_w, res_h in ((1280, 720), (1600, 900), (1920, 1080)):
+        w.resize(res_w, res_h)
+        for scale in (100, 150):
+            w.ui_scale.setValue(scale)
+            for sb_width in (232, 240, 280):
+                if w.config.sidebar_compact:
+                    w.toggle_sidebar()
+                w.resize_sidebar(sb_width)
+                _assert_layout_geometry(
+                    f"{res_w}x{res_h}@{scale}%/expanded/{sb_width}",
+                    expect_compact=False,
+                    target_sb_width=sb_width,
+                )
+
+                w.toggle_sidebar()
+                assert w.config.sidebar_compact is True
+                _assert_layout_geometry(
+                    f"{res_w}x{res_h}@{scale}%/compact/{sb_width}",
+                    expect_compact=True,
+                    target_sb_width=sb_width,
+                )
+
+                w.toggle_sidebar()
+                assert w.config.sidebar_compact is False
+                _assert_layout_geometry(
+                    f"{res_w}x{res_h}@{scale}%/restored/{sb_width}",
+                    expect_compact=False,
+                    target_sb_width=sb_width,
+                )
+
+
+def test_long_user_message_bubble_width_and_folder_continuation_ui(
+    desktop, qtbot, monkeypatch, tmp_path
+):
+    from PySide6.QtWidgets import QApplication, QFileDialog, QPushButton
+
+    from omnicore.desktop.transcript import MessageCard
+
+    w = desktop
+    w.resize(1280, 820)
+    long_prompt = (
+        "Please inspect the authorized directory /home/lunex/OmniCore-agent-test, "
+        "read test.txt carefully, and return the exact verification marker found inside "
+        "without truncating or wrapping the user message bubble into a narrow vertical column."
+    )
+    w.messages = [{"id": "u-long", "role": "user", "content": long_prompt}]
+    w.render_messages()
+    QApplication.processEvents()
+    qtbot.wait(10)
+    QApplication.processEvents()
+
+    for scale in (100, 150):
+        w.ui_scale.setValue(scale)
+        QApplication.processEvents()
+        qtbot.wait(10)
+        QApplication.processEvents()
+        cards = w.transcript.findChildren(MessageCard)
+        assert cards
+        assert cards[0].bubble.width() >= 420, (
+            f"scale={scale}: user bubble too narrow ({cards[0].bubble.width()}px)"
+        )
+
+    w.resize(1440, 900)
+    QApplication.processEvents()
+    cards = w.transcript.findChildren(MessageCard)
+    assert cards[0].bubble.width() >= 420
+
+    # Verify folder authorization -> Continue task UI flow
+    target_dir = tmp_path / "OmniCore-agent-test"
+    target_dir.mkdir()
+    w.current_id = "conv-grant-1"
+    w.is_connected = True
+    w.agent_panel.conversation = "conv-grant-1"
+    w.agent_panel.mode.setCurrentIndex(w.agent_panel.mode.findData("agent"))
+    run_obj = {
+        "id": "run-grant-1",
+        "conversation_id": "conv-grant-1",
+        "state": "failed",
+        "error_code": "agent_folder_not_granted",
+        "needs_folder_grant": True,
+        "requested_folder_path": str(target_dir / "test.txt"),
+        "request_message_id": "u-long",
+        "steps": [],
+        "plan": [],
+    }
+    w.agent_panel.runs = [run_obj]
+    w.render_messages()
+    QApplication.processEvents()
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **kw: str(target_dir))
+    monkeypatch.setattr(
+        w.agent_panel, "confirm_folder_grant", lambda p: (True, False, False, False, False)
+    )
+
+    def fake_request(method, path, payload=None, *, success=None, failure=None, **_kwargs):
+        if method == "POST" and path.endswith("/folders") and success:
+            success(
+                {
+                    "id": "grant-1",
+                    "path": str(target_dir),
+                    "sensitive": False,
+                    "allow_write": False,
+                    "subfolders": False,
+                    "persistent": False,
+                }
+            )
+        elif method == "GET" and path.endswith("/folders") and success:
+            success(
+                [
+                    {
+                        "id": "grant-1",
+                        "path": str(target_dir),
+                        "sensitive": False,
+                        "allow_write": False,
+                        "subfolders": False,
+                        "persistent": False,
+                    }
+                ]
+            )
+
+    monkeypatch.setattr(w.agent_panel.api, "request", fake_request)
+    w.agent_panel.grant_folder(run_obj)
+    QApplication.processEvents()
+
+    assert w.agent_panel.retry_id == "run-grant-1"
+    assert w.agent_banner_retry_btn.text() == w.tr("agent_continue_task")
+    cards = w.transcript.findChildren(MessageCard)
+    cont_btns = [
+        b
+        for b in cards[0].findChildren(QPushButton)
+        if b.text() == w.tr("agent_continue_task") and not b.isHidden()
+    ]
+    assert len(cont_btns) == 1

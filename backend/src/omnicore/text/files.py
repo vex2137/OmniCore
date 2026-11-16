@@ -1,5 +1,6 @@
 """Open model references by descriptor, without following symlinks."""
 
+import errno
 import os
 import stat
 from contextlib import contextmanager
@@ -12,17 +13,23 @@ class FilePolicy:
     def __init__(self, roots: tuple[Path, ...]):
         self.roots = tuple(path.absolute() for path in roots)
 
-    def validate(self, path: Path) -> Path:
+    def is_authorized(self, path: Path) -> bool:
+        if not path.is_absolute() or ".." in path.parts:
+            return False
+        abs_path = path.absolute()
+        return any(abs_path.is_relative_to(root) and abs_path != root for root in self.roots)
+
+    def validate(self, path: Path, *, registered: bool = False) -> Path:
         if not path.is_absolute() or ".." in path.parts:
             raise TextError("invalid_path", 403)
         path = path.absolute()
         if not any(path.is_relative_to(root) and path != root for root in self.roots):
-            raise TextError("invalid_path", 403)
+            raise TextError("model_directory_unauthorized" if registered else "invalid_path", 403)
         return path
 
     @contextmanager
-    def open(self, path: Path):
-        path = self.validate(path)
+    def open(self, path: Path, *, registered: bool = False):
+        path = self.validate(path, registered=registered)
         descriptor = None
         try:
             descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
@@ -39,7 +46,9 @@ class FilePolicy:
                 if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
                     raise TextError("invalid_path", 403)
                 yield stream
-        except OSError:
+        except OSError as exc:
+            if registered and exc.errno == errno.ENOENT:
+                raise TextError("model_file_missing", 404) from None
             raise TextError("invalid_path", 403) from None
         finally:
             if descriptor is not None:

@@ -11,7 +11,7 @@ from omnicore.text.files import FilePolicy
 from omnicore.text.generation import GenerationManager, GenerationRequest
 from omnicore.text.models import ModelManager
 from omnicore.text.store import TextStore
-from omnicore.text.types import TextChunk, TextError
+from omnicore.text.types import GenerationParameters, TextChunk, TextError
 
 
 class ProtocolTestEngine:
@@ -276,6 +276,130 @@ def test_model_snapshot_statistics_export_and_old_idempotency_survive_restart(tm
                 conversation.id, request.model_copy(update={"model_id": result.model_id})
             )
         ).id == result.id
+        await manager.close()
+
+    asyncio.run(exercise())
+
+
+def test_generation_records_detailed_timings_and_device_metadata(tmp_path):
+    async def exercise():
+        class TimedEngine(ProtocolTestEngine):
+            async def stream(self, model, messages, parameters):
+                yield TextChunk(content="Hello")
+                yield TextChunk(
+                    content=" world",
+                    input_tokens=18,
+                    output_tokens=12,
+                    tokens_per_second=24.0,
+                    finish_reason="stop",
+                    context_used_tokens=30,
+                    context_limit_tokens=4096,
+                    gpu_offloaded_layers=20,
+                    gpu_total_layers=40,
+                )
+
+        manager, conversation = create_manager(tmp_path, TimedEngine())
+        record = await manager.submit(
+            conversation.id,
+            GenerationRequest(
+                content="hi",
+                request_key="timed-1",
+                parameters=GenerationParameters(device="auto"),
+            ),
+        )
+        await manager.tasks[record.id]
+        result = manager.record(record.id)
+        assert result.state == "completed"
+        assert result.total_tokens == 30
+        assert result.model_load_seconds is not None and result.model_load_seconds >= 0
+        assert result.generation_seconds is not None and result.generation_seconds >= 0
+        assert result.total_task_seconds is not None and result.total_task_seconds >= 0
+        assert result.gpu_offloaded_layers == 20
+        assert result.gpu_total_layers == 40
+        assert result.gpu_offload_mode == "auto"
+        assert result.execution_device == "gpu"
+        assert result.finish_reason == "stop"
+        await manager.close()
+
+    asyncio.run(exercise())
+
+
+def test_generation_preserves_cuda_device_and_persists_message_error_code(tmp_path):
+    class CudaEngine(ProtocolTestEngine):
+        async def load(self, model, parameters, file_descriptor=None):
+            await super().load(model, parameters, file_descriptor=file_descriptor)
+            self.execution_device = "CUDA0"
+            self.offloaded_layers = 24
+            self.total_layers = 24
+            self.offload_mode = "auto"
+
+    async def exercise():
+        manager, conversation = create_manager(tmp_path, CudaEngine())
+        ok = await manager.submit(
+            conversation.id, GenerationRequest(content="Hello", request_key="cuda-ok")
+        )
+        await manager.tasks[ok.id]
+        result = manager.record(ok.id)
+        assert result.execution_device == "CUDA0"
+        last_msg = manager.history.messages(conversation.id)[-1]
+        assert last_msg.statistics.execution_device == "CUDA0"
+
+        manager.engines["llama.cpp"] = ProtocolTestEngine(wait=False, error="out_of_memory")
+        failed = await manager.submit(
+            conversation.id, GenerationRequest(content="Trigger OOM", request_key="cuda-fail")
+        )
+        await manager.tasks[failed.id]
+        failed_result = manager.record(failed.id)
+        assert failed_result.state == "failed"
+        assert failed_result.error_code == "out_of_memory"
+        failed_msg = manager.history.messages(conversation.id)[-1]
+        assert failed_msg.status == "failed"
+        assert failed_msg.error_code == "out_of_memory"
+        await manager.close()
+
+    asyncio.run(exercise())
+
+
+def test_retry_failed_prompt_reuses_trailing_turn_without_duplication(tmp_path):
+    class ImmediateOomEngine(ProtocolTestEngine):
+        async def stream(self, model, messages, parameters):
+            if False:
+                yield TextChunk()
+            raise TextError("out_of_memory", 507)
+
+    async def exercise():
+        manager, conversation = create_manager(tmp_path, ImmediateOomEngine())
+        failed = await manager.submit(
+            conversation.id, GenerationRequest(content="Explain VRAM", request_key="retry-1")
+        )
+        await manager.tasks[failed.id]
+        failed_result = manager.record(failed.id)
+        assert failed_result.state == "failed"
+        assert failed_result.error_code == "out_of_memory"
+
+        messages_after_fail = manager.history.messages(conversation.id)
+        assert [m.role for m in messages_after_fail] == ["user", "assistant"]
+        assert messages_after_fail[0].content == "Explain VRAM"
+        assert messages_after_fail[1].status == "failed"
+        assert messages_after_fail[1].content == ""
+        assert messages_after_fail[1].error_code == "out_of_memory"
+
+        manager.engines["llama.cpp"] = ProtocolTestEngine()
+        retried = await manager.submit(
+            conversation.id, GenerationRequest(content="Explain VRAM", request_key="retry-2")
+        )
+        await manager.tasks[retried.id]
+        retried_result = manager.record(retried.id)
+        assert retried_result.state == "completed"
+        assert retried_result.content == "Hello world"
+
+        messages_after_retry = manager.history.messages(conversation.id)
+        assert len(messages_after_retry) == 2
+        assert [m.role for m in messages_after_retry] == ["user", "assistant"]
+        assert messages_after_retry[0].content == "Explain VRAM"
+        assert messages_after_retry[1].status == "completed"
+        assert messages_after_retry[1].content == "Hello world"
+        assert messages_after_retry[1].error_code is None
         await manager.close()
 
     asyncio.run(exercise())

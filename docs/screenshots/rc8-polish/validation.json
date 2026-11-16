@@ -1,0 +1,20 @@
+{
+  "full_regression": {
+    "command": "QT_QPA_PLATFORM=offscreen uv run --group gui-test pytest backend/tests desktop/tests -q",
+    "passed": 225,
+    "seconds": 98.62
+  },
+  "extra_targeted_checks": {
+    "footer_and_transfer_tests": 2,
+    "keyboard_search_test": 1
+  },
+  "layout_samples": 96,
+  "ruff": "passed",
+  "format": "passed",
+  "contracts": "passed",
+  "screenshots": "actual Qt offscreen",
+  "native_cachyos": false,
+  "physical_gpu": false,
+  "release_published": false,
+  "packages_built": false
+}

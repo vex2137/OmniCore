@@ -1,0 +1,1000 @@
+"""Beta 2 protocol/plan/retry regressions; all models are controlled transports."""
+
+import asyncio
+import json
+import struct
+
+import httpx
+import pytest
+from test_agents import FINAL, finish, setup, tool, waiting
+from test_text_models import synthetic_gguf
+
+from omnicore.agents.capabilities import cache_key, capability
+from omnicore.agents.context import bounded_result, messages_for_turn
+from omnicore.agents.protocol import PlanUpdate, parse_turn
+from omnicore.agents.service import AgentRequest, Agents
+from omnicore.text.engines import OllamaEngine
+from omnicore.text.types import GenerationParameters, TextError
+
+
+def test_json_compatibility_persistence_and_template_invalidation(tmp_path):
+    async def exercise():
+        agents, conv, engine = setup(tmp_path, [tool("calculate", expression="2+3")])
+        model = agents.store.model(conv.model_id)
+        assert capability(agents.service, model)["status"] == "unverified"
+        result = await agents.test_compatibility(model.id, protocol="structured")
+        assert result["status"] == "json" and result["tested"]
+        restarted = Agents(agents.service)
+        assert capability(restarted.service, model)["tested"]
+        before = cache_key(agents.service, model)
+        agents.service.config.llama_chat_template = "changed-template"
+        assert cache_key(agents.service, model) != before
+        assert not capability(agents.service, model)["tested"]
+        assert engine.messages and not agents.store.jobs("agent-run")
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    "response",
+    [FINAL, "not JSON", '{"kind":"tool","name":"calculate","arguments":{"expression":4}}'],
+)
+def test_unsupported_model_test_and_malformed_metadata(tmp_path, response):
+    async def exercise():
+        agents, conv, _ = setup(tmp_path, [response])
+        model = agents.store.model(conv.model_id)
+        model.metadata = {"metadata": ["bad"], "chat_template": 42}
+        agents.store.update_model(model)
+        assert capability(agents.service, model)["status"] == "unverified"
+        assert not capability(agents.service, model)["template_available"]
+        result = await agents.test_compatibility(model.id)
+        assert result["status"] == "unsupported" and result["tested"]
+        with pytest.raises(TextError, match="agent_model_unsupported"):
+            await agents.submit(conv.id, AgentRequest(content="task"))
+        assert not agents.service.history.messages(conv.id)
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_gguf_template_is_read_without_guessing_capabilities(tmp_path):
+    async def exercise():
+        agents, conv, _ = setup(tmp_path, [])
+        # Insert a bounded metadata string in the synthetic fixture (not model weights).
+        data = synthetic_gguf()
+        key, value = b"tokenizer.chat_template", b"{{ tools }} [tool_call]"
+        item = struct.pack("<Q", len(key)) + key + struct.pack("<IQ", 8, len(value)) + value
+        name = b"test.weight"
+        offset = data.index(struct.pack("<Q", len(name)) + name)
+        header = data[:16] + struct.pack("<Q", 4) + data[24:offset] + item
+        tensor = data[offset : offset + 8 + len(name) + 24]
+        packed = header + tensor
+        path = tmp_path / "models" / "template.gguf"
+        path.write_bytes(packed + b"\0" * (-len(packed) % 32) + struct.pack("<ffff", 0, 0, 0, 0))
+        imported = agents.service.models.import_gguf(path)
+        info = capability(agents.service, imported)
+        assert info["template_available"] and info["status"] == "unverified"
+        assert imported.metadata["metadata"]["tokenizer.chat_template"] == value.decode()
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("with_id", [True, False])
+def test_native_ollama_text_calls_and_duplicate_id_execute_once(tmp_path, with_id):
+    async def exercise():
+        agents, conv, _ = setup(tmp_path, [])
+        model = agents.store.model(conv.model_id)
+        model.backend, model.location, model.capabilities = "ollama", "test:tools", ["tool-calling"]
+        agents.store.update_model(model)
+        seen = []
+
+        def response(request):
+            if request.url.path == "/api/version":
+                return httpx.Response(200, json={"version": "test-v1"})
+            if request.url.path == "/api/generate":
+                return httpx.Response(200, json={"done": True})
+            body = json.loads(request.content)
+            assert any(t["function"]["name"] == "set_plan" for t in body["tools"])
+            seen.append(body)
+            call = {
+                "id": "same-call",
+                "function": {"name": "calculate", "arguments": {"expression": "2+3"}},
+            }
+            if not with_id:
+                call.pop("id")
+            if body["messages"][0]["content"].startswith("Call calculate"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "done": True,
+                        "done_reason": "stop",
+                        "message": {
+                            "content": "",
+                            "tool_calls": [call],
+                        },
+                    },
+                )
+            message = (
+                {"role": "assistant", "content": "Calculating", "tool_calls": [call, call]}
+                if len(seen) == 1
+                else {"role": "assistant", "content": "Five"}
+            )
+            return httpx.Response(
+                200, json={"done": True, "done_reason": "stop", "message": message}
+            )
+
+        async with httpx.AsyncClient(
+            base_url="http://localhost", transport=httpx.MockTransport(response)
+        ) as client:
+            agents.service.engines["ollama"] = OllamaEngine(client=client)
+            info = capability(agents.service, model)
+            assert info["status"] == "native" and not info["tested"]
+            result = await finish(agents, conv)
+            assert result["state"] == "completed" and len(result["steps"]) == 1
+            assert result["tool_mode"] == "native" and result["duplicate_calls"] == 1
+            assert "replayed" in seen[1]["messages"][-1]["content"]
+            tested = await agents.test_compatibility(model.id)
+            assert tested["status"] == "native" and tested["tested"]
+            assert tested["backend_version"] == "test-v1"
+            await agents.close()
+            await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_one_json_repair_then_multistep_plan_correction(tmp_path):
+    async def exercise():
+        plan = json.dumps(
+            {
+                "kind": "plan",
+                "steps": [
+                    {"id": "calc", "title": "Calculate"},
+                    {"id": "unused", "title": "Old step"},
+                ],
+            }
+        )
+        revised = json.dumps(
+            {
+                "kind": "plan",
+                "steps": [
+                    {"id": "calc", "title": "Already calculated"},
+                    {"id": "next", "title": "Calculate again"},
+                ],
+            }
+        )
+        agents, conv, engine = setup(
+            tmp_path,
+            [
+                "{",
+                plan,
+                tool("calculate", expression="2+3"),
+                revised,
+                tool("calculate", expression="3+4"),
+                FINAL,
+            ],
+        )
+        result = await finish(agents, conv)
+        assert result["state"] == "completed" and result["protocol_retries"] == 1
+        assert result["plan_revisions"] == 2
+        assert result["plan"][0]["title"] == "Calculate"
+        assert [p["id"] for p in result["plan"]] == ["calc", "next"]
+        assert all(p["state"] == "completed" for p in result["plan"])
+        assert len(result["steps"]) == 2
+        assert all(p.max_tokens == 256 for p in [agents.service.history.get(conv.id).parameters])
+        assert len(engine.messages) == 6
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    "response", [tool("calculate", expression="1") * 2, "text " + tool("calculate", expression="1")]
+)
+def test_repeated_or_prose_stream_does_not_execute_before_repair(tmp_path, response):
+    async def exercise():
+        valid = json.dumps(
+            {
+                "kind": "tool",
+                "name": "calculate",
+                "arguments": {"expression": "1"},
+                "text": "Calculating now",
+                "call_id": "one",
+            }
+        )
+        agents, conv, _ = setup(tmp_path, [response, valid, FINAL])
+        result = await finish(agents, conv)
+        assert result["state"] == "completed" and len(result["steps"]) == 1
+        assert result["protocol_retries"] == 1
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_duplicate_call_loop_is_bounded(tmp_path):
+    async def exercise():
+        response = json.dumps(
+            {
+                "kind": "tool",
+                "name": "calculate",
+                "arguments": {"expression": "1"},
+                "call_id": "replay",
+            }
+        )
+        agents, conv, _ = setup(tmp_path, [response] * 20)
+        result = await finish(agents, conv)
+        assert result["error_code"] == "agent_turn_limit"
+        assert len(result["steps"]) == 1 and result["duplicate_calls"] == 12
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("approve", [True, False])
+def test_retry_protects_written_and_denied_targets_even_with_new_grant(tmp_path, approve):
+    async def exercise():
+        agents, conv, engine = setup(tmp_path, [])
+        grant = agents.files.grant(conv.id, tmp_path)
+        write = tool(
+            "write_text", grant_id=grant["id"], path="result.txt", mode="create", content="first"
+        )
+        engine.responses = iter([write, write, "invalid", "invalid"])
+        first = await agents.submit(conv.id, AgentRequest(content="write"))
+        task = agents.tasks[first["id"]]
+        step = await waiting(agents, first["id"])
+        agents.approve(first["id"], step["id"], step["proposal_id"], approve)
+        await task
+        assert agents.record(first["id"])["state"] == "failed"
+        assert agents.record(first["id"])["steps"][1]["error_code"] == "agent_write_replay_blocked"
+        agents.files.revoke(grant["id"], conv.id)
+        grant = agents.files.grant(conv.id, tmp_path)
+        engine.responses = iter(
+            [
+                tool(
+                    "write_text",
+                    grant_id=grant["id"],
+                    path="result.txt",
+                    mode="create",
+                    content="changed by retry",
+                ),
+                FINAL,
+            ]
+        )
+        second = await agents.retry(first["id"])
+        await agents.tasks[second["id"]]
+        saved = agents.record(second["id"])
+        assert saved["steps"][0]["error_code"] == "agent_write_replay_blocked"
+        assert not agents.approvals
+        target = tmp_path / "result.txt"
+        assert target.read_text() == "first" if approve else not target.exists()
+        assert saved["family"] == first["id"]
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_context_is_bounded_and_summaries_omit_old_file_contents():
+    parameters = GenerationParameters(context_size=2048)
+    base = [
+        {"role": "system", "content": "rules"},
+        {"role": "user", "content": "current task"},
+        {"role": "user", "content": "grants"},
+    ]
+    rounds = [[{"role": "user", "content": f"old-{i}" + "X" * 500}] for i in range(6)]
+    record = {
+        "steps": [{"tool": "read_text", "state": "completed", "result_summary": {"bytes": 12}}]
+    }
+    messages = messages_for_turn(base, rounds, record, parameters)
+    assert not any("old-0" in m["content"] for m in messages)
+    assert any("old-5" in m["content"] for m in messages)
+    assert record["context"]["approx_tokens"] + 256 <= 2048
+    result = bounded_result({"text": "ż" * 5000})
+    assert result["truncated"] and result["original_bytes"] == 10000
+    assert len(result["text"].encode()) <= 4096
+
+
+def test_plan_limits_and_invalid_arguments_detail(tmp_path):
+    async def exercise():
+        agents, conv, _ = setup(tmp_path, [tool("calculate", expression=5), FINAL])
+        result = await finish(agents, conv)
+        details = result["steps"][0]["error_details"]
+        assert details == [{"field": "expression", "type": "string_type"}]
+        assert "input" not in json.dumps(details)
+        update = PlanUpdate(kind="plan", steps=[{"id": "x", "title": "Work"}])
+        for _ in range(3):
+            agents.update_plan(result, update, 8)
+        with pytest.raises(TextError, match="agent_plan_limit"):
+            agents.update_plan(result, update, 8)
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_malformed_native_request_and_plain_final_are_distinct():
+    assert parse_turn({"content": "ordinary answer"}, True).text == "ordinary answer"
+    with pytest.raises(TextError, match="agent_protocol_invalid"):
+        parse_turn({"content": "answer", "tool_calls": "not an array"}, True)
+
+
+def test_http_compatibility_is_opt_in_and_retry_is_new_attempt(client, app):
+    from test_agents import ScriptedEngine
+
+    service = app.state.text
+    models = service.config.data_dir / "models"
+    models.mkdir(exist_ok=True)
+    path = models / "agent.gguf"
+    path.write_bytes(synthetic_gguf())
+    model = service.models.import_gguf(path)
+    engine = ScriptedEngine([tool("calculate", expression="2+3")])
+    service.engines["llama.cpp"] = engine
+    base = f"/api/v1/agents/models/{model.id}"
+    assert client.get(base + "/compatibility").json()["status"] == "unverified"
+    assert engine.messages == []
+    assert client.post(base + "/compatibility-test", json={}).status_code == 422
+    assert engine.messages == []
+    assert (
+        client.post(base + "/compatibility-test", json={"confirmed": True}).json()["status"]
+        == "json"
+    )
+    assert client.get(base + "/compatibility").json()["tested"]
+    assert client.post("/api/v1/agents/runs/missing/retry").status_code == 404
+
+
+def test_probe_timeout_does_not_label_model_unsupported(tmp_path):
+    async def exercise():
+        agents, conv, _ = setup(tmp_path, [""], wait=True)
+        agents.service.config.generation_timeout = 0.01
+        result = await agents.test_compatibility(conv.model_id)
+        assert result["status"] == "unverified" and not result["tested"]
+        assert result["error_code"] == "agent_timeout"
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_parse_turn_supports_fenced_json_xml_tool_call_and_think_tags():
+    from omnicore.agents.protocol import Final, ToolCall
+
+    fenced = parse_turn(
+        '<think>Sprawdzam.</think>\n```json\n{"kind": "final", "text": "Gotowe"}\n```',
+        native=False,
+    )
+    assert fenced == Final(kind="final", text="Gotowe")
+
+    xml_call = parse_turn(
+        "<tool_call>\n<function=search_text>\n<parameter=pattern>def main</parameter>\n"
+        "<parameter=path>src</parameter>\n</function>\n</tool_call>",
+        native=False,
+    )
+    assert xml_call == [
+        ToolCall(kind="tool", name="search_text", arguments={"pattern": "def main", "path": "src"})
+    ]
+
+    kindless_tool = parse_turn(
+        '{"name": "read_file", "arguments": {"path": "README.md"}}',
+        native=False,
+    )
+    assert kindless_tool == [
+        ToolCall(kind="tool", name="read_file", arguments={"path": "README.md"})
+    ]
+
+    kindless_final = parse_turn('{"answer": "Wynik"}', native=False)
+    assert kindless_final == Final(kind="final", text="Wynik")
+
+    tool_in_kind = parse_turn(
+        '{"kind": "read_text", "arguments": {"grant_id": "g1", "path": "hello.txt"}}',
+        native=False,
+    )
+    assert tool_in_kind == [
+        ToolCall(
+            kind="tool",
+            name="read_text",
+            arguments={"grant_id": "g1", "path": "hello.txt"},
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "raw_response",
+    [
+        "Tak, mogę działać jako agent i korzystać z udostępnionych narzędzi.",
+        "<think>Użytkownik pyta o możliwości.</think>\n"
+        "Cześć! Mogę przeszukiwać i czytać pliki w udostępnionym katalogu.",
+        '{"kind": "final", "text": "Mogę działać jako agent."}',
+        '{"kind": "tool", "name": "final_answer", '
+        '"arguments": {"text": "Gotowa odpowiedź końcowa."}}',
+        "<tool_call>\n<function=final_answer>\n<parameter=text>\n"
+        "Odpowiedź przez final_answer.\n</parameter>\n</function>\n</tool_call>",
+    ],
+)
+def test_plain_text_and_final_answer_complete_with_zero_steps(tmp_path, raw_response):
+    async def exercise():
+        agents, conv, _ = setup(tmp_path, [raw_response])
+        record = await agents.submit(
+            conv.id, AgentRequest(content="czy możesz działać jako agent?")
+        )
+        await agents.tasks[record["id"]]
+        result = agents.record(record["id"])
+        assert result["state"] == "completed"
+        assert result["error_code"] is None
+        assert result["steps"] == []
+        assert result["protocol_retries"] == 0
+        assert result.get("response_message_id") is not None
+        msgs = agents.service.history.messages(conv.id)
+        assert msgs[-1].role == "assistant"
+        assert msgs[-1].id == result["response_message_id"]
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_multistep_search_text_then_read_text_and_arg_normalization(tmp_path):
+    async def exercise():
+        agents, conv, engine = setup(tmp_path, [])
+        folder = tmp_path / "workspace"
+        folder.mkdir()
+        (folder / "alpha.txt").write_text("Tutaj jest OmniCore Beta 3.\n", encoding="utf-8")
+        (folder / "other.txt").write_text("Brak słowa kluczowego.\n", encoding="utf-8")
+        agents.files.grant(conv.id, folder)
+        engine.responses = iter(
+            [
+                "<think>Szukam plików.</think>\n<tool_call>\n<function=search_text>\n"
+                "<parameter=pattern>OmniCore</parameter>\n<parameter=max_results>5</parameter>\n"
+                "</function>\n</tool_call>",
+                '{"name": "read_text", "file": "alpha.txt"}',
+                "Plik alpha.txt zawiera informację o OmniCore Beta 3.",
+            ]
+        )
+        record = await agents.submit(
+            conv.id,
+            AgentRequest(
+                content="Znajdź pliki zawierające słowo OmniCore i podsumuj ich zawartość"
+            ),
+        )
+        await agents.tasks[record["id"]]
+        result = agents.record(record["id"])
+        assert result["state"] == "completed"
+        assert [s["tool"] for s in result["steps"]] == ["search_text", "read_text"]
+        assert [s["state"] for s in result["steps"]] == ["completed", "completed"]
+        assert "alpha.txt" in engine.messages[1][-1].content
+        assert "OmniCore Beta 3" in engine.messages[2][-1].content
+        assert (
+            agents.service.history.messages(conv.id)[-1].content
+            == "Plik alpha.txt zawiera informację o OmniCore Beta 3."
+        )
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_incomplete_json_never_executes_tool_and_uses_bounded_repair(tmp_path):
+    async def exercise():
+        truncated_tool = '{"kind": "tool", "name": "calculate", "arguments": {"expression": "2+2"'
+        agents, conv, engine = setup(
+            tmp_path,
+            [
+                truncated_tool,
+                '{"kind": "final", "text": "Naprawiona odpowiedź po uciętym JSON."}',
+            ],
+        )
+        result = await finish(agents, conv)
+        assert result["state"] == "completed"
+        assert result["steps"] == []
+        assert result["protocol_retries"] == 1
+        assert result.get("last_protocol_issue") == "incomplete_output"
+        assert "Incomplete protocol output" in engine.messages[1][-1].content
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_missing_folder_permission_reports_permission_denied(tmp_path):
+    async def exercise():
+        agents, conv, engine = setup(
+            tmp_path,
+            [
+                '{"kind": "tool", "name": "read_text", "arguments": {"path": "test.txt"}}',
+                "Brak dostępu do katalogu.",
+            ],
+        )
+        result = await finish(agents, conv)
+        assert result["state"] == "failed"
+        assert result["error_code"] == "agent_folder_not_granted"
+        assert len(result["steps"]) == 1
+        assert result["steps"][0]["state"] == "failed"
+        assert result["steps"][0]["error_code"] == "agent_folder_not_granted"
+        assert result["needs_folder_grant"] is True
+        assert len(engine.messages) == 1
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_agent_missing_folder_detects_needs_grant_and_continues_without_duplicating_message(
+    tmp_path,
+):
+    async def exercise():
+        downloads = tmp_path / "Pobrane"
+        downloads.mkdir()
+        (downloads / "raport.pdf").write_text("pdf")
+        agents, conv, engine = setup(
+            tmp_path,
+            [
+                "Nie mam dostępu do folderu Pobrane, ponieważ nie przyznano grant_id.",
+            ],
+        )
+        run1 = await agents.submit(
+            conv.id,
+            AgentRequest(content="weź sprawdź jakie pliki mam na komputerze w folderze Pobrane"),
+        )
+        await agents.tasks[run1["id"]]
+        first_record = agents.record(run1["id"])
+        assert first_record["state"] == "failed"
+        assert first_record["error_code"] == "agent_folder_not_granted"
+        assert first_record["turns"] == 0
+        assert engine.messages == []
+        assert first_record["steps"] == []
+        assert first_record["needs_folder_grant"] is True
+        assert first_record["suggested_folder_name"] == "Pobrane"
+        assert len(agents.service.history.messages(conv.id)) == 1
+
+        grant = agents.grant_folder(
+            conv.id,
+            downloads,
+            allow_write=False,
+            subfolders=True,
+            persistent=True,
+        )
+        assert grant["allow_write"] is False
+        assert grant["subfolders"] is True
+        assert grant["persistent"] is True
+
+        engine.responses = iter(
+            [
+                tool("list_files", grant_id=grant["id"], path="Pobrane"),
+                '{"kind": "final", "text": "W folderze Pobrane znajduje się plik raport.pdf."}',
+            ]
+        )
+        run2 = await agents.retry(first_record["id"])
+        await agents.tasks[run2["id"]]
+        second_record = agents.record(run2["id"])
+        assert second_record["state"] == "completed"
+        assert len(second_record["steps"]) == 1
+        assert second_record["steps"][0]["tool"] == "list_files"
+        assert second_record["steps"][0]["state"] == "completed"
+        msgs = agents.service.history.messages(conv.id)
+        assert [m.role for m in msgs] == ["user", "assistant"]
+        assert "raport.pdf" in msgs[-1].content
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_preflight_blocks_uncovered_folder_even_with_other_grant_and_tracks_stats(tmp_path):
+    async def exercise():
+        docs = tmp_path / "Dokumenty"
+        docs.mkdir()
+        downloads = tmp_path / "Pobrane"
+        downloads.mkdir()
+        (downloads / "lista.csv").write_text("id,name\n", encoding="utf-8")
+        agents, conv, engine = setup(tmp_path, [])
+        doc_grant = agents.grant_folder(conv.id, docs, allow_write=False)
+
+        run1 = await agents.submit(
+            conv.id,
+            AgentRequest(
+                content=(
+                    "Wyświetl nazwy wszystkich plików znajdujących się w moim folderze Pobrane. "
+                    "Użyj narzędzia do listowania plików."
+                )
+            ),
+        )
+        await agents.tasks[run1["id"]]
+        rec1 = agents.record(run1["id"])
+        assert rec1["state"] == "failed"
+        assert rec1["error_code"] == "agent_folder_not_granted"
+        assert rec1["needs_folder_grant"] is True
+        assert rec1["expand_grant"] is True
+        assert rec1["grants_at_failure"] == [doc_grant["id"]]
+        assert rec1["turns"] == 0
+        assert engine.messages == []
+
+        with pytest.raises(TextError, match="agent_folder_not_granted"):
+            await agents.retry(rec1["id"])
+
+        dl_grant = agents.grant_folder(conv.id, downloads, allow_write=False)
+        engine.responses = iter(
+            [
+                tool("list_files", grant_id=dl_grant["id"], path="."),
+                '{"kind": "final", "text": "Pliki: lista.csv"}',
+            ]
+        )
+        run2 = await agents.retry(rec1["id"])
+        await agents.tasks[run2["id"]]
+        rec2 = agents.record(run2["id"])
+        assert rec2["state"] == "completed"
+        assert rec2["statistics"]["agent_steps"] == 1
+        assert rec2["statistics"]["tool_calls"] == 1
+        assert rec2["statistics"]["total_task_seconds"] >= 0
+        assert rec2["statistics"]["tool_execution_seconds"] >= 0
+        msgs = agents.service.history.messages(conv.id)
+        assert [m.role for m in msgs] == ["user", "assistant"]
+        assert msgs[-1].statistics is not None
+        assert msgs[-1].statistics.agent_steps == 1
+        assert msgs[-1].model_name == "Test fixture"
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_error_codes_distinction_and_cancel_cleanup(tmp_path):
+    async def exercise():
+        folder = tmp_path / "workspace"
+        folder.mkdir()
+        (folder / "present.txt").write_text("ok", encoding="utf-8")
+        agents, conv, engine = setup(tmp_path, [])
+        grant = agents.grant_folder(conv.id, folder)
+
+        # 1. Missing path inside valid grant -> agent_path_not_found
+        engine.responses = iter(
+            [
+                tool("read_text", grant_id=grant["id"], path="missing.txt"),
+                '{"kind": "final", "text": "Plik nie istnieje."}',
+            ]
+        )
+        run_missing = await finish(agents, conv)
+        assert run_missing["state"] == "completed"
+        assert run_missing["steps"][0]["error_code"] == "agent_path_not_found"
+        assert run_missing["steps"][0]["error_component"] == "read_text"
+
+        # 2. Invalid/other grant when multiple grants exist -> agent_invalid_grant
+        other = tmp_path / "other"
+        other.mkdir()
+        agents.grant_folder(conv.id, other)
+        engine.responses = iter(
+            [
+                tool("list_files", grant_id="nonexistent_grant", path="."),
+                tool("list_files", grant_id="never_reached", path="."),
+            ]
+        )
+        run_bad_grant = await finish(agents, conv)
+        assert run_bad_grant["state"] == "failed"
+        assert run_bad_grant["error_code"] == "agent_invalid_grant"
+        assert len(run_bad_grant["steps"]) == 1
+        assert len(engine.messages) == 3
+
+        # 3. Cancel while awaiting approval cleans up approvals and tasks
+        engine.responses = iter(
+            [tool("write_text", grant_id=grant["id"], path="new.txt", mode="create", content="x")]
+        )
+        run_write = await agents.submit(conv.id, AgentRequest(content="Change file"))
+        for _ in range(100):
+            if agents.record(run_write["id"])["steps"] and (
+                agents.record(run_write["id"])["steps"][0]["state"] == "waiting"
+            ):
+                break
+            await asyncio.sleep(0.01)
+        assert agents.approvals
+        cancelled = await agents.cancel(run_write["id"])
+        assert cancelled["state"] == "cancelled"
+        assert agents.approvals == {}
+        assert agents.tasks == {}
+        assert agents.tokens == {}
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_agent_folder_grant_read_only_and_subfolders_and_revoke(tmp_path):
+    import threading
+
+    from omnicore.agents.tools import FileArgs, FindArgs, WriteArgs
+
+    async def exercise():
+        folder = tmp_path / "workspace"
+        sub = folder / "nested"
+        sub.mkdir(parents=True)
+        (folder / "top.txt").write_text("top")
+        (sub / "deep.txt").write_text("deep")
+        agents, conv, _ = setup(tmp_path, [FINAL])
+        grant = agents.grant_folder(
+            conv.id,
+            folder,
+            allow_write=False,
+            subfolders=False,
+            persistent=False,
+        )
+        cancelled = threading.Event()
+        # 1. Read-only blocks write proposals
+        with pytest.raises(TextError) as exc_info:
+            agents.files.propose(
+                WriteArgs(
+                    grant_id=grant["id"],
+                    path="out.txt",
+                    mode="create",
+                    content="blocked",
+                ),
+                conv.id,
+                cancelled,
+            )
+        assert exc_info.value.code == "agent_permission_denied"
+
+        # 2. Top-level file is readable, nested file is blocked when subfolders=False
+        top_res = agents.files.read(
+            "read_text",
+            FileArgs(grant_id=grant["id"], path="top.txt"),
+            conv.id,
+            cancelled,
+        )
+        assert top_res["text"] == "top"
+        with pytest.raises(TextError) as exc_sub:
+            agents.files.read(
+                "read_text",
+                FileArgs(grant_id=grant["id"], path="nested/deep.txt"),
+                conv.id,
+                cancelled,
+            )
+        assert exc_sub.value.code == "agent_permission_denied"
+        found = agents.files.read(
+            "find_files",
+            FindArgs(grant_id=grant["id"], path=".", query="txt"),
+            conv.id,
+            cancelled,
+        )
+        assert [e["path"] for e in found["entries"]] == ["top.txt"]
+
+        # 3. Revoke immediately blocks further operations
+        agents.revoke_folder(grant["id"], conv.id)
+        with pytest.raises(TextError) as exc_revoked:
+            agents.files.read(
+                "list_files",
+                FileArgs(grant_id=grant["id"], path="."),
+                conv.id,
+                cancelled,
+            )
+        assert exc_revoked.value.code == "agent_permission_denied"
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_casual_prompts_skip_folder_grant_while_fs_requests_prompt(tmp_path):
+    async def run_prompt(agents, conv_id, prompt):
+        rec = await agents.submit(conv_id, AgentRequest(content=prompt))
+        task = agents.tasks.get(rec["id"])
+        if task is not None:
+            await task
+        return agents.record(rec["id"])
+
+    async def exercise():
+        downloads = tmp_path / "Pobrane"
+        downloads.mkdir()
+        (downloads / "raport.pdf").write_text("demo", encoding="utf-8")
+        other_file = tmp_path / "other" / "not-granted-file.txt"
+        other_file.parent.mkdir()
+        other_file.write_text("secret", encoding="utf-8")
+
+        replies = [
+            json.dumps({"kind": "final", "text": "Wszystko dobrze, w czym mogę pomóc?"}),
+            json.dumps(
+                {
+                    "kind": "final",
+                    "text": (
+                        "Spoko, rozmawiamy normalnie — nie trzeba nic udostępniać "
+                        "ani dawać uprawnień."
+                    ),
+                }
+            ),
+            json.dumps({"kind": "final", "text": "2 + 2 = 4."}),
+            json.dumps(
+                {
+                    "kind": "final",
+                    "text": (
+                        "Super hobby! Nie mam co prawda uprawnień do folderów, "
+                        "ale możemy porozmawiać o muzyce."
+                    ),
+                }
+            ),
+            json.dumps({"kind": "final", "text": "I'm doing great! How can I help you today?"}),
+            json.dumps({"kind": "final", "text": "Decorators wrap functions cleanly."}),
+            # After granting Pobrane:
+            tool("list_files", path="."),
+            json.dumps({"kind": "final", "text": "Pliki: raport.pdf"}),
+            # Runtime read_text attempt on an ungranted external path when prompt asks for a file:
+            tool("read_text", path=str(other_file)),
+        ]
+        agents, conv, engine = setup(tmp_path, replies)
+
+        casual_prompts = [
+            "co tam",
+            "co tam słychać?",
+            "oblicz 2+2",
+            "lubię słuchać muzyki na komputerze",
+            "hello, how are you?",
+            "explain Python decorators",
+        ]
+        for idx, prompt in enumerate(casual_prompts, start=1):
+            run = await run_prompt(agents, conv.id, prompt)
+            assert run["state"] == "completed", (prompt, run)
+            assert not run.get("needs_folder_grant"), (prompt, run)
+            assert run.get("error_code") is None
+            assert len(engine.messages) == idx
+
+        # Real filesystem request without grants asks for access before calling model.
+        before_calls = len(engine.messages)
+        fs_run = await run_prompt(agents, conv.id, "wyświetl pliki w folderze Pobrane")
+        assert fs_run["state"] == "failed"
+        assert fs_run["error_code"] == "agent_folder_not_granted"
+        assert fs_run["needs_folder_grant"] is True
+        assert len(engine.messages) == before_calls
+
+        # Another explicit English filesystem request without grants also requires authorization.
+        en_fs_run = await run_prompt(agents, conv.id, "list files in Downloads")
+        assert en_fs_run["state"] == "failed"
+        assert en_fs_run["error_code"] == "agent_folder_not_granted"
+        assert en_fs_run["needs_folder_grant"] is True
+        assert len(engine.messages) == before_calls
+
+        # Grant folder and retry -> model lists files and completes cleanly.
+        agents.grant_folder(conv.id, str(downloads))
+        retried = await agents.retry(fs_run["id"])
+        task = agents.tasks.get(retried["id"])
+        if task is not None:
+            await task
+        completed_fs = agents.record(retried["id"])
+        assert completed_fs["state"] == "completed"
+        assert not completed_fs.get("needs_folder_grant")
+
+        # Pre-flight detects an explicit external path outside current grants (expand grant).
+        outside_path_run = await run_prompt(agents, conv.id, f"odczytaj plik {other_file}")
+        assert outside_path_run["state"] == "failed"
+        assert outside_path_run["error_code"] == "agent_folder_not_granted"
+        assert outside_path_run["needs_folder_grant"] is True
+        assert outside_path_run["expand_grant"] is True
+
+        # Runtime tool permission denial on an ungranted path also flags needs_folder_grant.
+        runtime_denied_run = await run_prompt(agents, conv.id, "odczytaj plik w folderze Pobrane")
+        assert runtime_denied_run["state"] == "failed"
+        assert runtime_denied_run["error_code"] == "agent_permission_denied"
+        assert runtime_denied_run["needs_folder_grant"] is True
+
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    "xml_call",
+    [
+        "<tool_call>\n  <function=calculate>\n    "
+        "<parameter=expression>1847 * 293</parameter>\n  </function>\n</tool_call>",
+        "<tool_call>\n<function=calculate>\n<parameter=expression>\n"
+        "  1847 * 293\n</parameter>\n</function>\n</tool_call>",
+        "```xml\n<tool_call>\n  <function=calculate>\n    "
+        "<parameter=expression>1847 * 293</parameter>\n  </function>\n</tool_call>\n```",
+    ],
+)
+def test_lfm3_xml_tool_call_executes_real_calculate_tool(tmp_path, xml_call):
+    async def exercise():
+        agents, conv, engine = setup(tmp_path, [xml_call, "541171"])
+        record = await agents.submit(conv.id, AgentRequest(content="Calculate 1847 * 293"))
+        await agents.tasks[record["id"]]
+        result = agents.record(record["id"])
+        assert result["state"] == "completed"
+        assert [s["tool"] for s in result["steps"]] == ["calculate"]
+        assert result["steps"][0]["state"] == "completed"
+        assert result["steps"][0]["result_summary"] == {"value": 541171}
+        assert "541171" in engine.messages[1][-1].content
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        "<tool_call><function=calculate><parameter=expression>1847 * 293</parameter></function>",
+        "<tool_call><function=calculate><parameter=expression>1847 * 293</parameter></tool_call>",
+        "<tool_call><function=calculate><parameter=expression>1847 * 293</function></tool_call>",
+        "<tool_call><function=calculate><stray>oops</stray><parameter=expression>1+1</parameter></function></tool_call>",
+        "<tool_call><function=calculate><parameter=expression>1+1</parameter></function></tool_call><tool_call><function=calculate><parameter=expression>2+2</parameter></function></tool_call>",
+    ],
+)
+def test_lfm3_xml_malformed_tags_are_rejected(malformed):
+    with pytest.raises(TextError) as exc:
+        parse_turn(malformed, native=False)
+    assert exc.value.code == "agent_protocol_invalid"
+
+
+def test_lfm3_xml_unknown_tool_and_invalid_arguments_are_blocked(tmp_path):
+    async def exercise():
+        agents, conv, _ = setup(
+            tmp_path,
+            [
+                "<tool_call>\n<function=shell_exec>\n<parameter=cmd>id</parameter>\n</function>\n</tool_call>",
+                "Refused unknown tool.",
+            ],
+        )
+        unknown_run = await agents.submit(conv.id, AgentRequest(content="run shell"))
+        await agents.tasks[unknown_run["id"]]
+        res_unknown = agents.record(unknown_run["id"])
+        assert res_unknown["steps"][0]["tool"] == "shell_exec"
+        assert res_unknown["steps"][0]["state"] == "failed"
+        assert res_unknown["steps"][0]["error_code"] == "agent_unknown_tool"
+
+        agents2, conv2, _ = setup(
+            tmp_path / "b",
+            [
+                "<tool_call>\n<function=calculate>\n<parameter=expression>__import__('os').system('id')</parameter>\n</function>\n</tool_call>",
+                "Invalid expression.",
+            ],
+        )
+        bad_expr = await agents2.submit(conv2.id, AgentRequest(content="bad calc"))
+        await agents2.tasks[bad_expr["id"]]
+        res_bad = agents2.record(bad_expr["id"])
+        assert res_bad["steps"][0]["state"] == "failed"
+        assert res_bad["steps"][0]["error_code"] == "agent_invalid_calculation"
+
+        agents3, conv3, _ = setup(
+            tmp_path / "c",
+            [
+                "<tool_call>\n<function=calculate>\n</function>\n</tool_call>",
+                "Missing expression.",
+            ],
+        )
+        missing_arg = await agents3.submit(conv3.id, AgentRequest(content="missing arg"))
+        await agents3.tasks[missing_arg["id"]]
+        res_missing = agents3.record(missing_arg["id"])
+        assert res_missing["steps"][0]["state"] == "failed"
+        assert res_missing["steps"][0]["error_code"] == "agent_invalid_arguments"
+
+        await agents.close()
+        await agents.service.generations.close()
+        await agents2.close()
+        await agents2.service.generations.close()
+        await agents3.close()
+        await agents3.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_qwen_json_protocol_still_executes_calculate(tmp_path):
+    async def exercise():
+        agents, conv, _ = setup(
+            tmp_path,
+            [
+                "<think>Calculating</think>\n"
+                '{"kind": "tool", "name": "calculate", "arguments": {"expression": "1847 * 293"}}',
+                '{"kind": "final", "text": "541171"}',
+            ],
+        )
+        record = await agents.submit(conv.id, AgentRequest(content="Calculate 1847 * 293"))
+        await agents.tasks[record["id"]]
+        result = agents.record(record["id"])
+        assert result["state"] == "completed"
+        assert [s["tool"] for s in result["steps"]] == ["calculate"]
+        assert result["steps"][0]["result_summary"] == {"value": 541171}
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())

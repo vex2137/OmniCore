@@ -11,6 +11,7 @@ from typing import Literal
 from pydantic import Field
 
 from omnicore.schemas import ServerEvent, WireModel
+from omnicore.text.context import context_settings
 from omnicore.text.conversations import Conversations, MessageRecord
 from omnicore.text.models import ModelManager
 from omnicore.text.store import TextStore, timestamp
@@ -81,6 +82,7 @@ class GenerationManager:
                     model_id=record.model_id,
                     model_name=record.model_name,
                     reasoning_content=record.reasoning_content,
+                    error_code=record.error_code,
                     statistics=GenerationStatistics(
                         **{key: getattr(record, key) for key in GenerationStatistics.model_fields}
                     ),
@@ -96,12 +98,34 @@ class GenerationManager:
 
     async def submit(self, conversation_id, request: GenerationRequest):
         async with self.submission_lock:
+            if getattr(self, "external_busy", lambda **_: False)(conversation_id=conversation_id):
+                raise TextError("conversation_busy", 409)
             conversation = await asyncio.to_thread(self.history.get, conversation_id)
             model_id = request.model_id or conversation.model_id
             if not model_id:
                 raise TextError("model_required", 422)
             model = await asyncio.to_thread(self.store.model, model_id)
             parameters = request.parameters or conversation.parameters
+            if request.parameters is None:
+                saved_gpu = model.metadata.get("desktop_gpu")
+                if isinstance(saved_gpu, dict):
+                    gpu_update = {
+                        k: saved_gpu[k]
+                        for k in ("device", "gpu_offload_mode", "gpu_layers")
+                        if k in saved_gpu and saved_gpu[k] is not None
+                    }
+                    if gpu_update:
+                        parameters = parameters.model_copy(update=gpu_update)
+                if "desktop_context" in model.metadata:
+                    parameters = parameters.model_copy(
+                        update={
+                            "context_size": context_settings(
+                                model,
+                                device=parameters.device,
+                                gpu_offload_mode=parameters.gpu_offload_mode,
+                            )["effective_tokens"]
+                        }
+                    )
             parameter_fingerprint = parameters.model_dump()
             # Preserve idempotency keys created by Alpha.1/2 before thinking was a field.
             if not parameters.thinking:
@@ -160,6 +184,25 @@ class GenerationManager:
                         "INSERT INTO text_jobs VALUES('generation',?,?)",
                         (record.id, record.model_dump_json()),
                     )
+                    tail = connection.execute(
+                        "SELECT id, record FROM text_messages "
+                        "WHERE conversation_id=? ORDER BY seq DESC LIMIT 2",
+                        (conversation_id,),
+                    ).fetchall()
+                    if len(tail) == 2:
+                        last_msg = MessageRecord.model_validate_json(tail[0][1])
+                        prev_msg = MessageRecord.model_validate_json(tail[1][1])
+                        if (
+                            last_msg.role == "assistant"
+                            and last_msg.status in {"failed", "cancelled", "interrupted"}
+                            and not last_msg.content.strip()
+                            and prev_msg.role == "user"
+                            and prev_msg.content.strip() == request.content.strip()
+                        ):
+                            connection.execute(
+                                "DELETE FROM text_messages WHERE id IN (?,?)",
+                                (tail[0][0], tail[1][0]),
+                            )
                     connection.execute(
                         "INSERT INTO text_messages(id,conversation_id,record) VALUES(?,?,?)",
                         (user.id, conversation_id, user.model_dump_json()),
@@ -199,6 +242,7 @@ class GenerationManager:
                 message.parameters = snapshot.parameters
                 message.model_id, message.model_name = snapshot.model_id, snapshot.model_name
                 message.reasoning_content = snapshot.reasoning_content
+                message.error_code = snapshot.error_code
                 message.statistics = GenerationStatistics(
                     **{key: getattr(snapshot, key) for key in GenerationStatistics.model_fields}
                 )
@@ -248,11 +292,21 @@ class GenerationManager:
                 if engine_info is None or not engine_info.available:
                     raise TextError("engine_unavailable", 503)
                 history = await asyncio.to_thread(self.history.messages, record.conversation_id)
-                messages = [
-                    TextMessage(role=item.role, content=item.content)
-                    for item in history
-                    if item.role != "assistant" or item.status == "completed"
-                ]
+                messages = []
+                for idx, item in enumerate(history):
+                    if item.role == "assistant":
+                        if item.status == "completed":
+                            messages.append(TextMessage(role=item.role, content=item.content))
+                        continue
+                    if (
+                        item.role == "user"
+                        and idx + 1 < len(history)
+                        and history[idx + 1].role == "assistant"
+                        and history[idx + 1].status in {"failed", "cancelled", "interrupted"}
+                        and not history[idx + 1].content.strip()
+                    ):
+                        continue
+                    messages.append(TextMessage(role=item.role, content=item.content))
                 if record.parameters.system_prompt:
                     messages.insert(
                         0, TextMessage(role="system", content=record.parameters.system_prompt)
@@ -261,9 +315,17 @@ class GenerationManager:
                     # The child inherits the validated descriptor, so replacing a pathname cannot
                     # swap in a different model between validation and llama-server opening it.
                     path = self.models.validated_reference(model.id)
-                    with self.models.policy.open(path) as stream:
+                    model = await asyncio.to_thread(self.store.model, model.id)
+                    with self.models.policy.open(path, registered=True) as stream:
                         info = os.fstat(stream.fileno())
-                        if (info.st_dev, info.st_ino) != self.store.model_identity(model.id):
+                        if (
+                            (info.st_dev, info.st_ino) != self.store.model_identity(model.id)
+                            or info.st_size != model.size_bytes
+                            or (
+                                model.metadata.get("file_mtime_ns") is not None
+                                and info.st_mtime_ns != model.metadata["file_mtime_ns"]
+                            )
+                        ):
                             raise TextError("model_file_changed", 409)
                         loading = time.monotonic()
                         try:
@@ -273,11 +335,28 @@ class GenerationManager:
                         finally:
                             record.model_load_seconds = time.monotonic() - loading
                         record.gpu_offloaded_layers = getattr(engine, "offloaded_layers", None)
+                        record.gpu_total_layers = getattr(engine, "total_layers", None)
+                        record.gpu_offload_mode = (
+                            getattr(engine, "offload_mode", None)
+                            or getattr(record.parameters, "gpu_offload_mode", None)
+                            or (
+                                "cpu"
+                                if record.parameters.device == "cpu"
+                                else "auto"
+                                if record.parameters.device == "auto"
+                                else "manual"
+                            )
+                        )
+                        record.gpu_offload_reason = getattr(engine, "offload_reason", None)
                         record.execution_device = getattr(engine, "execution_device", None)
                         record.fallback_reason = getattr(engine, "fallback_reason", None)
-                        await self._consume(engine, str(path), messages, record, started)
+                        inference_started = time.monotonic()
+                        await self._consume(
+                            engine, str(path), messages, record, inference_started, started
+                        )
                 else:
-                    await self._consume(engine, model.location, messages, record, started)
+                    record.execution_device = "cpu"
+                    await self._consume(engine, model.location, messages, record, started, started)
                 if record.content.strip():
                     model.compatibility = "tested"
                     model.capabilities = list(
@@ -302,7 +381,9 @@ class GenerationManager:
                         502,
                     )
                 record.state = "completed"
-                record.generation_seconds = time.monotonic() - started
+                record.total_task_seconds = time.monotonic() - started
+                if record.generation_seconds is None:
+                    record.generation_seconds = record.total_task_seconds
                 record.finish_reason = record.finish_reason or "stop"
                 await self._persist(record)
         except asyncio.CancelledError:
@@ -341,7 +422,8 @@ class GenerationManager:
                 self.semaphore.release()
             self.tasks.pop(job_id, None)
 
-    async def _consume(self, engine, model, messages, record, started):
+    async def _consume(self, engine, model, messages, record, started, task_started=None):
+        base_task = task_started if task_started is not None else started
         async for chunk in engine.stream(model, messages, record.parameters):
             if (
                 len(record.content)
@@ -359,12 +441,37 @@ class GenerationManager:
             record.content += chunk.content
             record.reasoning_content += chunk.reasoning_content
             record.generation_seconds = elapsed
-            for field in ("input_tokens", "output_tokens", "tokens_per_second", "finish_reason"):
+            record.total_task_seconds = time.monotonic() - base_task
+            for field in (
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+                "tokens_per_second",
+                "prompt_processing_seconds",
+                "prompt_tokens_per_second",
+                "finish_reason",
+                "gpu_offloaded_layers",
+                "gpu_total_layers",
+            ):
                 value = getattr(chunk, field)
                 if value is not None:
                     setattr(record, field, value)
+            if record.gpu_offloaded_layers is not None:
+                if record.gpu_offloaded_layers <= 0:
+                    record.execution_device = "cpu"
+                elif not record.execution_device or record.execution_device == "cpu":
+                    record.execution_device = "gpu"
             if record.input_tokens is not None and record.output_tokens is not None:
+                if record.total_tokens is None:
+                    record.total_tokens = record.input_tokens + record.output_tokens
                 record.context_used_tokens = record.input_tokens + record.output_tokens
+            if (
+                record.tokens_per_second is None
+                and isinstance(record.output_tokens, int)
+                and record.output_tokens > 0
+                and elapsed > 0
+            ):
+                record.tokens_per_second = round(record.output_tokens / elapsed, 2)
             await self._persist(record)
 
     async def cancel(self, job_id):

@@ -315,3 +315,529 @@ def test_independent_clients_share_history_detach_and_cancel(text_app):
         thread.join(timeout=5)
         sock.close()
     assert not thread.is_alive()
+
+
+def test_hf_details_readme_and_sort_endpoints(client, app, monkeypatch):
+    hub = app.state.text.downloads.hub
+
+    async def search(query, sort):
+        assert (query, sort) == ("model", "likes")
+        return [{"repository": "author/model", "license": "mit"}]
+
+    async def details(repository):
+        return {"repository": repository, "revision": "a" * 40, "downloads": 17}
+
+    async def readme(repository, revision):
+        assert revision == "a" * 40
+        return "# Model"
+
+    monkeypatch.setattr(hub, "search", search)
+    monkeypatch.setattr(hub, "details", details)
+    monkeypatch.setattr(hub, "readme", readme)
+    assert (
+        client.get(
+            "/api/v1/text/huggingface/search", params={"query": "model", "sort": "likes"}
+        ).status_code
+        == 200
+    )
+    assert (
+        client.get(
+            "/api/v1/text/huggingface/details", params={"repository": "author/model"}
+        ).json()["downloads"]
+        == 17
+    )
+    assert (
+        client.get(
+            "/api/v1/text/huggingface/readme",
+            params={"repository": "author/model", "revision": "a" * 40},
+        ).json()["markdown"]
+        == "# Model"
+    )
+    assert client.get("/api/v1/text/huggingface/search", params={"sort": "bad"}).status_code == 422
+
+
+def test_context_settings_are_per_model_and_survive_restart(config):
+    app = create_app(config)
+    with TestClient(app, base_url="http://localhost") as client:
+        store = app.state.text.store
+        first = store.add_model(
+            backend="ollama", location="one", name="One", size_bytes=0, format="Ollama"
+        )
+        second = store.add_model(
+            backend="ollama", location="two", name="Two", size_bytes=0, format="Ollama"
+        )
+        first_url = f"/api/v1/text/models/{first.id}/context"
+        second_url = f"/api/v1/text/models/{second.id}/context"
+        assert client.get(first_url).json()["effective_tokens"] == 2048
+        assert (
+            client.put(first_url, json={"mode": "manual", "manual_tokens": 8192}).status_code == 200
+        )
+        assert (
+            client.put(second_url, json={"mode": "manual", "manual_tokens": 4096}).status_code
+            == 200
+        )
+        assert (
+            client.put(second_url, json={"mode": "manual", "manual_tokens": 1_000_001}).status_code
+            == 422
+        )
+    with TestClient(create_app(config), base_url="http://localhost") as client:
+        assert client.get(first_url).json()["effective_tokens"] == 8192
+        assert client.get(second_url).json()["effective_tokens"] == 4096
+        assert client.put(second_url, json={"mode": "auto"}).status_code == 200
+        assert client.get(second_url).json()["mode"] == "auto"
+        assert client.get(first_url).json()["effective_tokens"] == 8192
+        assert (
+            client.put(second_url, json={"mode": "manual", "manual_tokens": 1_000_000}).status_code
+            == 200
+        )
+        assert client.get(second_url).json()["effective_tokens"] == 1_000_000
+
+
+def test_context_is_capped_to_known_model_limit(client, app):
+    model = app.state.text.store.add_model(
+        backend="llama.cpp",
+        location="fixture",
+        name="small",
+        size_bytes=1,
+        format="GGUF",
+        metadata={"architecture": "llama", "metadata": {"llama.context_length": 1024}},
+    )
+    url = f"/api/v1/text/models/{model.id}/context"
+    assert client.get(url).json()["effective_tokens"] == 1024
+    assert client.put(url, json={"mode": "manual", "manual_tokens": 2048}).status_code == 422
+    assert client.put(url, json={"mode": "manual", "manual_tokens": 512}).status_code == 200
+    assert client.get(url).json()["effective_tokens"] == 512
+
+
+def test_model_context_reaches_engine_when_generation_has_no_override(text_app):
+    from omnicore.text.types import GenerationParameters
+
+    class ContextEngine(ProtocolTestEngine):
+        contexts = []
+
+        async def load(self, path, parameters, file_descriptor=None):
+            await super().load(path, parameters, file_descriptor)
+            self.contexts.append(parameters.context_size)
+
+    app, path = text_app
+    engine = ContextEngine()
+    app.state.text.engines["llama.cpp"] = engine
+    with TestClient(app, base_url="http://localhost") as client:
+        model, conversation = create_chat(client, path)
+        url = f"/api/v1/text/models/{model['id']}/context"
+        for index, size in enumerate((4096, 8192)):
+            assert (
+                client.put(url, json={"mode": "manual", "manual_tokens": size}).status_code == 200
+            )
+            response = client.post(
+                f"/api/v1/text/conversations/{conversation['id']}/generations",
+                json={"content": "hello", "request_key": f"context-{index}"},
+            )
+            assert response.status_code == 202
+            assert wait_job(client, response.json()["id"])["state"] == "completed"
+        assert engine.contexts == [4096, 8192]
+        assert (
+            GenerationParameters.model_validate(
+                client.get(f"/api/v1/text/conversations/{conversation['id']}").json()["parameters"]
+            ).context_size
+            == 8192
+        )
+
+
+def test_pin_survives_restart_and_rename(config):
+    with TestClient(create_app(config), base_url="http://localhost") as client:
+        record = client.post("/api/v1/text/conversations", json={"title": "Keep"}).json()
+        url = f"/api/v1/text/conversations/{record['id']}"
+        assert client.patch(url, json={"pinned": True}).json()["pinned"]
+        assert client.patch(url, json={"title": "Renamed"}).json()["pinned"]
+    with TestClient(create_app(config), base_url="http://localhost") as client:
+        assert client.get(url).json()["pinned"]
+        assert not client.patch(url, json={"pinned": False}).json()["pinned"]
+
+
+def test_refresh_model_entry_is_blocked_during_generation(text_app):
+    app, path = text_app
+    app.state.text.engines["llama.cpp"] = ProtocolTestEngine(wait=True)
+    with TestClient(app, base_url="http://localhost") as client:
+        model = client.post("/api/v1/text/models/import", json={"path": str(path)}).json()
+        conversation = client.post(
+            "/api/v1/text/conversations", json={"model_id": model["id"]}
+        ).json()
+        job = client.post(
+            f"/api/v1/text/conversations/{conversation['id']}/generations",
+            json={"content": "Wait", "request_key": "refresh-busy"},
+        ).json()
+        wait_job(client, job["id"], "running")
+        response = client.post(
+            "/api/v1/text/models/import", json={"path": str(path), "refresh_existing": True}
+        )
+        assert response.status_code == 409
+        client.post(f"/api/v1/text/generations/{job['id']}/cancel")
+        assert (
+            client.post(
+                "/api/v1/text/models/import", json={"path": str(path), "refresh_existing": True}
+            ).status_code
+            == 201
+        )
+
+
+def test_auto_context_estimates_from_gguf_limit_and_memory_budget():
+    from omnicore.text.context import context_settings
+
+    # 1. Unknown limit or zero size falls back safely to 2048
+    fallback_model = {"size_bytes": 0, "metadata": {}}
+    s_fallback = context_settings(fallback_model)
+    assert s_fallback["effective_tokens"] == 2048
+    assert s_fallback["auto_reason"] == "safe_fallback"
+
+    # 2. 1.8 GB GGUF model with 32K declared limit and 8 GB available memory -> selects 32768
+    small_gguf = {
+        "size_bytes": int(1.8 * 1024**3),
+        "metadata": {
+            "architecture": "lfm2",
+            "metadata": {"lfm2.context_length": 32768},
+        },
+    }
+    s_ample = context_settings(small_gguf, available_memory_bytes=8 * 1024**3)
+    assert s_ample["mode"] == "auto"
+    assert s_ample["auto_reason"] == "memory_estimated"
+    assert s_ample["effective_tokens"] == 32768
+    assert not s_ample["memory_warning"]
+
+    # 3. Tight memory budget (2.8 GB available for 1.8 GB model) -> caps auto context to 2048
+    s_tight = context_settings(small_gguf, available_memory_bytes=int(2.8 * 1024**3))
+    assert s_tight["effective_tokens"] == 2048
+    assert s_tight["auto_reason"] == "memory_estimated"
+
+    # 4. Manual 32768 under tight memory triggers memory_warning
+    manual_tight = {
+        **small_gguf,
+        "metadata": {
+            **small_gguf["metadata"],
+            "desktop_context": {"mode": "manual", "manual_tokens": 32768},
+        },
+    }
+    s_warn = context_settings(manual_tight, available_memory_bytes=int(2.8 * 1024**3))
+    assert s_warn["effective_tokens"] == 32768
+    assert s_warn["memory_warning"] is True
+
+
+def test_delete_all_conversations_endpoint_checks_idle_and_preserves_models(text_app):
+    app, path = text_app
+    app.state.text.engines["llama.cpp"] = ProtocolTestEngine(wait=True)
+    with TestClient(app, base_url="http://localhost") as client:
+        model, c1 = create_chat(client, path)
+        c2 = client.post(
+            "/api/v1/text/conversations", json={"model_id": model["id"], "title": "Second"}
+        ).json()
+        app.state.text.agents.grant_folder(c2["id"], str(path.parent))
+        assert len(app.state.text.agents.files.grants) == 1
+
+        job = client.post(
+            f"/api/v1/text/conversations/{c1['id']}/generations",
+            json={"content": "active", "request_key": "busy-delete-all"},
+        ).json()
+        wait_job(client, job["id"], "running")
+
+        busy = client.delete("/api/v1/text/conversations")
+        assert busy.status_code == 409
+        assert busy.json()["error"]["code"] == "conversation_busy"
+
+        client.post(f"/api/v1/text/generations/{job['id']}/cancel")
+        wait_job(client, job["id"], "cancelled")
+
+        removed = client.delete("/api/v1/text/conversations")
+        assert removed.status_code == 200
+        assert removed.json()["status"] == "removed"
+        assert removed.json()["deleted"] == 2
+        assert client.get("/api/v1/text/conversations").json() == []
+        assert len(app.state.text.agents.files.grants) == 0
+        models = client.get("/api/v1/text/models").json()
+        assert any(m["id"] == model["id"] for m in models)
+        assert path.exists()
+
+
+def test_context_settings_uses_vram_for_gpu_and_preserves_manual_and_cpu(monkeypatch):
+    import omnicore.text.context as ctx_mod
+
+    monkeypatch.setattr(ctx_mod, "_system_vram_total_bytes", lambda: 8188 * 1024**2)
+    monkeypatch.setattr(ctx_mod, "_system_available_memory_bytes", lambda: 26 * 1024**3)
+
+    deepseek_9b = {
+        "backend": "llama.cpp",
+        "size_bytes": 5_629_111_584,
+        "metadata": {
+            "architecture": "qwen35",
+            "metadata": {
+                "qwen35.context_length": 262144,
+                "qwen35.block_count": 33,
+                "qwen35.full_attention_interval": 4,
+                "qwen35.attention.head_count_kv": 4,
+                "qwen35.attention.key_length": 256,
+                "qwen35.attention.value_length": 256,
+            },
+        },
+    }
+    gpu_auto = ctx_mod.context_settings(deepseek_9b, device="auto", gpu_offload_mode="auto")
+    assert gpu_auto["memory_kind"] == "vram"
+    assert gpu_auto["effective_tokens"] == 16384
+
+    cpu_auto = ctx_mod.context_settings(deepseek_9b, device="cpu", gpu_offload_mode="cpu")
+    assert cpu_auto["memory_kind"] == "ram"
+    assert cpu_auto["effective_tokens"] == 32768
+
+    manual = {
+        **deepseek_9b,
+        "metadata": {
+            **deepseek_9b["metadata"],
+            "desktop_context": {"mode": "manual", "manual_tokens": 8192},
+        },
+    }
+    manual_res = ctx_mod.context_settings(manual, device="auto", gpu_offload_mode="auto")
+    assert manual_res["effective_tokens"] == 8192
+
+
+def test_per_model_gpu_offload_endpoint_persists_resists_rescan_and_drives_llama_args(text_app):
+    class RecordingEngine(ProtocolTestEngine):
+        def __init__(self):
+            super().__init__()
+            self.loaded_parameters = []
+
+        async def load(self, path, parameters, file_descriptor=None):
+            await super().load(path, parameters, file_descriptor=file_descriptor)
+            self.loaded_parameters.append(parameters)
+
+    app, path = text_app
+    engine = RecordingEngine()
+    app.state.text.engines["llama.cpp"] = engine
+    with TestClient(app, base_url="http://localhost") as client:
+        model, conversation = create_chat(client, path)
+
+        initial_ctx = client.get(f"/api/v1/text/models/{model['id']}/context")
+        assert initial_ctx.status_code == 200
+        assert initial_ctx.json()["gpu"]["configured"] is False
+        assert initial_ctx.json()["gpu"]["gpu_offload_mode"] == "auto"
+
+        saved_manual = client.put(
+            f"/api/v1/text/models/{model['id']}/gpu",
+            json={"gpu_offload_mode": "manual", "gpu_layers": 21, "device": "auto"},
+        )
+        assert saved_manual.status_code == 200
+        assert saved_manual.json()["metadata"]["desktop_gpu"] == {
+            "gpu_offload_mode": "manual",
+            "gpu_layers": 21,
+            "device": "auto",
+        }
+        manual_gpu = client.get(f"/api/v1/text/models/{model['id']}/context").json()["gpu"]
+        assert manual_gpu["configured"] is True
+        assert manual_gpu["gpu_offload_mode"] == "manual"
+        assert manual_gpu["gpu_layers"] == 21
+        assert manual_gpu["device"] == "auto"
+
+        # Rescan / re-import must preserve desktop_gpu metadata.
+        reimported = client.post("/api/v1/text/models/import", json={"path": str(path)})
+        assert reimported.status_code == 201
+        assert app.state.text.store.model(model["id"]).metadata["desktop_gpu"] == {
+            "gpu_offload_mode": "manual",
+            "gpu_layers": 21,
+            "device": "auto",
+        }
+
+        gen_manual = client.post(
+            f"/api/v1/text/conversations/{conversation['id']}/generations",
+            json={"content": "Test GPU manual", "request_key": "gpu-manual-key"},
+        )
+        assert gen_manual.status_code == 202
+        assert wait_job(client, gen_manual.json()["id"])["state"] == "completed"
+        assert engine.loaded_parameters[-1].gpu_offload_mode == "manual"
+        assert engine.loaded_parameters[-1].gpu_layers == 21
+        assert engine.loaded_parameters[-1].device == "auto"
+
+        saved_cpu = client.put(
+            f"/api/v1/text/models/{model['id']}/gpu",
+            json={"gpu_offload_mode": "cpu", "gpu_layers": 0, "device": "cpu"},
+        )
+        assert saved_cpu.status_code == 200
+        assert saved_cpu.json()["metadata"]["desktop_gpu"] == {
+            "gpu_offload_mode": "cpu",
+            "gpu_layers": 0,
+            "device": "cpu",
+        }
+        cpu_gpu = client.get(f"/api/v1/text/models/{model['id']}/context").json()["gpu"]
+        assert cpu_gpu["gpu_offload_mode"] == "cpu"
+        assert cpu_gpu["gpu_layers"] == 0
+        assert cpu_gpu["device"] == "cpu"
+
+        gen_cpu = client.post(
+            f"/api/v1/text/conversations/{conversation['id']}/generations",
+            json={"content": "Test GPU cpu", "request_key": "gpu-cpu-key"},
+        )
+        assert gen_cpu.status_code == 202
+        assert wait_job(client, gen_cpu.json()["id"])["state"] == "completed"
+        assert engine.loaded_parameters[-1].gpu_offload_mode == "cpu"
+        assert engine.loaded_parameters[-1].gpu_layers == 0
+        assert engine.loaded_parameters[-1].device == "cpu"
+
+
+def test_gpu_max_normalization_applied_reason_and_per_model_isolation(text_app):
+    class LiveRecordingEngine(ProtocolTestEngine):
+        def __init__(self):
+            super().__init__()
+            self.loaded_parameters = []
+
+        async def capabilities(self, _path):
+            return ["text"]
+
+        async def load(self, path, parameters, file_descriptor=None):
+            await super().load(path, parameters, file_descriptor=file_descriptor)
+            self.loaded_parameters.append(parameters)
+            self.model = str(path)
+            self.parameters = (
+                str(path),
+                parameters.context_size,
+                parameters.gpu_layers,
+                "CUDA0" if parameters.device != "cpu" else "cpu",
+                "mock",
+            )
+            self.offload_mode = parameters.gpu_offload_mode
+            self.execution_device = "CUDA0" if parameters.device != "cpu" else "cpu"
+            self.offloaded_layers = 0 if parameters.device == "cpu" else 30
+            self.total_layers = 34
+            self.offload_reason = (
+                "cpu_mode" if parameters.device == "cpu" else "vram_partial_offload"
+            )
+            self.fallback_reason = None
+
+            class _Proc:
+                returncode = None
+
+            self.process = _Proc()
+
+    app, path_a = text_app
+    path_b = path_a.parent / "qwen-4b.gguf"
+    path_b.write_bytes(path_a.read_bytes())
+    engine = LiveRecordingEngine()
+    app.state.text.llama = engine
+    app.state.text.engines["llama.cpp"] = engine
+
+    with TestClient(app, base_url="http://localhost") as client:
+        model_a, _ = create_chat(client, path_a)
+        imp_b = client.post("/api/v1/text/models/import", json={"path": str(path_b)})
+        assert imp_b.status_code == 201
+        model_b = imp_b.json()
+
+        # Max mode with stale gpu_layers=0/device=cpu normalizes to 99/auto.
+        res_max = client.put(
+            f"/api/v1/text/models/{model_b['id']}/gpu",
+            json={"gpu_offload_mode": "max", "gpu_layers": 0, "device": "cpu"},
+        )
+        assert res_max.status_code == 200
+        assert res_max.json()["metadata"]["desktop_gpu"] == {
+            "gpu_offload_mode": "max",
+            "gpu_layers": 99,
+            "device": "auto",
+        }
+        # Persist explicit manual context for Model A and load it.
+        ctx_put_a = client.put(
+            f"/api/v1/text/models/{model_a['id']}/context",
+            json={"mode": "manual", "manual_tokens": 4096},
+        )
+        assert ctx_put_a.status_code == 200
+        load_a = client.post(
+            f"/api/v1/text/models/{model_a['id']}/load",
+            json={
+                "context_size": 4096,
+                "gpu_offload_mode": "auto",
+                "gpu_layers": 99,
+                "device": "auto",
+            },
+        )
+        assert load_a.status_code == 200, load_a.text
+
+        ctx_a = client.get(f"/api/v1/text/models/{model_a['id']}/context").json()
+        assert ctx_a["active"] is True
+        assert ctx_a["applied_tokens"] == 4096
+        assert ctx_a["gpu"]["applied_reason"] == "vram_partial_offload"
+        assert ctx_a["gpu"]["applied_offloaded_layers"] == 30
+        assert ctx_a["gpu"]["applied_total_layers"] == 34
+
+        # Querying Model B must NOT report Model A's running state as Model B's own applied state.
+        ctx_b = client.get(f"/api/v1/text/models/{model_b['id']}/context").json()
+        assert ctx_b["active"] is False
+        assert ctx_b["applied_tokens"] is None
+        assert ctx_b["loaded_model_name"] == model_a["name"]
+        assert ctx_b["gpu"]["gpu_offload_mode"] == "max"
+        assert ctx_b["gpu"]["gpu_layers"] == 99
+        assert ctx_b["gpu"]["applied_offloaded_layers"] is None
+        assert ctx_b["gpu"]["active_other_model"] == model_a["name"]
+
+
+def test_model_context_reports_vram_breakdown(text_app, monkeypatch):
+    from omnicore.schemas import ResourceUsage
+    from omnicore.text import nvidia
+
+    class VramReportingEngine(ProtocolTestEngine):
+        async def capabilities(self, _path):
+            return ["text"]
+
+        async def load(self, path, parameters, file_descriptor=None):
+            await super().load(path, parameters, file_descriptor=file_descriptor)
+            self.model = str(path)
+            self.parameters = (
+                str(path),
+                parameters.context_size,
+                parameters.gpu_layers,
+                "CUDA0",
+                "mock",
+            )
+            self.execution_device = "CUDA0"
+            self.offloaded_layers = 24
+            self.total_layers = 24
+            self.offload_mode = "auto"
+            self.offload_reason = "fits_in_vram"
+            self.fallback_reason = None
+
+            class _Proc:
+                returncode = None
+                pid = 42
+
+            self.process = _Proc()
+
+        async def resources(self):
+            return ResourceUsage(ram_bytes=256 * 1024**2, vram_bytes=1500 * 1024**2)
+
+    async def fake_query(arguments):
+        if "--query-compute-apps=pid,used_memory" in arguments:
+            return [["42", "1500"], ["99", "4500"]]
+        return [["0", "NVIDIA GeForce RTX 4060", "8188", "2188", "570.0"]]
+
+    monkeypatch.setattr(nvidia, "query", fake_query)
+
+    app, path = text_app
+    engine = VramReportingEngine()
+    app.state.text.llama = engine
+    app.state.text.engines["llama.cpp"] = engine
+    with TestClient(app, base_url="http://localhost") as client:
+        model, conversation = create_chat(client, path)
+        job = client.post(
+            f"/api/v1/text/conversations/{conversation['id']}/generations",
+            json={"content": "Warmup", "request_key": "vram-breakdown"},
+        )
+        assert job.status_code == 202
+        assert wait_job(client, job.json()["id"])["state"] == "completed"
+        assert engine.process is not None, f"process=None model={engine.model!r}"
+        assert engine.model is not None
+
+        ctx = client.get(f"/api/v1/text/models/{model['id']}/context")
+        assert ctx.status_code == 200
+        payload = ctx.json()
+        gpu = payload["gpu"]
+        assert gpu["vram_total_bytes"] == 8188 * 1024**2
+        assert gpu["vram_free_bytes"] == 2188 * 1024**2
+        assert gpu["vram_used_bytes"] == 6000 * 1024**2
+        assert gpu["engine_vram_bytes"] == 1500 * 1024**2, (
+            f"active={payload.get('active')} gpu={gpu}"
+        )
+        assert gpu["external_vram_bytes"] == 4500 * 1024**2, payload
+        assert "model_estimated_vram_bytes" in gpu
+        assert gpu["model_estimated_vram_bytes"] is None or gpu["model_estimated_vram_bytes"] >= 0

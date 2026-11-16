@@ -6,6 +6,7 @@ import json
 import os
 import re
 import threading
+import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path, PurePosixPath
@@ -41,6 +42,15 @@ class DownloadRecord(WireModel):
     etag: str | None = None
     integrity_verified: bool = False
     created_at: str
+    speed_bytes_per_second: float | None = None
+    eta_seconds: float | None = None
+    model_id: str | None = None
+    import_error: str | None = None
+    import_pending: bool = False
+
+
+def is_multipart_gguf(filename):
+    return bool(re.search(r"-\d{5}-of-\d{5}\.gguf$", filename, re.IGNORECASE))
 
 
 def validate_source(repository, filename=None):
@@ -93,15 +103,91 @@ class HuggingFace:
         except (httpx.HTTPError, ValueError):
             raise TextError("download_network_error", 502) from None
 
-    async def search(self, query: str):
-        result = await self._json(
-            "/api/models", {"search": query, "filter": "gguf", "limit": 20, "full": "true"}
-        )
+    async def search(self, query: str, sort: str = "downloads"):
+        params = {"filter": "gguf", "limit": 20, "full": "true"}
+        if sort not in {"downloads", "likes", "lastModified"}:
+            raise TextError("invalid_model_source", 422)
+        params.update(sort=sort, direction="-1")
+        if query:
+            params["search"] = query
+        result = await self._json("/api/models", params)
         return [
-            {"repository": item.get("id"), "license": (item.get("cardData") or {}).get("license")}
+            {
+                "repository": item.get("id"),
+                "license": (item.get("cardData") or {}).get("license"),
+                "downloads": str(item["downloads"])
+                if isinstance(item.get("downloads"), int)
+                else None,
+            }
             for item in result
             if isinstance(item, dict)
         ]
+
+    async def details(self, repository: str):
+        validate_source(repository)
+        data = await self._json(f"/api/models/{repository}")
+        if not isinstance(data, dict):
+            raise TextError("invalid_model_source", 502)
+        card = data.get("cardData") or {}
+        if not isinstance(card, dict):
+            card = {}
+        gguf = data.get("gguf") or {}
+        tensors = data.get("safetensors") or {}
+        if not isinstance(gguf, dict):
+            gguf = {}
+        if not isinstance(tensors, dict):
+            tensors = {}
+        tags = data.get("tags") or []
+        config = data.get("config") or {}
+        if not isinstance(config, dict):
+            config = {}
+        architectures = config.get("architectures")
+        if not isinstance(architectures, list):
+            architectures = []
+        architectures = [item for item in architectures if isinstance(item, str)][:10]
+        return {
+            "repository": repository,
+            "revision": data.get("sha"),
+            "author": data.get("author") or repository.split("/", 1)[0],
+            "description": card.get("model_summary") or data.get("description"),
+            "architecture": card.get("model_type")
+            or data.get("model_type")
+            or ", ".join(architectures),
+            "parameters": gguf.get("total") or tensors.get("total"),
+            "license": card.get("license"),
+            "downloads": data.get("downloads"),
+            "pipeline": data.get("pipeline_tag"),
+            "tags": [v for v in tags if isinstance(v, str)][:100] if isinstance(tags, list) else [],
+        }
+
+    async def readme(self, repository: str, revision: str):
+        validate_source(repository)
+        if not re.fullmatch(r"[a-fA-F0-9]{40}", revision):
+            raise TextError("invalid_model_source", 422)
+        url = f"{self.base_url}/{repository}/resolve/{revision}/README.md"
+        origin = urlsplit(self.base_url)
+        try:
+            for _ in range(4):
+                parsed = urlsplit(url)
+                if (parsed.scheme, parsed.netloc) != (
+                    origin.scheme,
+                    origin.netloc,
+                ) or parsed.username:
+                    raise TextError("download_redirect_denied", 502)
+                async with self.client.stream("GET", url, headers=self.headers(url)) as response:
+                    if response.is_redirect:
+                        url = urljoin(url, response.headers.get("location", ""))
+                        continue
+                    response.raise_for_status()
+                    data = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        if len(data) + len(chunk) > 1024 * 1024:
+                            raise TextError("remote_metadata_too_large", 502)
+                        data.extend(chunk)
+                    return data.decode("utf-8", "replace")
+            raise TextError("download_redirect_denied", 502)
+        except httpx.HTTPError:
+            raise TextError("download_network_error", 502) from None
 
     async def files(self, repository: str, revision="main") -> list[RemoteFile]:
         validate_source(repository)
@@ -166,10 +252,12 @@ class HuggingFace:
 
 
 class DownloadManager:
-    def __init__(self, store: TextStore, hub: HuggingFace, directory: Path):
+    def __init__(self, store: TextStore, hub: HuggingFace, directory: Path, import_model=None):
         self.store, self.hub, self.directory = store, hub, directory
+        self.import_model = import_model
         self.tasks: dict[str, asyncio.Task] = {}
         self.semaphore = asyncio.Semaphore(1)
+        self.import_lock = asyncio.Lock()
 
     def initialize(self):
         if self.directory.is_symlink():
@@ -180,6 +268,12 @@ class DownloadManager:
             if item["state"] in {"queued", "running"}:
                 item.update(state="interrupted", error_code="backend_restarted")
                 self.store.save_job("download", item["id"], item)
+            elif (
+                item.get("state") == "completed"
+                and item.get("import_pending")
+                and self.import_model
+            ):
+                self._import_sync(DownloadRecord.model_validate(item))
 
     def record(self, job_id):
         return DownloadRecord.model_validate(self.store.job("download", job_id))
@@ -190,6 +284,22 @@ class DownloadManager:
     async def start(self, source: RemoteFile, *, confirmed: bool, expected_size: int):
         if not confirmed or expected_size != source.size_bytes:
             raise TextError("confirmation_required", 409)
+        if is_multipart_gguf(source.filename):
+            raise TextError("multipart_gguf_unsupported", 422)
+        for item in self.store.jobs("download"):
+            if item.get("source") != source.model_dump(mode="json"):
+                continue
+            if item.get("state") in {"queued", "running"}:
+                return DownloadRecord.model_validate(item)
+            if item.get("state") == "completed":
+                existing = DownloadRecord.model_validate(item)
+                expected = self.directory / f"{existing.id}.gguf"
+                if (
+                    existing.path == str(expected)
+                    and expected.is_file()
+                    and not expected.is_symlink()
+                ):
+                    return existing
         if len(self.tasks) >= 32:
             raise TextError("queue_full", 429)
         record = DownloadRecord(id=uuid.uuid4().hex, source=source, created_at=timestamp())
@@ -205,6 +315,7 @@ class DownloadManager:
             (self.directory / f"{record.id}.part").unlink(missing_ok=True)
             record.received_bytes, record.percent, record.etag = 0, 0, None
         record.state, record.error_code = "queued", None
+        record.speed_bytes_per_second, record.eta_seconds = None, None
         self.save(record)
         self.tasks[job_id] = asyncio.create_task(self._run(job_id))
         return record
@@ -222,6 +333,8 @@ class DownloadManager:
                     offset = output.seek(0, 2)
                     if offset > record.source.size_bytes:
                         raise TextError("download_integrity_error", 422)
+                    starting_offset = offset
+                    started_at = time.monotonic()
                     if offset < record.source.size_bytes:
                         headers = {"Accept-Encoding": "identity"}
                         if offset:
@@ -246,6 +359,8 @@ class DownloadManager:
                                 output.seek(0)
                                 output.truncate()
                                 offset = 0
+                                starting_offset = 0
+                                started_at = time.monotonic()
                             else:
                                 raise TextError("download_network_error", 502)
                             record.etag = response.headers.get("ETag")
@@ -256,6 +371,15 @@ class DownloadManager:
                                 offset += len(chunk)
                                 record.received_bytes = offset
                                 record.percent = 100 * offset / record.source.size_bytes
+                                elapsed = time.monotonic() - started_at
+                                if elapsed > 0:
+                                    speed = (offset - starting_offset) / elapsed
+                                    record.speed_bytes_per_second = speed
+                                    record.eta_seconds = (
+                                        (record.source.size_bytes - offset) / speed
+                                        if speed
+                                        else None
+                                    )
                                 self.save(record)
                     await asyncio.to_thread(output.flush)
                     await asyncio.to_thread(os.fsync, output.fileno())
@@ -288,10 +412,15 @@ class DownloadManager:
                 record.path = str(final)
                 record.integrity_verified = bool(record.source.sha256)
                 record.received_bytes, record.percent = record.source.size_bytes, 100
+                record.speed_bytes_per_second = record.eta_seconds = None
+                record.import_pending = bool(self.import_model)
                 self.save(record)
+                if self.import_model:
+                    record = await self.import_completed(record)
         except asyncio.CancelledError:
-            record.state, record.error_code = "cancelled", None
-            self.save(record)
+            if record.state != "completed":
+                record.state, record.error_code = "cancelled", None
+                self.save(record)
             raise
         except TextError as exc:
             record.state, record.error_code = "failed", exc.code
@@ -300,7 +429,55 @@ class DownloadManager:
             record.state, record.error_code = "failed", "download_network_error"
             self.save(record)
         finally:
+            if record.state == "completed":
+                record = self.record(job_id)
+            record.speed_bytes_per_second = record.eta_seconds = None
+            self.save(record)
             self.tasks.pop(job_id, None)
+
+    def _import_sync(self, record):
+        if record.state != "completed" or not self.import_model:
+            raise TextError("invalid_task_state", 409)
+        expected = self.directory / f"{record.id}.gguf"
+        if (
+            not re.fullmatch(r"[a-f0-9]{32}", record.id)
+            or record.path != str(expected)
+            or expected.is_symlink()
+            or not expected.is_file()
+        ):
+            record.import_error, record.import_pending = "model_import_failed", False
+            self.save(record)
+            return record
+        try:
+            model = self.import_model(expected)
+            record.model_id, record.import_error = model.id, None
+        except Exception:
+            record.import_error = "model_import_failed"
+        record.import_pending = False
+        self.save(record)
+        return record
+
+    async def import_completed(self, record):
+        async with self.import_lock:
+            record = self.record(record.id)
+            if record.state != "completed" or not self.import_model:
+                raise TextError("invalid_task_state", 409)
+            if record.model_id:
+                try:
+                    self.store.model(record.model_id)
+                    return record
+                except TextError as exc:
+                    if exc.code != "not_found":
+                        raise
+                    record.model_id = None
+            record.import_pending = True
+            self.save(record)
+            task = asyncio.create_task(asyncio.to_thread(self._import_sync, record))
+            try:
+                return await asyncio.shield(task)
+            except asyncio.CancelledError:
+                await asyncio.gather(task, return_exceptions=True)
+                raise
 
     async def cancel(self, job_id):
         record = self.record(job_id)

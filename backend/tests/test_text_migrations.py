@@ -51,3 +51,71 @@ def test_failed_text_migration_rolls_back_schema_and_version(tmp_path, monkeypat
             ).fetchone()
             is None
         )
+
+
+def test_v5_history_round_trip_and_backup(tmp_path):
+    import json
+
+    from omnicore.text.conversations import Conversations
+
+    db = Database(tmp_path)
+    db.initialize()
+    store = TextStore(db)
+    store.initialize()
+    history = Conversations(store)
+    conversation = history.create(title="Saved")
+    message = history.add_message(conversation.id, "assistant", "Hello")
+    with db.connect() as connection, connection:
+        data = json.loads(connection.execute("SELECT record FROM text_conversations").fetchone()[0])
+        data["title_status"] = "completed"
+        connection.execute("UPDATE text_conversations SET record=?", (json.dumps(data),))
+        data = json.loads(connection.execute("SELECT record FROM text_messages").fetchone()[0])
+        data["statistics"] = {"execution_provider": "local", "execution_model": "model"}
+        connection.execute("UPDATE text_messages SET record=?", (json.dumps(data),))
+        for sql in (
+            "CREATE TABLE text_history_settings (id, auto_title, title_max_length)",
+            "CREATE TABLE ai_providers (id, record)",
+            "CREATE TABLE ai_retired_keys (reference)",
+            "CREATE TABLE lan_devices (id, hash, created)",
+            "CREATE TABLE lan_pairing (id, hash, expires, nonce_hash, device_id)",
+            "CREATE TABLE lan_token_info (id, name, expires, last_used, scopes)",
+        ):
+            connection.execute(sql)
+        connection.execute("UPDATE text_schema SET version=5")
+    db.initialize()
+    store.initialize()
+    assert history.list()[0].title_status == "completed"
+    assert history.messages(conversation.id)[0].statistics.execution_model == "model"
+    history.update(conversation.id, title="New")
+    with db.connect() as connection:
+        assert connection.execute("SELECT version FROM text_schema").fetchone()[0] == 5
+        assert (
+            json.loads(connection.execute("SELECT record FROM text_conversations").fetchone()[0])[
+                "title_status"
+            ]
+            == "completed"
+        )
+        assert connection.execute("SELECT id FROM text_messages").fetchone()[0] == message.id
+    backups = list(tmp_path.glob("omnicore-backup-*.sqlite3"))
+    assert backups
+    with sqlite3.connect(backups[-1]) as backup:
+        assert backup.execute("SELECT version FROM text_schema").fetchone()[0] == 5
+        assert (
+            json.loads(backup.execute("SELECT record FROM text_conversations").fetchone()[0])[
+                "title"
+            ]
+            == "Saved"
+        )
+
+
+def test_v5_unknown_schema_is_rejected_without_downgrade(tmp_path):
+    db = Database(tmp_path)
+    db.initialize()
+    store = TextStore(db)
+    store.initialize()
+    with db.connect() as connection, connection:
+        connection.execute("UPDATE text_schema SET version=5")
+    with pytest.raises(RuntimeError, match="Unsupported v5 schema"):
+        store.initialize()
+    with db.connect() as connection:
+        assert connection.execute("SELECT version FROM text_schema").fetchone()[0] == 5

@@ -5,7 +5,7 @@
       "properties": {
         "context_size": {
           "default": 2048,
-          "maximum": 131072,
+          "maximum": 1000000,
           "minimum": 128,
           "title": "Context Size",
           "type": "integer"
@@ -22,6 +22,24 @@
           "minimum": 0,
           "title": "Gpu Layers",
           "type": "integer"
+        },
+        "gpu_offload_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "auto",
+                "max",
+                "manual",
+                "cpu"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gpu Offload Mode"
         },
         "max_tokens": {
           "default": 256,
@@ -83,6 +101,19 @@
     "GenerationStatistics": {
       "additionalProperties": false,
       "properties": {
+        "agent_steps": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Steps"
+        },
         "context_limit_tokens": {
           "anyOf": [
             {
@@ -122,6 +153,30 @@
           ],
           "default": null,
           "title": "Execution Device"
+        },
+        "execution_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Execution Model"
+        },
+        "execution_provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Execution Provider"
         },
         "fallback_reason": {
           "anyOf": [
@@ -177,6 +232,32 @@
           "default": null,
           "title": "Generation Seconds"
         },
+        "gpu_offload_mode": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gpu Offload Mode"
+        },
+        "gpu_offload_reason": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gpu Offload Reason"
+        },
         "gpu_offloaded_layers": {
           "anyOf": [
             {
@@ -189,6 +270,19 @@
           ],
           "default": null,
           "title": "Gpu Offloaded Layers"
+        },
+        "gpu_total_layers": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gpu Total Layers"
         },
         "input_tokens": {
           "anyOf": [
@@ -229,6 +323,32 @@
           "default": null,
           "title": "Output Tokens"
         },
+        "prompt_processing_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Processing Seconds"
+        },
+        "prompt_tokens_per_second": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Tokens Per Second"
+        },
         "tokens_per_second": {
           "anyOf": [
             {
@@ -241,6 +361,58 @@
           ],
           "default": null,
           "title": "Tokens Per Second"
+        },
+        "tool_calls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Calls"
+        },
+        "tool_execution_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Execution Seconds"
+        },
+        "total_task_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Task Seconds"
+        },
+        "total_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Tokens"
         },
         "ttft_seconds": {
           "anyOf": [
@@ -275,6 +447,19 @@
         "created_at": {
           "title": "Created At",
           "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
         },
         "generation_id": {
           "anyOf": [

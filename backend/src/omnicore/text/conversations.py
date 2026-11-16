@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Literal
@@ -16,6 +17,8 @@ class Conversation(WireModel):
     parameters: GenerationParameters = Field(default_factory=GenerationParameters)
     created_at: str
     updated_at: str
+    title_status: str | None = None
+    pinned: bool = False
 
 
 class MessageRecord(WireModel):
@@ -30,6 +33,7 @@ class MessageRecord(WireModel):
     model_id: str | None = Field(default=None, max_length=128)
     model_name: str | None = Field(default=None, max_length=1024)
     reasoning_content: str = Field(default="", max_length=1_000_000)
+    error_code: str | None = Field(default=None, max_length=128)
     statistics: GenerationStatistics | None = None
 
     @field_validator("created_at")
@@ -107,6 +111,27 @@ class Conversations:
         self.get(conversation_id)
         with self.store.db.connect() as connection, connection:
             connection.execute("DELETE FROM text_conversations WHERE id=?", (conversation_id,))
+            connection.execute(
+                "DELETE FROM text_jobs WHERE kind='agent-settings' AND id=?", (conversation_id,)
+            )
+            for row in connection.execute(
+                "SELECT id,record FROM text_jobs WHERE kind='agent-run'"
+            ).fetchall():
+                if json.loads(row[1])["conversation_id"] == conversation_id:
+                    connection.execute(
+                        "DELETE FROM text_jobs WHERE kind='agent-run' AND id=?", (row[0],)
+                    )
+
+    def delete_all(self) -> int:
+        with self.store.db.connect() as connection, connection:
+            removed = connection.execute("SELECT COUNT(*) FROM text_conversations").fetchone()[0]
+            connection.execute("DELETE FROM text_conversations")
+            connection.execute("DELETE FROM text_generation_keys")
+            connection.execute(
+                "DELETE FROM text_jobs WHERE kind IN "
+                "('agent-settings', 'agent-run', 'agent-folder-grant', 'generation')"
+            )
+        return int(removed)
 
     def messages(self, conversation_id, query=""):
         self.get(conversation_id)

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 
+from omnicore import __version__
 from omnicore.desktop.config import data_path
 
 
@@ -26,6 +27,8 @@ class BackendSession(QObject):
         self._attempt = 0
         self._ready = False
         self._restart = False
+        self._startup_error = None
+        self._output_tail = ""
         self._timer = QTimer(self)
         self._timer.setInterval(250)
         self._timer.timeout.connect(self._probe)
@@ -71,7 +74,11 @@ class BackendSession(QObject):
             self.start()
 
     def _reuse(self, health):
-        if not isinstance(health, dict) or health.get("status") != "ok":
+        if (
+            not isinstance(health, dict)
+            or health.get("status") != "ok"
+            or health.get("version") != __version__
+        ):
             self.failed.emit("incompatible_backend")
             return
         self.owned = False
@@ -114,6 +121,8 @@ class BackendSession(QObject):
             environment.remove("OMNICORE_LLAMA_CUDA_SERVER")
         for key, value in values.items():
             environment.insert(key, value)
+        self._startup_error = None
+        self._output_tail = ""
         process = QProcess(self)
         self.process = process
         process.setProcessEnvironment(environment)
@@ -125,14 +134,35 @@ class BackendSession(QObject):
         process.setArguments(args)
         process.setWorkingDirectory(str(Path.home()))
         process.setProcessChannelMode(QProcess.MergedChannels)
-        # Deliberately drain raw logs without displaying/persisting prompts, paths or secrets.
-        process.readyReadStandardOutput.connect(lambda: process.readAllStandardOutput())
+        # Classify known startup failures without exposing logs, paths, or secrets.
+        process.readyReadStandardOutput.connect(self._read_output)
         process.finished.connect(self._finished)
         process.errorOccurred.connect(lambda _: self.failed.emit("backend_process_error"))
         self.owned, self._attempt = True, 0
         process.start()
         self._timer.start()
         self.log.emit("backend_starting")
+
+    def _read_output(self):
+        if not self.process:
+            return
+        chunk = bytes(self.process.readAllStandardOutput()).decode("utf-8", "replace")
+        self._output_tail = (self._output_tail + chunk)[-4096:]
+        if any(
+            marker in self._output_tail
+            for marker in (
+                "Text schema is newer",
+                "Unsupported v5 schema",
+                "Unsupported v5 records",
+                "Database schema is newer",
+            )
+        ):
+            self._startup_error = "database_incompatible"
+        elif (
+            "sqlite3.DatabaseError" in self._output_tail
+            or "sqlite3.OperationalError" in self._output_tail
+        ):
+            self._startup_error = "database_start_error"
 
     def _probe(self):
         if self.closing:
@@ -148,7 +178,15 @@ class BackendSession(QObject):
         )
 
     def _connected(self, health):
-        if self.closing or self._ready or health.get("status") != "ok":
+        if self.closing or self._ready:
+            return
+        if (
+            not isinstance(health, dict)
+            or health.get("status") != "ok"
+            or health.get("version") != __version__
+        ):
+            self._timer.stop()
+            self.failed.emit("incompatible_backend")
             return
         self._timer.stop()
         self._ready = True
@@ -177,6 +215,7 @@ class BackendSession(QObject):
             self.process.kill()
 
     def _finished(self, *_):
+        self._read_output()
         self._timer.stop()
         self._kill_timer.stop()
         self._ready = False
@@ -187,4 +226,4 @@ class BackendSession(QObject):
         elif self.closing:
             self.stopped.emit()
         else:
-            self.failed.emit("backend_exited")
+            self.failed.emit(self._startup_error or "backend_exited")

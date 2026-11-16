@@ -96,3 +96,53 @@ Auto używa CUDA tylko po potwierdzeniu offloadu; rzeczywiste urządzenie i fall
 są zapisane przy wiadomości. Test `--hardware-test` działa z dołączonym Pythonem
 bez GUI, z własną tymczasową bazą. Nie wskazuj istniejącej bazy do testów.
 [Instrukcja i blokada Stable](RELEASE_GATE.md).
+
+## Beta 3: świadoma integracja z KDE Plasma 6
+
+Nazwa Bety 3 jest wyprowadzana z `distribution.json`:
+`OmniCore-0.2.0-beta.3-x86_64.AppImage`. Instalator jest wewnątrz paczki,
+nie wymaga systemowego Pythona i nie uruchamia GUI/backendu. Przykład dla **fish**:
+
+```fish
+set image (realpath ~/Pobrane/OmniCore-0.2.0-beta.3-x86_64.AppImage)
+chmod u+x "$image"
+"$image" --install-desktop-entry "$image"
+# Jeśli FUSE jest niedostępne, zamiast poprzedniego polecenia:
+env APPIMAGE_EXTRACT_AND_RUN=1 "$image" --install-desktop-entry "$image"
+```
+
+Uruchom tylko jeden z wariantów instalacji, jako zwykły użytkownik. Alternatywny
+wrapper źródłowy: `sh packaging/linux/install-desktop-entry.sh "$image"`.
+Instalator zapisuje `io.github.vex2137.OmniCore.desktop` w katalogu aplikacji XDG,
+ustawia sprawdzoną ścieżkę Exec i absolutną ścieżkę własnej ikony PNG z SHA-256.
+PNG jest rasteryzacją istniejącego SVG OmniCore, bez zmiany logo. Zmieniony
+launcher ma kopię `.desktop.bak-TIMESTAMP`; tłumaczenia i własne akcje pozostają.
+Instalacja jest idempotentna. Po przeniesieniu/zastąpieniu AppImage uruchom ją
+ponownie z docelową ścieżką. Nie usuwa danych aplikacji ani konfiguracji Plasma.
+
+Instalator próbuje `kbuildsycoca6 --noincremental` i `update-desktop-database`,
+jeśli są dostępne. Wynik pokazuje w terminalu; gdy odświeżenie KDE nie powiedzie się:
+
+```fish
+kbuildsycoca6 --noincremental
+rg -n '^(Name|Exec|Icon|StartupWMClass|DBusActivatable)=' "$HOME/.local/share/applications/io.github.vex2137.OmniCore.desktop"
+```
+
+Odepnij **tylko stary OmniCore**, uruchom nowy wpis OmniCore z menu i przypnij jego
+uruchomione okno. Nie uruchamiaj starego przypięcia do tej próby. Innych przypięć
+nie zmieniaj. Poprawna ikona w tytule okna nie potwierdza ikony panelu.
+
+Kontrola tożsamości (tylko odczyt), po kliknięciu rzeczywistego okna:
+
+```fish
+# X11/XWayland: wymaga xprop
+xprop WM_CLASS
+# Wayland: wybierz okno w KWin
+gdbus call --session --dest org.kde.KWin --object-path /KWin --method org.kde.KWin.queryWindowInfo
+```
+
+Zachowano `QApplication` name `OmniCore`, desktop file name
+`io.github.vex2137.OmniCore` i `StartupWMClass=OmniCore`. Oczekiwany app ID na
+Waylandzie wynika z desktop file name. Faktyczny wynik KWin/WM_CLASS, grupowanie
+uruchomionego zadania i ikona panelu **wymagają testu na CachyOS/Plasma 6**.
+Środowisko offscreen i test instalatora nie dowodzą poprawnego renderowania panelu.

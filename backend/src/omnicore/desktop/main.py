@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -16,7 +17,7 @@ from omnicore.desktop.i18n import Translator
 from omnicore.desktop.lifecycle import BackendSession
 from omnicore.desktop.platforms import configure_platform
 from omnicore.desktop.window import MainWindow
-from omnicore.release import distribution_version
+from omnicore.release import build_info, distribution_version
 
 
 class SmokeRun:
@@ -90,7 +91,7 @@ class SmokeRun:
         if self.window._health_pending or (self.window.conversations and not self.window.messages):
             return
         self.finished = True
-        self.ok = self.window.is_connected
+        self.ok = self.window.is_connected and self.window.agent_panel.mode.findData("agent") >= 0
         if self.screenshot:
             self.screenshot.parent.mkdir(parents=True, exist_ok=True)
             self.ok = self.window.grab().save(str(self.screenshot)) and self.ok
@@ -110,6 +111,11 @@ class SmokeRun:
                     {
                         "ok": self.ok,
                         "version": distribution_version(),
+                        "build": build_info(),
+                        "agent_modes": [
+                            self.window.agent_panel.mode.itemData(i)
+                            for i in range(self.window.agent_panel.mode.count())
+                        ],
                         "history_digest": hashlib.sha256(
                             json.dumps(
                                 self.window.messages, sort_keys=True, ensure_ascii=False
@@ -148,8 +154,19 @@ def main():
     app.setStyle("Fusion")
     from importlib.resources import files
 
-    icon_path = files("omnicore.desktop").joinpath("icon.svg")
-    app.setWindowIcon(QIcon(str(icon_path)))
+    png_path = files("omnicore.desktop").joinpath("icon.png")
+    svg_path = files("omnicore.desktop").joinpath("icon.svg")
+    app_icon = QIcon(str(png_path))
+    app_icon.addFile(str(svg_path))
+    app.setWindowIcon(app_icon)
+    appimage_path = os.environ.get("APPIMAGE")
+    if appimage_path and Path(appimage_path).is_file():
+        try:
+            from omnicore.desktop.integration import ensure_appimage_integration
+
+            ensure_appimage_integration(Path(appimage_path))
+        except OSError:
+            pass
     try:
         config = DesktopConfig.load()
     except (OSError, ValueError, TypeError):
@@ -167,6 +184,7 @@ def main():
     api = ApiClient()
     session = BackendSession(api, config)
     window = MainWindow(api, session, config)
+    window.setWindowIcon(app_icon)
     smoke = (
         SmokeRun(app, window, args.smoke_output, args.screenshot, args.smoke_gguf)
         if args.smoke_output

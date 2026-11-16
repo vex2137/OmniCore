@@ -17,6 +17,10 @@ def protect_parent(expected):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--install-desktop-entry":
+        from omnicore.desktop.integration import main as integrate
+
+        raise SystemExit(integrate(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "--hardware-test":
         sys.argv.pop(1)
         from omnicore.hardware_acceptance import main as acceptance

@@ -200,6 +200,16 @@ Przepływy są zweryfikowane na Linux, Web i Android; diagnostyka i interfejs
 PL/EN z trzema trybami motywu działają zgodnie z udokumentowaną macierzą.
 Instrukcje i znane ograniczenia są aktualne. Publiczne wydanie wymaga zgody właściciela.
 
+## Bieżące zlecenie: 0.2.0 Agents Beta 1–2
+
+Właściciel przesunął podstawowego lokalnego agenta przed Training Studio.
+Zaimplementowano pionowy przepływ Qt/API/narzędzia/zgoda/SQLite oraz w Becie 2
+zgodność modeli, kontrolowane plany, ponowienia i kontekst, bez terminala,
+sieci ani automatycznego zapisu. Zakres i granice: [AGENTS_BETA1.md](AGENTS_BETA1.md).
+Rzeczywisty model oraz CachyOS/KDE/CUDA pozostają do weryfikacji właściciela.
+Nie rozpoczynać treningu ani rozszerzać automatyzacji w tym etapie.
+Poniższe dalsze plany historyczne nie są realizowane przez ten checkpoint.
+
 ## OmniCore 0.2.0 — AI Training Studio
 
 **Status:** planowane, nierozpoczęte.
@@ -351,3 +361,19 @@ Nie publikować v0.1.0 przed [potwierdzeniem](RELEASE_GATE.md).
 RC.1 jest udostępniona jako publiczne prerelease z 11 załącznikami. Main zawiera
 implementację po PR #5, CI źródła i main PASS. Następny krok: potwierdzenie raportu
 CachyOS/RTX4060 i telefonu oraz docelowego podpisywania, zgodnie z RELEASE_GATE.md.
+
+
+## 0.2.0 Beta 3 — bieżąca gałąź rozwojowa
+
+- [x] Czat/Agent: odzyskiwanie po błędach ustawień i kontrola trybów w paczce.
+- [x] Kanoniczna wersja, commit, data/kanał i walidacja metadanych builda.
+- [x] Kompaktowy czat, cztery metryki i panel kontekstu z dokładnym polem/suwakiem.
+- [x] Jawne odświeżenie zmienionego GGUF z ochroną aktywnych zadań i danych.
+- [x] Diagnostyka 2.0, raport bez rozmów, maskowanie sekretów i ścieżek.
+- [x] Ręczne aktualizacje Stable/Beta/RC, bez automatycznej instalacji.
+- [x] Jawny instalator KDE, oryginalna ikona PNG z SHA-256 i backup launchera.
+- [x] Testowy AppImage z istniejącego Actions i potwierdzenie pobrania/SHA-256 (run 43403397103).
+- [ ] CachyOS/Plasma 6: faktyczne WM_CLASS/app ID i ikona uruchomionego zadania.
+- [ ] Bieżąca paczka: rzeczywisty GGUF/Agent i CUDA na sprzęcie właściciela.
+
+Bez automatycznego scalania do main ani publikacji wydania.

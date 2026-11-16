@@ -870,3 +870,387 @@ GGUF, przekazuje nowy omnicore-hardware-*.json oraz wynik GUI Wayland i APK ARM6
 Nie zastępować raportu wynikiem samego zewnętrznego llama-server. Nie publikować
 v0.1.0 Stable przed potwierdzeniem sprzętu i docelowego podpisywania. Szczegóły
 w RELEASE_GATE.md. Trwałe dane użytkownika nie były resetowane ani usuwane.
+
+### Diagnostyka RC6 — lokalna praca w toku (2026-11-04)
+
+- Rozpoznano dodatkowe pola historii i sprawdzono odczyt na osobnej kopii bazy v5;
+  numer schematu pozostaje bez zmian. Przed otwarciem istniejącej bazy do zapisu
+  tworzona jest kopia SQLite. Akceptowany jest wyłącznie sprawdzany układ v5;
+  brak oryginalnych migracji v4/v5 ogranicza gwarancję zgodności.
+- Dodano dwupanelowy widok istniejących funkcji Hugging Face, popularne modele
+  oraz ponowne użycie zadania dla tego samego pliku.
+- W dostępnym kodzie nie znaleziono implementacji parowania/skanowania QR.
+  Działania połączenia z telefonem nie potwierdzono.
+- Wykonano 166 testów Python oraz 44 testy jednostkowe Androida. AppImage
+  zbudowano lokalnie; testy na fizycznym telefonie i rzeczywistym modelu
+  nie zostały wykonane.
+
+### Menedżer Hugging Face — kontynuacja RC6 (2026-11-04)
+
+- Dodano metadane i bezpieczny podgląd README, sortowanie oraz filtry plików
+  GGUF, szacunkowe informacje o pamięci, prędkość i ETA. Zweryfikowane pliki
+  trafiają automatycznie do biblioteki; błąd importu można ponowić.
+- Testy: 174 Python, w tym offscreen Qt; odczyt metadanych, README i listy
+  plików sprawdzono również z rzeczywistym Hugging Face. Dużego modelu nie
+  pobierano, a jego uruchomienia na lokalnym silniku nie sprawdzano.
+
+### Ustawienia kontekstu i interfejs modeli — praca RC7 (2026-11-04)
+
+- Dodano trwały wybór kontekstu dla każdego modelu, bez zmiany schematu bazy;
+  automatyczny wybór używa 2048 tokenów lub mniejszego znanego limitu modelu.
+- Uporządkowano widok Hugging Face i bezpieczny podgląd HTML/Markdown.
+  Pojedyncze części wieloczęściowego GGUF są wyraźnie oznaczane i odrzucane;
+  pobieranie kompletnych zestawów części nie jest jeszcze obsługiwane.
+- Na odizolowanej bazie sprawdzono generację przez API z rzeczywistym modelem
+  GGUF i llama.cpp na CPU przy 4096 tokenach, a także bezpośrednio przy 2048
+  i 4096 tokenach, z ponownym uruchomieniem silnika. Ollama nie była dostępna;
+  przekazywanie `num_ctx` sprawdzono testem protokołu.
+- Końcowy zestaw: 181 testów Python; odczyt i sanitację rzeczywistej karty
+  modelu oraz listy plików sprawdzono z Hugging Face. Nie budowano pakietów.
+
+### RC8 — kontekst (etap częściowy)
+
+Pole i kontrakty ustawień kontekstu dopuszczają do 1 000 000 tokenów, z zachowaniem znanego limitu modelu i zachowawczego trybu Auto. To nie gwarantuje dostępności pamięci ani obsługi takiego kontekstu przez silnik. Test API: 12 zaliczonych; testy Qt/Hugging Face: 20 zaliczonych, jeden błąd w obsłudze rekordu transferu bez pola `percent`. Przebudowa UI RC8 pozostaje do wykonania.
+
+### RC8 — kontynuacja: transfery i motywy
+
+Obsłużono brak procentowego postępu transferu bez wyjątku i wydzielono istniejące sterowanie do zakładki Transfery obok Moich modeli i Hugging Face. Desktop oferuje siedem palet z zapisem lokalnym; istniejące ustawienie dark pozostaje zgodne. Testy desktopu i Hugging Face: 21 zaliczonych; osobne testy podziału zakładek i trwałości motywów: po 1 zaliczonym. Nadal potrzebne: przebudowa paska i historii z przypinaniem, czatu i statystyk, lista i filtry modeli, akcenty i podgląd motywów, responsywność oraz wizualna weryfikacja i zrzuty. RC8 pozostaje nieukończone.
+
+### RC8 — pasek boczny (częściowo)
+
+Przeniesiono istniejącą historię rozmów do paska; dodano dwa rozmiary (232 i 52 px) oraz trwały wybór i podpowiedzi. Testy Qt: 23 zaliczone; Ruff zaliczony. Nie zaimplementowano jeszcze grupowania, przypinania, menu kontekstowego ani regulacji szerokości. Nadal wymagane są pozostałe zmiany czatu, modeli, akcentów i przegląd wizualny; RC8 nie jest ukończone.
+
+### RC8 — regulacja paska i układ czatu (częściowo)
+
+Dodano zapisywaną szerokość rozwiniętego paska 200–360 px, zachowując kompaktowe 52 px. Usunięto ramkę odpowiedzi AI i ograniczono wysokość pola wiadomości. Testy Qt: 24 zaliczone, następnie test szerokości ponownie zaliczony po zmianie pola; Ruff zaliczony. Uruchomiono rzeczywiste GUI offscreen z backendem i oceniono zrzut 1280×820 bez załadowanego modelu. Wciąż brak grupowania i przypinania historii, menu kontekstowego, regeneracji, wskaźnika kontekstu, uproszczonych statystyk i pełnej walidacji wizualnej. RC8 pozostaje nieukończone.
+
+### RC8 — historia i funkcjonalny czat
+
+- Rozłączne grupy historii: przypięte, dzisiaj, wczoraj, ostatnie 7 dni,
+  ostatnie 30 dni, starsze; sortowanie według aktywności. Przypięcia są trwałe
+  w SQLite/API, bez duplikowania w grupach czasowych. Menu kontekstowe:
+  zmiana nazwy, przypinanie/odpinanie i istniejące usuwanie z potwierdzeniem.
+- Regeneracja ostatniej odpowiedzi tworzy nową gałąź przez istniejące API
+  eksportu/importu i generacji. Oryginał zostaje zachowany; szkic i aktywne
+  generowanie blokują tę operację. Nie zmieniano logiki inferencji.
+- Krótkie statystyki tok/s, tokeny wyjściowe, TTFT; szczegóły w podpowiedzi.
+  Pasek kontekstu pod polem dotyczy ostatniego żądania i wyświetla brak danych
+  zamiast szacować historię. CPU/GPU wynika z faktycznego offloadu.
+- Pole wiadomości rośnie do ograniczonej wysokości; Enter wysyła, Shift+Enter
+  dodaje linię. Poprawiono układ kompaktowego paska i przycinanie nagłówka grup.
+- Pełna regresja: 212 testów backendu i Qt zaliczonych, Ruff i kontrakty
+  zweryfikowane. Wcześniejszy łączny przebieg przerwał się przez QCoreApplication
+  tworzone przez testy lifecycle; użycie QApplication naprawiło wspólny przebieg.
+  Po ostatniej zmianie zawijania historii: 3 testy związane z historią/GUI zaliczone.
+- Rzeczywista generacja GGUF i regeneracja przez GUI/API na CPU przeszły.
+  Pierwsza próba dodatkowego skryptu regeneracji nie miała skonfigurowanej binarki
+  silnika; po wskazaniu istniejącego llama-server zakończyła się powodzeniem.
+  Zrzuty i raporty: docs/screenshots/rc8. Testy offscreen nie dowodzą CUDA ani
+  działania na fizycznym pulpicie; nie pobierano nowych wag.
+
+RC8 całościowo nadal nieukończone: pozostały zwijane sekcje historii, dopracowanie
+akcji bezpośrednio pod poszczególnymi wiadomościami, panel szczegółów kontekstu,
+pełna przebudowa/filtrowanie/sortowanie/ulubione modeli, akcenty i podglądy
+motywów, skalowanie UI i wizualna regresja pozostałych widoków. Nie budowano
+paczek ani nie publikowano wydania.
+
+### RC8 — modele, wygląd i szczegóły czatu
+
+- Lista modeli: wyszukiwanie nazwy/kwantyzacji/architektury, sortowanie nazwy,
+  rozmiaru i rzeczywistego ostatniego użycia, trwałe lokalne ulubione i filtr,
+  wielowierszowe metadane, puste wyniki, zachowanie zaznaczenia i przejście do
+  konfiguracji wybranego modelu. Ładowanie nadal korzysta z istniejącego API;
+  zastosowany kontekst/status ładowania odczytywany jest asynchronicznie.
+- Wybrany akcent i siedem miniaturek palet w natywnym wyborze motywu.
+  Wspólne tokeny palet wydzielono do themes.py; preferencje zapisują się bez
+  zmiany backendowych ustawień dark/light/system i bez migracji SQLite.
+- Zwijane grupy historii z trwałym stanem, bez usuwania rozmów. Akcje kopiowania
+  i regeneracji są pod odpowiedziami AI; wybranie starszej odpowiedzi regeneruje
+  właściwe wcześniejsze pytanie w nowej gałęzi. Rozwijany panel pokazuje pełne
+  rzeczywiste statystyki ostatniego żądania, także jawny stan braku danych.
+- Pełna regresja: 219 testów backendu/desktopu zaliczonych. Po zabezpieczeniu
+  podpowiedzi modeli przed interpretacją HTML dodatkowo 6 testów powiązanych
+  zaliczonych. Ruff, formatowanie zmienionych modułów i kontrakty zaliczone.
+- Rzeczywiste GUI Qt offscreen uruchomiono i oceniono; nowe zrzuty są w
+  docs/screenshots/rc8-ui. Zrzuty szczegółów kontekstu zawierają zapisane wyniki
+  wcześniejszej prawdziwej generacji CPU, nie nowe wyniki CUDA. Nie budowano paczek.
+
+RC8 nadal wymaga końcowej oceny pozostałych widoków, skalowania 80–150%,
+pełnej weryfikacji dostępności i ergonomii przy dużych katalogach/historiach oraz
+weryfikacji na natywnym pulpicie. Tej sesji nie oznacza się jako publicznego RC8.
+
+### RC8 — odzyskana stabilizacja skalowania
+
+Zachowano rozpoczęte zmiany: trwała skala logiczna 80–150% bez mnożenia DPR,
+kontrast akcentu i fokus, nagłówki tabel dopasowane do tekstu, porcjowany układ
+historii. Próba 5000 rozmów przed poprawką została przerwana po 98 s przy
+wstawianiu wierszy; po poprawce samo budowanie listy trwało około 0,35 s.
+Test obejmuje także 1000 modeli i 10 000 wiadomości z limitem 60 kart.
+Macierz 72 wariantów (6 widoków × 4 rozdzielczości × 3 skale) i osobny DPR=2
+przeszły. Pełna regresja odzyskanej wersji: 224 zaliczone testy.
+Pozostało wizualne odciążenie paska, puste stany transferów i końcowy polish.
+
+### RC8 — final UI polish i weryfikacja w chmurze
+
+- Odzyskane poprawki stabilizacji zabezpieczono w commicie 264492b.
+- Odciążono pasek: mały przycisk przy logo, przeciągana krawędź 200–360 px,
+  kompaktowe 52 px, szerokość numeryczna w wyglądzie i odświeżanie przy wyszukiwaniu.
+  Usunięto redundantne duże przyciski zmiany nazwy/usuwania; operacje pozostały
+  w menu z potwierdzeniem. Poprawiono nakładające się tytuły grup, elizję i Ctrl+F.
+- Transfery mają czytelny pusty stan bez paska 0%. Uporządkowano menu dodatkowych
+  działań modeli, nagłówki, podpowiedzi ścieżek i małe akcje pod odpowiedziami AI.
+  Wersja w opisie aplikacji pochodzi z metadanych zamiast stałego napisu Alpha.
+- Skalowanie 80/100/125/150%: 96 wariantów układu z danymi przeszło testy Qt.
+  Osobny proces DPR=2 potwierdził brak mnożenia skali czcionki. Sprawdzono
+  kontrast wszystkich palet i akcentów, fokus oraz duże zbiory (1000 modeli,
+  5000 rozmów, 10 000 wiadomości; renderowane 60 kart). Końcowa obserwacja:
+  budowa modeli ~0,064 s, historii ~0,201 s; nie są to gwarancje wydajności.
+- Pełna regresja: 225 zaliczonych testów backendu/desktopu. Po końcowym wyborze
+  ikony ponownie przeszły 2 testy akcji/transferów; test skrótu Ctrl+F/Tab także
+  przeszedł. Ruff, formatowanie i kontrakty poprawne. Ponowiona macierz zapisała
+  końcowe autentyczne screenshoty: docs/screenshots/rc8-polish.
+- Nie publikowano, nie budowano APK/AppImage, nie zmieniano schematu SQLite ani
+  dystrybucyjnego numeru wersji. Podgląd istniejącej historii realnej generacji
+  CPU nie jest nowym testem CUDA. Nie testowano fizycznego telefonu.
+
+Możliwa tutaj stabilizacja UI jest zakończona do lokalnej weryfikacji; RC8 nie
+zostało opublikowane ani uznane za zweryfikowane na natywnym pulpicie właściciela.
+Pozostałe obowiązkowe próby na CachyOS (Wayland/X11, KDE HiDPI i wiele ekranów,
+prywatne dane po aktualizacji, rzeczywisty offload RTX 4060 i modele właściciela,
+dialogi/clipboard/czytnik ekranu) opisano w README przy screenshotach.
+
+
+## 0.2.0 Agents Beta 1 — checkpoint źródłowy
+
+- Baza: zdalne RC8 `e0e968682f4019c3775d80c5f696451e21b3a2a9`, zawierające
+  main i 18 dodatkowych commitów. Gałąź `feature/0.2.0-agents-beta1`.
+- Dodano osobny orkiestrator, rejestr sześciu narzędzi, walidację ścisłego
+  protokołu JSON oraz natywne wywołania dla Ollama deklarującego tool-calling.
+  llama.cpp korzysta z istniejącego silnika, ustawień i adaptera JSON.
+- Działający przepływ Qt/API: Czat/Agent per rozmowa, udostępnienie/cofnięcie
+  katalogu, przebieg operacji, podgląd diff, zgoda/odmowa, Stop i historia SQLite.
+  Domyślnie zero dostępu do plików; brak terminala, internetu i wykonywania kodu.
+- Testy potwierdziły granice katalogów, symlinki/traversal, limity, konflikty
+  zapisu, anulowanie podczas streamingu i zatwierdzonego commitu, odrzucenie
+  niepełnych odpowiedzi, restart bez ponawiania zapisu i redakcję audytu.
+  Naprawiono wykryte wyścigi inicjalizacji GUI i anulowania w trakcie zapisu.
+- PASS: końcowe **266 testów** backendu i desktopu (Qt offscreen), w tym
+  38 nowych backendowych i 2 GUI. GUI wykorzystuje prawdziwe HTTP i operacje
+  plikowe, ale kontrolowany transport modelu. Ruff, formatowanie 114 plików,
+  kontrakty, diff-check i istniejący smoke CLI/HTTP/WS/restart PASS.
+  Normalizacja trzech istniejących wyrażeń w engines.py jest wyłącznie
+  formatowaniem wymaganym przez kontrolę Ruff; nie zmieniono mechanizmu inferencji.
+- NOT TESTED: prawdziwy GGUF/natywne tool-calling na modelu właściciela,
+  CachyOS/KDE/Wayland i CUDA RTX4060. Narzędzia plikowe Beta 1 wymagają
+  Linux/operacji na deskryptorach; inne systemy odmawiają bezpiecznie.
+- Nie zmieniono zależności, wersji dystrybucyjnej ani schematu bazy; stare rozmowy
+  zachowane. Nie budowano instalatorów i nie publikowano wydania.
+- Instrukcja i granice: [AGENTS_BETA1.md](AGENTS_BETA1.md). Agentowe metadane są
+  trwałe w SQLite, ale eksport rozmowy zachowuje format RC8 bez audytu/agenta.
+  Uprawnienia do katalogów trzeba nadać ponownie po restarcie backendu.
+- Następny krok: rzeczywisty lokalny test modelu oraz zatwierdzenia/odmowy/Stop
+  na katalogu roboczym właściciela. Nie deklarować zgodności wszystkich GGUF.
+
+## 0.2.0 Agents Beta 2 — niezawodność i planowanie
+
+- Kontynuacja potwierdzonej Bety 1 `785224c0dbdae4f91a5bd28fdf0e481a3db6259a`;
+  gałąź `feature/0.2.0-agents-beta2`, bez zmiany zależności i schematu SQLite.
+- Deklaracje możliwości i opcjonalny test zgodności (natywny Ollama / JSON
+  llama.cpp), trwały wynik per model/backend, odczyt szablonu GGUF jako metadanych,
+  cztery stany GUI. Timeout testu oznacza niezweryfikowany, nie brak obsługi.
+- Ścisły protokół obsługuje tekst wewnątrz wywołania, ID, plany i korekty.
+  Jedna naprawa JSON; walidacja argumentów zwraca szczegóły bez ich wartości.
+  Deduplikacja ID i identycznych wywołań w natywnej paczce, limity tur/tokenów.
+- SQLite zachowuje hashowane potwierdzenia zapisów przed commitem. Jawna nowa
+  próba nie powtarza zapisów ani odrzuconych celów; zgody i zabezpieczenia Bety 1
+  pozostają aktywne. Zakończonych kroków planu nie można przemianować na nowe.
+- Kontekst: dwie ostatnie szczegółowe tury, ograniczone wyniki, checkpoint,
+  przybliżone zużycie i rezerwa wyjścia. Ustawienia użytkownika nie są nadpisywane.
+- PASS: 59 testów celowanych; końcowa pełna regresja **285 testów** backend/Qt
+  offscreen. Ruff, formatowanie 118 plików, kontrakty i diff-check PASS.
+  Testy obejmują rzeczywiste HTTP/pliki/GUI z mockowanymi modelami; fixture
+  niepoprawnego protokołu Bety 1 odpowiada dwa razy, aby sprawdzić nowy limit
+  jednej naprawy, zachowując asercję braku wykonanych narzędzi.
+- NOT TESTED: rzeczywiste GGUF/Ollama, CachyOS/KDE/Wayland, RTX4060/CUDA.
+  llama.cpp używa adaptera JSON, nie nowego natywnego API tools. Długie wyniki
+  są jawnie ucinane do 4 KiB; brak paginacji. Szczegóły: AGENTS_BETA1.md.
+- Bez wydania i instalatorów; nie rozpoczęto Bety 3. Następny krok: lokalny
+  krótki scenariusz porównania dwóch plików, korekta planu, zgoda/odmowa,
+  anulowanie i nowa próba oraz restart dla modeli właściciela.
+
+### Agents Beta 2 — ręczny testowy AppImage
+
+Rozszerzono zarejestrowany workflow `linux-appimage.yml` o wejścia `agents_beta2`
+i `source_sha`. Kod aplikacji pozostaje dokładnie `b50153c6c21956a04c7ceeb31a5ccba65555f63c`;
+commit workflow jest osobno zapisany w metadanych dostawy. Bez zmiany aplikacji,
+modeli, GUI i wersji dystrybucyjnej RC; nazwa paczki zawiera testową etykietę Bety 2.
+Wykorzystano istniejący PyInstaller/AppImage i przypięty silnik CPU, bez GGUF
+ani sterowników NVIDIA. Zewnętrzny llama.cpp CUDA/Ollama pozostaje konfiguracją
+użytkownika. Artefakt Actions: 7 dni, bez Release. Nowy check sprawdza rzeczywistą
+paczkę, SHA źródła, PySide6, biblioteki/sumę silnika i API agentów zamrożonego
+backendu. Lokalnie: 6 testów zabezpieczeń paczki, Ruff, YAML i składnia bash PASS;
+285 testów nie powtarzano. Wynik rzeczywistego builda wymaga odczytu biegu Actions.
+Build Actions `43183737436` zakończył się sukcesem: rzeczywisty AppImage przeszedł
+podwójny start Xvfb/restart/dane i nowy test API agentów. Cloud blokuje pobranie
+z Azure (403), dlatego dodano oddzielny wariant `verify_run_id`, który ponownie
+pobiera istniejący artefakt i weryfikuje bajty na runnerze, bez budowania paczki.
+Ponowne pobranie i kontrola bajtów w Actions `43184892219`: PASS, bez rebuilda.
+AppImage: 98 875 896 bajtów, SHA-256
+`9d483e6daf4e3289ad8a89b9b00cc10f763ae0abb4d82616b3daab2dc2d2bb69`.
+Artefakt: https://github.com/vex2137/OmniCore/actions/runs/43183737436/artifacts/13927718352
+(wygasa 2026-11-19). KDE/Wayland, realny GGUF i RTX4060: NOT TESTED.
+
+### 0.2.0 Beta 3 — etap 1: Agent i wersjonowanie
+
+Bazą jest nie scalona do main gałąź Agents Beta 2, commit 4024dd5. Poprzednia
+paczka Bety 2 świadomie zachowywała metadane RC6; w poprawnym źródle GUI są
+obie pozycje Czat/Agent. Braku Agent w nieznanym pliku użytkownika nie odtworzono.
+Naprawiono blokowanie wyboru trybu po błędzie odczytu ustawień. Nowy test
+zamrożonego GUI wymaga obu trybów i danych kompilacji, zamiast sprawdzać tylko API.
+Kanoniczna wersja distribution.json to 0.2.0-beta.3; Python/hatch normalizują ją
+z tego samego źródła. Dodano scripts/set_version.py (po zmianie: uv lock i eksport
+kontraktów), metadane commit/data/kanał w AppImage i kontrolę zgodności wersji.
+81 testów celowanych PASS, w tym rzeczywiste HTTP i narzędzia plikowe z kontrolowanym
+modelem w Qt; to nie dowód kompatybilności rzeczywistego GGUF ani CUDA. Ruff PASS.
+Pozostałe etapy i paczka Bety 3 pozostają do wykonania. Bez wydania.
+
+### 0.2.0 Beta 3 — etap 2: kompaktowy czat
+
+Model i tryb Czat/Agent są razem w nagłówku. Kontekst przeniesiono do rozwijanego
+panelu, usunięto duże duplikaty kopiowania/regeneracji pod polem wiadomości,
+zachowując te akcje pod odpowiedziami. Przyciski wysyłania/zatrzymania mają
+naturalną szerokość. Pasek metryk obejmuje TTFT, tok/s, tokeny i czas całkowity,
+z polskim/angielskim formatem liczbowym i bez wypełniania brakujących danych.
+Panel aktywności agenta ma mniejszy limit wysokości i czytelne szerokości kolumn.
+Naprawiono padding ikony konfiguracji wykryty macierzą rozdzielczości/skal.
+13 testów GUI agentów i stabilizacji PASS; po dopracowaniu tabeli aktywności
+6 testów agentowego Qt ponownie PASS. Ruff PASS. Zrzut w docs/screenshots/beta3
+jest rzeczywistym GUI z kontrolowanym modelem i faktycznym zatwierdzonym zapisem
+pliku; nie jest testem rzeczywistej inferencji GGUF ani CUDA.
+
+### 0.2.0 Beta 3 — etap 3: kontekst i rejestr GGUF
+
+Zastosowano wzorzec Kalendarza z 13cf46a: suwak logarytmiczny zsynchronizowany
+z dokładną liczbą, Auto/Ręczny per model i odrębne potwierdzenie zastosowanego
+kontekstu. Nie zgaduje się KV cache/pamięci; Auto pozostaje konserwatywne.
+Potwierdzono stary wpis po zastąpieniu pliku: zwykły ponowny import zwracał dawną
+tożsamość. Jawne odświeżenie z potwierdzeniem ponownie parsuje GGUF, zachowuje ID,
+parametry i kontekst, resetuje kompatybilność i zwalnia wcześniej załadowany model.
+Jest blokowane przy aktywnych generacjach/agentach. Zwykłe ładowanie nadal odrzuca
+zmieniony plik; nowe importy zapisują także mtime dla wykrywania zmian w miejscu.
+Stare wpisy bez mtime zachowują dotychczasowe sprawdzenie inode/device/rozmiaru
+(do jawnego odświeżenia). Nie haszowano wielogigabajtowych wag.
+45 testów modeli/API/generacji/Qt oraz 56 testów agentów PASS, Ruff i kontrakty PASS.
+Nazwy działań odróżniają ulubione, zwolnienie pamięci i usunięcie wpisu katalogu.
+
+### 0.2.0 Beta 3 — etap 4: diagnostyka
+
+Rozszerzono istniejący widok o OS/architekturę, commit/datę/kanał, platformę Qt
+oraz sterownik NVIDIA. Raport schema v2 dodaje zasoby, techniczne dane modeli,
+kontekst, offload, błędy i PID własnego backendu. Nie eksportuje rozmów ani logów;
+maskuje token API, rozpoznane tokeny dostawców i katalog domowy, zapisuje plik 0600.
+Zachowano asynchroniczne pobieranie diagnostyki. Dwa celowane testy eksportu PASS,
+w tym brak prywatnych ścieżek/treści i sekretu w nazwie modelu; Ruff PASS.
+
+### 0.2.0 Beta 3 — etap 5: aktualizacje
+
+Adaptowano wzorzec ustawień Kalendarza z 13cf46a, rozszerzając go o listę
+ostatnich 100 publicznych wydań i poprawny wybór Stable/Beta/RC (packaging.Version).
+Sprawdzanie jest ręczne, w osobnym wątku z limitami czasu/odpowiedzi. Oddzielny
+klient HTTPS nie otrzymuje tokenu backendu; dopuszczane są tylko adresy wydań
+OmniCore. Notatki są zwykłym tekstem, brak wydań to normalny stan. Kanał jest
+zapisywany, aktualizacje nie instalują się automatycznie. 19 testów aktualizacji
+oraz stabilizacji GUI PASS (kanały, numery bet, błędy, prywatność, trwałość,
+asynchroniczność i macierz układu), Ruff PASS.
+
+### 0.2.0 Beta 3 — etap 6: integracja KDE
+
+Zaadaptowano wzorzec Kalendarza 13cf46a do istniejącej tożsamości OmniCore, bez
+zmiany desktop ID/StartupWMClass. Opcja AppImage --install-desktop-entry zapisuje
+launcher użytkownika i PNG z hashem, wykonuje atomowe aktualizacje i backup,
+zachowuje tłumaczenia/własne akcje, usuwa nieaktualny TryExec. Wrapper jest jawny,
+a AppImage nie instaluje nic przy zwykłym starcie. Odświeżane są dostępne narzędzia
+KDE/desktop database; brak zmian przypięć, bazy i historii. Dodano fish, xprop/KWin
+oraz instrukcję ponownego przypięcia wyłącznie OmniCore w docs/APPIMAGE.md.
+7 testów instalatora PASS: quoting, idempotencja, kopie, zachowanie danych i pinów,
+bezpieczne odrzucanie błędnych ścieżek/symlinków/ikony. Ruff PASS.
+PNG pochodzi z oryginalnego SVG. Rzeczywista ikona panelu Plasma 6: NOT TESTED.
+
+### 0.2.0 Beta 3 — etap 7: regresja i kontrola pakowania
+
+Końcowa lokalna regresja: **321 PASS** (backend + natywny Qt offscreen), Ruff,
+format i kontrakty PASS. Smoke CLI/HTTP/WebSocket/restart danych PASS. Wheel
+budowany offline ma normalizowaną wersję 0.2.0b3; metadane dystrybucji 0.2.0-beta.3.
+Rzeczywiste ręczne zapytanie HTTPS listy GitHub Releases PASS: brak nowszej wersji.
+Naprawiono dodatkowo wysokość i szerokość nagłówków historii: test wszystkich
+6 grup, PL/EN, szerokości 200/232, skale 80/100/125/150 PASS. Macierz 96 widoków
+(4 rozdzielczości × 4 skale × 6 widoków) PASS, autentyczne wybrane screenshoty
+oraz raport w docs/screenshots/beta3. Dane na screenshotach to dane testowe;
+kontrolowany model w agentowym zrzucie nie potwierdza rzeczywistej inferencji.
+W CI backendowym poprawiono brak warunku opcjonalnego PySide6 w teście HF;
+ten test nadal uruchamia się w pełnym zadaniu desktopowym.
+Istniejący workflow AppImage otrzymał sprawdzenie frozen API agentów i dokładnego
+SHA; smoke wymaga obu trybów GUI, spójnej proweniencji i instalatora KDE.
+Build/artefakt Bety 3 jeszcze niepotwierdzony — wynik zostanie dopisany po Actions.
+Brak testu nowej paczki z rzeczywistym GGUF, RTX4060, CachyOS lub panelem Plasma 6.
+
+Kontrola końcowa wykryła ryzyko dziedziczenia bibliotek/pluginów zamrożonego Qt
+przez systemowe kbuildsycoca6. Narzędzia cache używają teraz istniejącego
+native_environment i pomijają pluginy Qt paczki; środowisko GUI nie jest zmieniane.
+8 testów instalatora PASS. Pierwszy run 43305371384 zatrzymano przed dostarczeniem
+paczki, aby nie udostępnić wariantu bez tej izolacji; wymagany nowy build poprawki.
+
+### Beta 3 — kontynuacja 2026-11-13: natywne metryki czcionek
+
+Run 43305870215 zakończył się błędem przed buildem; nie utworzył artefaktu.
+320 testów PASS, dwa błędy układu X11/Xvfb: przy 150% napis nowej rozmowy
+oraz nagłówki historii przekraczały dostępną szerokość. Offscreen miał inne
+metryki czcionek. Dodano zawijanie kompletnych etykiet według fontMetrics,
+wysokość wieloliniowych nagłówków i odświeżanie po zmianie szerokości paska.
+Nowy czat ma krótszą nazwę PL/EN i mniejszy padding; nie zmieniono rozmiaru fontów,
+DPI aplikacji, danych ani inferencji. 8 testów stabilizacji z QT_FONT_DPI=120 PASS,
+11 testów historii/paska/agentów PASS; Ruff, format i kontrakty PASS.
+Zrzut history-font-dpi120.png pochodzi z rzeczywistego Qt offscreen z większym DPR;
+nie jest dowodem działania pulpitu CachyOS. Wymagany ponowny run istniejącego builda.
+
+Run 43402851489 potwierdził naprawę obu testów układu: 321 testów PASS.
+Jedyny błąd dotyczył starej asercji tekstu „New conversation”, po skróceniu
+etykiety do „New chat”. Zaktualizowano oczekiwanie; celowany test języka,
+trwałości ustawień i restartu backendu PASS. Bez dalszej zmiany kodu aplikacji.
+
+### Beta 3 — dostarczony i pobrany AppImage, 2026-11-13
+
+| Etap | Potwierdzony stan |
+| --- | --- |
+| 1: Agent i wersjonowanie | Czat/Agent w frozen GUI i API; 0.2.0-beta.3, SHA/data/kanał spójne. Zadania narzędziowe testowano z kontrolowanym modelem. |
+| 2: czat, metryki, historia | Zaimplementowane; regresja Qt, macierz układu i natywne metryki czcionek PASS. |
+| 3: kontekst i GGUF | Auto/Ręczny, suwak/liczba per model, jawne odświeżenie rejestru i ochrona zmienionych plików PASS. |
+| 4: diagnostyka | Rozszerzony istniejący widok i prywatny eksport schema v2, testy maskowania PASS. |
+| 5: aktualizacje | Ręczne Stable/Beta/RC, asynchroniczne i bez automatycznej instalacji; testy PASS. |
+| 6: KDE | Jawny instalator, PNG z SHA, backup i izolacja bibliotek PASS; panel Plasma wymaga testu lokalnego. |
+| 7: AppImage | Build, dwa rzeczywiste uruchomienia, trwałość, zamknięcie, frozen API agenta, instalator i upload PASS. |
+
+Źródło paczki: **1f12bcfe809e3e450f6a05e9c2576f2999670788**.
+[Workflow 43403397103](https://github.com/vex2137/OmniCore/actions/runs/43403397103):
+**success**, 322 testy backendu/Qt PASS, Ruff/format/kontrakty PASS.
+Backendowe CI 43403389155 z tego samego SHA również success.
+[Pobierz artefakt](https://github.com/vex2137/OmniCore/actions/runs/43403397103/artifacts/14026048630)
+(GitHub Actions, wymaga zalogowania; wygasa 2026-12-13).
+
+- Plik: `OmniCore-0.2.0-beta.3-x86_64.AppImage`.
+- Rozmiar samego AppImage: **98 908 664 bajty** (nie rozmiar ZIP artefaktu).
+- SHA-256: `87a90e430988f0404937f2c4afbfd6c0537dfcda177914331d4657af46e96c0a`.
+- Data builda: `2026-11-13T09:48:18.409544+00:00`, kanał beta.
+- Artefakt rzeczywiście pobrano; ponownie obliczono SHA-256 i porównano plik sum.
+  Sprawdzono ELF x86_64 / AppImage typu 2 oraz prawo wykonania. Manifest, oba raporty
+  GUI i raport agent API mają dokładnie powyższy SHA źródeł oraz właściwą wersję.
+- W ZIP są AppImage, `.sha256`, manifest, raporty i autentyczny screenshot.
+  Kopia screenshotu zamrożonego GUI: docs/screenshots/beta3/verified-appimage.png.
+
+Nie pobierano wag GGUF. Nie wykonano rzeczywistej inferencji tej paczki z GGUF
+ani na RTX4060; CPU silnika sprawdzono przez wersję, checksumę i biblioteki.
+Do właściciela: rzeczywisty Czat/Agent z własnym GGUF, CPU/Auto/CUDA, zachowanie
+własnych danych po aktualizacji oraz panel KDE/Wayland (app ID, ikona, przypięcie)
+zgodnie z docs/APPIMAGE.md. Nie testowano fizycznego CachyOS/Plasma 6.
+Nie publikowano Release/tagu ani nie scalano do main. Późniejszy commit tego raportu
+nie zmienia źródeł ani sumy wyżej wskazanej paczki; kolejny build nie jest potrzebny.

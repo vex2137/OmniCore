@@ -2,9 +2,17 @@
 
 import json
 import os
+import re
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+from omnicore.release import release_channel
+
+
+def default_update_channel() -> str:
+    channel = release_channel()
+    return channel if channel in {"stable", "beta", "rc"} else "stable"
 
 
 def config_path() -> Path:
@@ -36,6 +44,14 @@ class DesktopConfig:
     ollama_enabled: bool = True
     parameters: dict = field(default_factory=dict)
     onboarding_complete: bool = False
+    sidebar_compact: bool = False
+    sidebar_width: int = 240
+    accent: str = ""
+    update_channel: str = field(default_factory=default_update_channel)
+    ui_scale: int = 100
+    favorite_models: list[str] = field(default_factory=list)
+    collapsed_history: list[str] = field(default_factory=list)
+    drawer_open: bool = False
 
     @classmethod
     def load(cls, path: Path | None = None):
@@ -46,9 +62,42 @@ class DesktopConfig:
                 llama_cuda_server=os.environ.get("OMNICORE_LLAMA_CUDA_SERVER", ""),
             )
         payload = json.loads(path.read_text(encoding="utf-8"))
-        obj = cls(**payload)
-        if obj.locale not in {"pl-PL", "en-US"} or obj.theme not in {"system", "light", "dark"}:
+        if not isinstance(payload, dict):
             raise ValueError("Invalid desktop preferences")
+        supported = cls.__dataclass_fields__
+        obj = cls(**{key: value for key, value in payload.items() if key in supported})
+        if obj.locale not in {"pl-PL", "en-US"} or obj.theme not in {
+            "system",
+            "light",
+            "dark",
+            "midnight",
+            "graphite",
+            "oled",
+            "ocean",
+            "forest",
+        }:
+            raise ValueError("Invalid desktop preferences")
+        if obj.update_channel not in {"stable", "beta", "rc"}:
+            obj.update_channel = default_update_channel()
+        if not isinstance(obj.sidebar_width, int) or isinstance(obj.sidebar_width, bool):
+            obj.sidebar_width = 240
+        obj.sidebar_width = max(200, min(360, obj.sidebar_width))
+        if not isinstance(obj.ui_scale, int) or isinstance(obj.ui_scale, bool):
+            obj.ui_scale = 100
+        obj.ui_scale = max(80, min(150, obj.ui_scale))
+        if not isinstance(obj.accent, str) or (
+            obj.accent and not re.fullmatch(r"#[0-9a-fA-F]{6}", obj.accent)
+        ):
+            obj.accent = ""
+        for key in ("favorite_models", "collapsed_history"):
+            value = getattr(obj, key)
+            setattr(
+                obj,
+                key,
+                [item for item in value if isinstance(item, str)]
+                if isinstance(value, list)
+                else [],
+            )
         if not obj.llama_server:
             obj.llama_server = bundled_engine()
         return obj

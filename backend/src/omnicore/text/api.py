@@ -11,11 +11,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
+from omnicore.agents.service import Agents
 from omnicore.config import RuntimeConfig
 from omnicore.diagnostics import HardwareSnapshot, hardware_snapshot
 from omnicore.events import EventHub
 from omnicore.schemas import BackendInfo, WireModel
 from omnicore.text import nvidia
+from omnicore.text.context import context_settings
 from omnicore.text.conversations import (
     Conversation,
     ConversationExport,
@@ -32,17 +34,33 @@ from omnicore.text.generation import (
     GenerationRequest,
 )
 from omnicore.text.models import ModelManager
+from omnicore.text.offload import estimate_kv_cache_bytes, layout_from_metadata
 from omnicore.text.store import ModelRecord, TextStore
 from omnicore.text.types import GenerationParameters, TextError
 
 
 class ModelImport(WireModel):
+    refresh_existing: bool = False
     path: str = Field(min_length=1, max_length=4096)
 
 
 class ModelDelete(WireModel):
     delete_file: bool = False
     confirm_name: str | None = Field(default=None, max_length=256)
+
+
+class ModelContext(WireModel):
+    mode: Literal["auto", "manual"]
+    manual_tokens: int = Field(default=2048, ge=128, le=1_000_000)
+
+
+class ModelGpuSettings(WireModel):
+    gpu_offload_mode: Literal["auto", "max", "manual", "cpu"] = "auto"
+    gpu_layers: int = Field(default=99, ge=0, le=999)
+    device: str = Field(
+        default="auto",
+        pattern=r"^(cpu|auto|[A-Za-z0-9][A-Za-z0-9_.:-]{0,63})$",
+    )
 
 
 class ConversationCreate(WireModel):
@@ -52,6 +70,7 @@ class ConversationCreate(WireModel):
 
 
 class ConversationUpdate(WireModel):
+    pinned: bool = False
     title: str | None = Field(default=None, max_length=256)
     model_id: str | None = None
     parameters: GenerationParameters | None = None
@@ -139,23 +158,31 @@ class TextService:
             self.engines["ollama"] = OllamaEngine(
                 config.ollama_url, timeout=config.generation_timeout
             )
-        self.downloads = DownloadManager(self.store, HuggingFace(config.hf_token), directory)
+        self.downloads = DownloadManager(
+            self.store, HuggingFace(config.hf_token), directory, self.models.import_gguf
+        )
         self.generations = GenerationManager(
             self.store, self.models, self.engines, hub, timeout=config.generation_timeout
         )
         self.history = Conversations(self.store)
+        self.agents = Agents(self)
+        self.generations.external_busy = self.agents.active_for
 
     def initialize(self):
         self.store.initialize()
         self.downloads.initialize()
         self.generations.initialize()
+        self.agents.initialize()
 
     async def close(self):
+        await self.agents.close()
         await self.generations.close()
         await self.downloads.close()
 
     def require_idle(self, *, model_id=None, conversation_id=None):
-        if self.generations.active_for(model_id=model_id, conversation_id=conversation_id):
+        if self.generations.active_for(
+            model_id=model_id, conversation_id=conversation_id
+        ) or self.agents.active_for(model_id=model_id, conversation_id=conversation_id):
             raise TextError("conversation_busy", 409)
 
 
@@ -221,11 +248,23 @@ def routes(service: TextService):
         backend: str = Query(default="", max_length=32),
         format: str = Query(default="", max_length=32),
     ):
+        service.models.scan_and_recover(import_all_roots=False)
         return service.store.models(query, backend, format)
 
+    @router.post("/models/scan", response_model=list[ModelRecord])
+    async def scan_models():
+        return await run_in_threadpool(service.models.scan_and_recover, import_all_roots=True)
+
     @router.post("/models/import", response_model=ModelRecord, status_code=201)
-    def import_model(body: ModelImport):
-        return service.models.import_gguf(Path(body.path))
+    async def import_model(body: ModelImport):
+        async with service.generations.submission_lock:
+            if body.refresh_existing:
+                service.require_idle()
+                if service.llama.model == str(Path(body.path)):
+                    await service.llama.unload()
+            return await run_in_threadpool(
+                service.models.import_gguf, Path(body.path), body.refresh_existing
+            )
 
     @router.post("/models/sync-ollama", response_model=list[ModelRecord])
     async def sync_ollama():
@@ -237,6 +276,159 @@ def routes(service: TextService):
     @router.get("/models/{model_id}", response_model=ModelRecord)
     def model(model_id: str):
         return service.store.model(model_id)
+
+    @router.get("/models/{model_id}/context")
+    async def get_model_context(
+        model_id: str,
+        device: str | None = None,
+        gpu_offload_mode: str | None = None,
+    ):
+        from omnicore.text import nvidia
+
+        record = await run_in_threadpool(service.store.model, model_id)
+        saved_gpu = record.metadata.get("desktop_gpu")
+        has_saved_gpu = isinstance(saved_gpu, dict) and bool(saved_gpu)
+        eff_device = (
+            saved_gpu.get("device") if has_saved_gpu and saved_gpu.get("device") else device
+        ) or record.parameters.get("device", "auto")
+        eff_mode = (
+            saved_gpu.get("gpu_offload_mode")
+            if has_saved_gpu and saved_gpu.get("gpu_offload_mode")
+            else gpu_offload_mode
+        ) or record.parameters.get("gpu_offload_mode", "auto")
+        raw_layers = (
+            saved_gpu.get("gpu_layers")
+            if has_saved_gpu and isinstance(saved_gpu.get("gpu_layers"), int)
+            else record.parameters.get("gpu_layers", 99)
+        )
+        if record.backend == "ollama":
+            eff_device, eff_mode, raw_layers = "cpu", "cpu", 0
+        settings = context_settings(record, device=eff_device, gpu_offload_mode=eff_mode)
+        engine = service.llama
+        active = bool(
+            record.backend == "llama.cpp"
+            and engine.model == record.location
+            and engine.parameters
+            and engine.process
+            and engine.process.returncode is None
+        )
+        running_other_model = None
+        if not active and engine.model and engine.process and engine.process.returncode is None:
+            models = await run_in_threadpool(service.store.models)
+            other = next((m for m in models if m.location == engine.model), None)
+            running_other_model = other.name if other else Path(engine.model).name
+        settings["active"] = active
+        settings["applied_tokens"] = engine.parameters[1] if active else None
+        settings["loaded_model_name"] = record.name if active else running_other_model
+        devs = await nvidia.devices()
+        primary = max(devs, key=lambda d: d["total_bytes"]) if devs else None
+        vram_total = primary["total_bytes"] if primary else None
+        vram_free = primary["free_bytes"] if primary else None
+        vram_used = (
+            max(0, vram_total - vram_free)
+            if (vram_total is not None and vram_free is not None)
+            else None
+        )
+        engine_res = (
+            await engine.resources()
+            if (
+                engine.process
+                and engine.process.returncode is None
+                and callable(getattr(engine, "resources", None))
+            )
+            else None
+        )
+        engine_vram = engine_res.vram_bytes if engine_res else None
+        external_vram = max(0, vram_used - (engine_vram or 0)) if vram_used is not None else None
+        model_est_vram = None
+        if record.backend == "llama.cpp" and record.size_bytes > 0:
+            meta_dict = record.metadata if isinstance(record.metadata, dict) else {}
+            inner_meta = (
+                meta_dict.get("metadata") if isinstance(meta_dict.get("metadata"), dict) else {}
+            )
+            arch = meta_dict.get("architecture") or inner_meta.get("general.architecture")
+            layout = layout_from_metadata(inner_meta, arch, record.size_bytes)
+            model_est_vram = int(record.size_bytes) + estimate_kv_cache_bytes(
+                layout, int(settings.get("effective_tokens") or 4096)
+            )
+        norm_layers = (
+            0
+            if eff_mode == "cpu"
+            else (99 if eff_mode in ("auto", "max") and raw_layers <= 0 else raw_layers)
+        )
+        settings["gpu"] = {
+            "configured": has_saved_gpu,
+            "gpu_offload_mode": eff_mode,
+            "gpu_layers": norm_layers,
+            "device": "cpu" if eff_mode == "cpu" else eff_device,
+            "vram_total_bytes": vram_total,
+            "vram_free_bytes": vram_free,
+            "vram_used_bytes": vram_used,
+            "engine_vram_bytes": engine_vram,
+            "external_vram_bytes": external_vram,
+            "model_estimated_vram_bytes": model_est_vram,
+            "applied_mode": engine.offload_mode if active else None,
+            "applied_requested_layers": engine.parameters[2] if active else None,
+            "applied_offloaded_layers": engine.offloaded_layers if active else None,
+            "applied_total_layers": engine.total_layers if active else None,
+            "applied_device": engine.execution_device if active else None,
+            "applied_reason": engine.offload_reason if active else None,
+            "fallback_reason": engine.fallback_reason if active else None,
+            "active_other_model": running_other_model,
+        }
+        return settings
+
+    @router.put("/models/{model_id}/context", response_model=ModelRecord)
+    async def set_model_context(model_id: str, body: ModelContext):
+        async with service.generations.submission_lock:
+            service.require_idle(model_id=model_id)
+            record = await run_in_threadpool(service.store.model, model_id)
+            saved_gpu = record.metadata.get("desktop_gpu")
+            eff_dev = (
+                saved_gpu.get("device") if isinstance(saved_gpu, dict) else None
+            ) or record.parameters.get("device")
+            eff_mode = (
+                saved_gpu.get("gpu_offload_mode") if isinstance(saved_gpu, dict) else None
+            ) or record.parameters.get("gpu_offload_mode")
+            maximum = context_settings(record, device=eff_dev, gpu_offload_mode=eff_mode)["maximum"]
+            if body.mode == "manual" and body.manual_tokens > maximum:
+                raise TextError("context_limit_exceeded", 422)
+            record.metadata["desktop_context"] = body.model_dump(mode="json")
+            return await run_in_threadpool(service.store.update_model, record)
+
+    @router.put("/models/{model_id}/gpu", response_model=ModelRecord)
+    async def set_model_gpu(model_id: str, body: ModelGpuSettings):
+        async with service.generations.submission_lock:
+            service.require_idle(model_id=model_id)
+            record = await run_in_threadpool(service.store.model, model_id)
+            if record.backend == "ollama":
+                normalized = {"gpu_offload_mode": "cpu", "gpu_layers": 0, "device": "cpu"}
+            elif body.gpu_offload_mode == "cpu" or (
+                body.gpu_offload_mode == "auto" and body.device == "cpu"
+            ):
+                normalized = {"gpu_offload_mode": "cpu", "gpu_layers": 0, "device": "cpu"}
+            else:
+                if (
+                    body.gpu_offload_mode == "manual"
+                    and body.gpu_layers == 0
+                    and body.device != "auto"
+                ):
+                    raise TextError("gpu_layers_required", 422)
+                norm_layers = (
+                    99
+                    if body.gpu_offload_mode in ("auto", "max") and body.gpu_layers <= 0
+                    else body.gpu_layers
+                )
+                normalized = {
+                    "gpu_offload_mode": body.gpu_offload_mode,
+                    "gpu_layers": norm_layers,
+                    "device": "auto" if body.device == "cpu" else body.device,
+                }
+            record.metadata["desktop_gpu"] = normalized
+            merged = dict(record.parameters or {})
+            merged.update(normalized)
+            record.parameters = merged
+            return await run_in_threadpool(service.store.update_model, record)
 
     @router.put("/models/{model_id}/parameters", response_model=ModelRecord)
     async def model_parameters(model_id: str, body: GenerationParameters):
@@ -253,7 +445,7 @@ def routes(service: TextService):
             service.require_idle()
             record = await run_in_threadpool(service.store.model, model_id)
             path = await run_in_threadpool(service.models.validated_reference, model_id)
-            with service.models.policy.open(path) as stream:
+            with service.models.policy.open(path, registered=True) as stream:
                 await service.llama.load(path, body, file_descriptor=stream.fileno())
             if record.compatibility != "tested":
                 record.compatibility = "load_verified"
@@ -284,8 +476,21 @@ def routes(service: TextService):
             return {"status": "removed"}
 
     @router.get("/huggingface/search", response_model=list[dict[str, str | None]])
-    async def hf_search(query: str = Query(min_length=1, max_length=256)):
-        return await service.downloads.hub.search(query)
+    async def hf_search(
+        query: str = Query(default="", max_length=256),
+        sort: Literal["downloads", "likes", "lastModified"] = "downloads",
+    ):
+        return await service.downloads.hub.search(query, sort)
+
+    @router.get("/huggingface/details")
+    async def hf_details(repository: str = Query(max_length=256)):
+        return await service.downloads.hub.details(repository)
+
+    @router.get("/huggingface/readme")
+    async def hf_readme(
+        repository: str = Query(max_length=256), revision: str = Query(max_length=40)
+    ):
+        return {"markdown": await service.downloads.hub.readme(repository, revision)}
 
     @router.get("/huggingface/files", response_model=list[RemoteFile])
     async def hf_files(
@@ -315,6 +520,10 @@ def routes(service: TextService):
     @router.get("/downloads/{job_id}", response_model=DownloadRecord)
     def download(job_id: str):
         return service.downloads.record(job_id)
+
+    @router.post("/downloads/{job_id}/import", response_model=DownloadRecord)
+    async def import_download(job_id: str):
+        return await service.downloads.import_completed(service.downloads.record(job_id))
 
     @router.post("/downloads/{job_id}/cancel", response_model=DownloadRecord)
     async def cancel_download(job_id: str):
@@ -355,11 +564,24 @@ def routes(service: TextService):
                 service.history.update, conversation_id, **body.model_dump(exclude_unset=True)
             )
 
+    @router.delete("/conversations", response_model=dict[str, str | int])
+    async def delete_all_conversations():
+        async with service.generations.submission_lock:
+            service.require_idle()
+            removed = await run_in_threadpool(service.history.delete_all)
+            service.agents.files.grants.clear()
+            service.agents.live.clear()
+            service.agents.tokens.clear()
+            return {"status": "removed", "deleted": removed}
+
     @router.delete("/conversations/{conversation_id}", response_model=dict[str, str])
     async def delete_conversation(conversation_id: str):
         async with service.generations.submission_lock:
             service.require_idle(conversation_id=conversation_id)
             await run_in_threadpool(service.history.delete, conversation_id)
+            for grant in list(service.agents.files.grants.values()):
+                if grant.active and grant.conversation_id == conversation_id:
+                    service.agents.files.revoke(grant.id, conversation_id)
             return {"status": "removed"}
 
     @router.get("/conversations/{conversation_id}/messages", response_model=list[MessageRecord])
