@@ -679,3 +679,222 @@ def test_real_folder_confirm_dialog_then_continue_reads_original_file(
     qtbot.mouseClick(ready.agent_continue_button, Qt.LeftButton)
     qtbot.waitUntil(lambda: panel.active is None and bool(seen), timeout=15000)
     assert "secret-content-42" in seen[0]
+
+
+# --- Automatic continuation after folder authorization (real Qt dialog, real backend) ---
+
+
+class _ReadFileEngine(ToolEngine):
+    def __init__(self, path, seen):
+        self.path, self.seen, self.tool_calls = path, seen, 0
+
+    async def stream(self, model, messages, parameters):
+        if any("untrusted_tool_result" in m.content for m in messages):
+            self.seen.append(messages[-1].content)
+            yield TextChunk(
+                content=json.dumps({"kind": "final", "text": "DONE"}), finish_reason="stop"
+            )
+            return
+        self.tool_calls += 1
+        yield TextChunk(
+            content=json.dumps(
+                {"kind": "tool", "name": "read_text", "arguments": {"path": self.path}}
+            ),
+            finish_reason="stop",
+        )
+
+
+def _blocked_run(w, service, qtbot, target_file):
+    from omnicore.desktop.transcript import MessageCard
+
+    panel = w.agent_panel
+    seen = []
+    engine = _ReadFileEngine(str(target_file), seen)
+    service.engines["llama.cpp"] = engine
+    w.model_combo.setCurrentIndex(1)
+    qtbot.mouseClick(w.new_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: bool(w.current_id))
+    qtbot.waitUntil(lambda: not panel.settings_loading)
+    panel.mode.setCurrentIndex(panel.mode.findData("agent"))
+    qtbot.waitUntil(lambda: not panel.settings_saving)
+    w.composer.setPlainText(f"Read {target_file} using read_text")
+    qtbot.mouseClick(w.send_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: panel.active is None and len(panel.runs) == 1, timeout=15000)
+    qtbot.waitUntil(
+        lambda: any(c.agent_grant_button for c in w.transcript.findChildren(MessageCard))
+    )
+    card = next(c for c in w.transcript.findChildren(MessageCard) if c.agent_grant_button)
+    return panel, seen, engine, card
+
+
+def _drive_dialog(panel, qtbot, action, captured=None):
+    from PySide6.QtCore import QTimer
+
+    def act():
+        dialog = panel.folder_dialog
+        if captured is not None:
+            captured["path"] = dialog.path_label.text()
+            captured["required"] = getattr(dialog, "required_label", None)
+            captured["mismatch"] = getattr(dialog, "mismatch_label", None)
+            captured["required_text"] = dialog.required_label.text() if captured["required"] else ""
+        getattr(dialog, action)()
+
+    QTimer.singleShot(200, act)
+
+
+def test_grant_auto_resumes_original_read_text_with_exact_start_dir(
+    agent_window, qtbot, monkeypatch, tmp_path
+):
+    w, service = agent_window
+    target = tmp_path / "OmniCore-agent-test"
+    target.mkdir()
+    (target / "test.txt").write_text("OMNICORE_AGENT_TEST_84729\n")
+    other = tmp_path / "OmniCore"  # unrelated "repository" directory
+    other.mkdir()
+    panel, seen, engine, card = _blocked_run(w, service, qtbot, target / "test.txt")
+    first_run = panel.runs[0]["id"]
+    user_messages = [m for m in w.messages if m["role"] == "user"]
+
+    dialog_args = []
+
+    def fake_get(*args, **kwargs):
+        dialog_args.append(args)
+        return str(target)
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", fake_get)
+    shown = {}
+    _drive_dialog(panel, qtbot, "accept", shown)
+    qtbot.mouseClick(card.agent_grant_button, Qt.LeftButton)
+    # No click on "Continue task": the run must resume by itself.
+    qtbot.waitUntil(lambda: bool(seen) and panel.active is None, timeout=15000)
+
+    assert dialog_args[0][2] == str(target)  # picker preselects exactly the required dir
+    assert dialog_args[0][2] != str(other)
+    assert str(target) in shown["path"]
+    assert str(target / "test.txt") in shown["required_text"]
+    assert shown["mismatch"] is None
+    assert "OMNICORE_AGENT_TEST_84729" in seen[0]
+    qtbot.wait(300)
+    # Single resume, single tool execution, no duplicate user message.
+    retries = [r for r in panel.runs if r.get("retry_of") == first_run]
+    assert len(retries) == 1
+    assert engine.tool_calls == 1  # blocked attempt was pre-flight; only the resume ran the tool
+    stored = {r["id"]: r for r in service.store.jobs("agent-run")}
+    assert len(stored) == 2  # original blocked run + exactly one continuation
+    resumed = stored[retries[0]["id"]]
+    assert resumed["state"] == "completed"
+    assert [s["tool"] for s in resumed["steps"]] == ["read_text"]
+    assert "read_text" in resumed["available_tools"]
+    assert [m for m in w.messages if m["role"] == "user"][: len(user_messages)] == user_messages
+    assert len([m for m in w.messages if m["role"] == "user"]) == len(user_messages)
+
+    # A second resume of the same run is refused by the backend (no forked run).
+    errors = []
+    monkeypatch.setattr(w, "show_error", errors.append)
+    panel.active = None
+    panel._start_retry(first_run)
+    qtbot.waitUntil(lambda: bool(errors), timeout=5000)
+    qtbot.wait(300)
+    assert engine.tool_calls == 1 and len(seen) == 1  # no repeated execution
+    assert len(service.store.jobs("agent-run")) == 2
+    assert len([r for r in panel.runs if r.get("retry_of") == first_run]) == 1
+
+
+def test_grant_to_wrong_directory_does_not_auto_resume(agent_window, qtbot, monkeypatch, tmp_path):
+    w, service = agent_window
+    target = tmp_path / "OmniCore-agent-test"
+    target.mkdir()
+    (target / "test.txt").write_text("OMNICORE_AGENT_TEST_84729\n")
+    wrong = tmp_path / "OmniCore"
+    wrong.mkdir()
+    panel, seen, engine, card = _blocked_run(w, service, qtbot, target / "test.txt")
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: str(wrong))
+    shown = {}
+    _drive_dialog(panel, qtbot, "accept", shown)
+    qtbot.mouseClick(card.agent_grant_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: len(panel.granted_folders) == 1, timeout=5000)
+    qtbot.wait(500)
+    assert shown["mismatch"] is not None  # user is warned in the confirmation dialog
+    assert not seen and engine.tool_calls == 0
+    assert len(panel.runs) == 1 and panel.runs[0].get("needs_folder_grant")
+    assert panel.retry_id is None or not panel.grant_satisfies_run(
+        panel.runs[0], panel.granted_folders
+    )
+
+
+@pytest.mark.parametrize("cancel_at", ["file_dialog", "confirm_dialog"])
+def test_cancelled_grant_does_not_resume_or_grant(
+    agent_window, qtbot, monkeypatch, tmp_path, cancel_at
+):
+    w, service = agent_window
+    target = tmp_path / "OmniCore-agent-test"
+    target.mkdir()
+    (target / "test.txt").write_text("OMNICORE_AGENT_TEST_84729\n")
+    panel, seen, engine, card = _blocked_run(w, service, qtbot, target / "test.txt")
+    monkeypatch.setattr(
+        QFileDialog,
+        "getExistingDirectory",
+        lambda *a, **k: "" if cancel_at == "file_dialog" else str(target),
+    )
+    if cancel_at == "confirm_dialog":
+        _drive_dialog(panel, qtbot, "reject")
+    qtbot.mouseClick(card.agent_grant_button, Qt.LeftButton)
+    qtbot.wait(600)
+    assert panel.granted_folders == []
+    assert not seen and engine.tool_calls == 0
+    assert len(panel.runs) == 1
+    assert panel.runs[0]["id"] in panel.folder_grant_cancelled_runs
+
+
+def test_failed_auto_resume_keeps_continue_task_fallback(
+    agent_window, qtbot, monkeypatch, tmp_path
+):
+    from omnicore.desktop.transcript import MessageCard
+
+    w, service = agent_window
+    target = tmp_path / "OmniCore-agent-test"
+    target.mkdir()
+    (target / "test.txt").write_text("OMNICORE_AGENT_TEST_84729\n")
+    panel, seen, engine, card = _blocked_run(w, service, qtbot, target / "test.txt")
+    real_request = w.api.request
+    fail_next = {"on": True}
+    errors = []
+
+    def flaky(method, path, payload=None, **kw):
+        if path.endswith("/retry") and fail_next["on"]:
+            fail_next["on"] = False
+            kw["failure"]("agent_unavailable")
+            return None
+        return real_request(method, path, payload, **kw)
+
+    monkeypatch.setattr(w.api, "request", flaky)
+    monkeypatch.setattr(w, "show_error", errors.append)
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: str(target))
+    _drive_dialog(panel, qtbot, "accept")
+    qtbot.mouseClick(card.agent_grant_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: bool(errors), timeout=5000)
+    qtbot.wait(300)
+    assert not seen
+    ready = next(
+        c for c in w.transcript.findChildren(MessageCard) if c.agent_continue_button is not None
+    )
+    assert ready.agent_continue_button.isVisible() and ready.agent_continue_button.isEnabled()
+    qtbot.mouseClick(ready.agent_continue_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: bool(seen) and panel.active is None, timeout=15000)
+    assert "OMNICORE_AGENT_TEST_84729" in seen[0]
+
+
+def test_required_folder_dir_resolution(tmp_path, monkeypatch):
+    from omnicore.desktop.agents import AgentPanel
+
+    d = tmp_path / "proj"
+    d.mkdir()
+    (d / "a.txt").write_text("x")
+    f = AgentPanel.required_folder_dir
+    assert f({"requested_folder_path": str(d / "a.txt")}) == str(d)
+    assert f({"requested_folder_path": str(d / "missing.txt")}) == str(d)
+    assert f({"requested_folder_path": str(d)}) == str(d)
+    assert f({"requested_folder_path": str(d / "no" / "x.txt")}) == str(d)
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    assert f({"requested_folder_path": "~/proj/a.txt"}) == str(d)
+    assert f({}) == "" and f(None) == ""

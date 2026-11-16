@@ -392,6 +392,8 @@
   "agent_persistence_session": "One-time",
   "agent_persistence_durable": "Persistent",
   "agent_folder_path_label": "Path:",
+  "agent_folder_required_label": "Requested by the agent:",
+  "agent_folder_mismatch_warning": "The selected folder does not contain the requested file or folder. The task cannot continue until the required folder is shared.",
   "agent_executing_tool": "Agent executing: {tool}",
   "stats_total_tokens": "Total tokens",
   "stats_total_task_time": "Total task time",

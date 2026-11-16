@@ -1,6 +1,7 @@
 """Small agent controls using RC8's Qt transport, themes and existing composer."""
 
 import inspect
+import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
@@ -45,6 +46,8 @@ class AgentPanel(QWidget):
         self.runs = []
         self.granted_folders = []
         self.folder_grant_cancelled_runs = set()
+        self._auto_resume = {}
+        self._resuming = set()
         self.compatibility_busy = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -328,6 +331,8 @@ class AgentPanel(QWidget):
         self.runs = []
         self.granted_folders = []
         self.folder_grant_cancelled_runs.clear()
+        self._auto_resume.clear()
+        self._resuming.clear()
         self.retry_button.hide()
         self.status.clear()
         self.status.hide()
@@ -552,9 +557,13 @@ class AgentPanel(QWidget):
         self._start_retry(run_id)
 
     def _start_retry(self, run_id):
+        if run_id in self._resuming:
+            return
+        self._resuming.add(run_id)
         self.busy(True)
 
         def received(record):
+            self._resuming.discard(run_id)
             for existing in self.runs:
                 if existing.get("id") == run_id:
                     existing["needs_folder_grant"] = False
@@ -566,8 +575,10 @@ class AgentPanel(QWidget):
             self.main.refresh_messages()
 
         def failed(code):
+            self._resuming.discard(run_id)
             self.busy(False)
             self.main.show_error(code)
+            self.visibility()  # Continue task stays available as the manual fallback.
 
         self.api.request(
             "POST",
@@ -630,10 +641,11 @@ class AgentPanel(QWidget):
             if getattr(self.main, "messages", None):
                 self.main.render_messages()
             self.visibility()
+            self._try_auto_resume()
 
         self.api.request("GET", BASE + f"/conversations/{conversation}/folders", success=received)
 
-    def create_folder_grant_dialog(self, path: str) -> QDialog:
+    def create_folder_grant_dialog(self, path: str, run: dict | None = None) -> QDialog:
         tr = self.main.tr
         dialog = QDialog(self)
         dialog.setWindowTitle(tr("agent_folder"))
@@ -643,6 +655,20 @@ class AgentPanel(QWidget):
         path_lbl.setTextFormat(Qt.PlainText)
         path_lbl.setWordWrap(True)
         layout.addWidget(path_lbl)
+        dialog.path_label = path_lbl
+        required = (run or {}).get("requested_folder_path") if isinstance(run, dict) else None
+        if required:
+            req_lbl = QLabel(f"{tr('agent_folder_required_label')} {required}")
+            req_lbl.setTextFormat(Qt.PlainText)
+            req_lbl.setWordWrap(True)
+            layout.addWidget(req_lbl)
+            dialog.required_label = req_lbl
+            if not self.grant_satisfies_run(run, [{"path": path, "subfolders": True}]):
+                mismatch = QLabel(tr("agent_folder_mismatch_warning"))
+                mismatch.setTextFormat(Qt.PlainText)
+                mismatch.setWordWrap(True)
+                layout.addWidget(mismatch)
+                dialog.mismatch_label = mismatch
         warn_lbl = QLabel(tr("agent_folder_warning"))
         warn_lbl.setTextFormat(Qt.PlainText)
         warn_lbl.setWordWrap(True)
@@ -672,7 +698,9 @@ class AgentPanel(QWidget):
         layout.addWidget(buttons)
         return dialog
 
-    def confirm_folder_grant(self, path: str) -> tuple[bool, bool, bool, bool, bool]:
+    def confirm_folder_grant(
+        self, path: str, run: dict | None = None
+    ) -> tuple[bool, bool, bool, bool, bool]:
         # Tests patch QMessageBox.question with a plain Python function (legacy flow).
         # Native PySide6 methods have ``__module__ is None``; never call str methods on it.
         if inspect.isfunction(QMessageBox.question):
@@ -696,7 +724,7 @@ class AgentPanel(QWidget):
                 == QMessageBox.Yes
             )
             return True, sensitive, True, True, False
-        dialog = self.folder_dialog = self.create_folder_grant_dialog(path)
+        dialog = self.folder_dialog = self.create_folder_grant_dialog(path, run)
         try:
             accepted = dialog.exec() == QDialog.Accepted
             return (
@@ -710,12 +738,30 @@ class AgentPanel(QWidget):
             self.folder_dialog = None
             dialog.deleteLater()
 
-    def grant_folder(self, run=None):
-        start_dir = ""
-        if isinstance(run, dict) and run.get("suggested_folder_name"):
+    @staticmethod
+    def required_folder_dir(run) -> str:
+        """Exact directory the run needs: the requested path itself if a directory, else
+        its parent, else the nearest existing ancestor; falls back to the suggested name."""
+        if not isinstance(run, dict):
+            return ""
+        requested = (run.get("requested_folder_path") or "").strip()
+        if requested:
+            raw = Path.home() / requested[2:] if requested.startswith("~/") else Path(requested)
+            if raw.is_absolute():
+                candidate = Path(os.path.normpath(raw))
+                for option in (candidate, *candidate.parents):
+                    if option == Path(option.anchor):
+                        break
+                    if option.is_dir():
+                        return str(option)
+        if run.get("suggested_folder_name"):
             candidate = Path.home() / run["suggested_folder_name"]
             if candidate.is_dir():
-                start_dir = str(candidate)
+                return str(candidate)
+        return ""
+
+    def grant_folder(self, run=None):
+        start_dir = self.required_folder_dir(run)
         path = (
             QFileDialog.getExistingDirectory(self, self.main.tr("agent_folder"), start_dir)
             if start_dir
@@ -726,17 +772,31 @@ class AgentPanel(QWidget):
                 self.folder_grant_cancelled_runs.add(run["id"])
                 self.main.render_messages()
             return
-        confirmed, sensitive, allow_write, subfolders, persistent = self.confirm_folder_grant(path)
+        confirmed, sensitive, allow_write, subfolders, persistent = (
+            self.confirm_folder_grant(path, run)
+            if self._confirm_accepts_run()
+            else self.confirm_folder_grant(path)
+        )
         if not confirmed:
             if isinstance(run, dict) and run.get("id"):
                 self.folder_grant_cancelled_runs.add(run["id"])
                 self.main.render_messages()
             return
-        if isinstance(run, dict) and run.get("id"):
-            self.folder_grant_cancelled_runs.discard(run["id"])
+        run_id = run.get("id") if isinstance(run, dict) and run.get("id") else None
+        if run_id:
+            self.folder_grant_cancelled_runs.discard(run_id)
+        conversation = self.conversation
+
+        def granted(record):
+            # Resume only after the backend confirmed the grant; refresh_folders re-verifies
+            # that the saved grant is listed and covers the run's target.
+            if run_id and isinstance(record, dict) and record.get("id"):
+                self._auto_resume[run_id] = (conversation, record["id"])
+            self.refresh_folders()
+
         self.api.request(
             "POST",
-            BASE + f"/conversations/{self.conversation}/folders",
+            BASE + f"/conversations/{conversation}/folders",
             {
                 "path": path,
                 "confirmed": True,
@@ -745,9 +805,35 @@ class AgentPanel(QWidget):
                 "subfolders": subfolders,
                 "persistent": persistent,
             },
-            success=lambda _: self.refresh_folders(),
+            success=granted,
             failure=self.main.show_error,
         )
+
+    def _confirm_accepts_run(self) -> bool:
+        try:
+            return "run" in inspect.signature(self.confirm_folder_grant).parameters
+        except (TypeError, ValueError):
+            return False
+
+    def _try_auto_resume(self):
+        """Resume a run once its freshly saved grant is confirmed by the backend listing."""
+        for run_id, (conversation, grant_id) in list(self._auto_resume.items()):
+            if conversation != self.conversation:
+                self._auto_resume.pop(run_id, None)
+                continue
+            run = next((r for r in self.runs if r.get("id") == run_id), None)
+            if not run or run.get("continued_by") or not run.get("needs_folder_grant"):
+                self._auto_resume.pop(run_id, None)
+                continue
+            grant = next((g for g in self.granted_folders if g.get("id") == grant_id), None)
+            if grant is None or not self.grant_satisfies_run(run, [grant]):
+                # Not saved or does not cover the target: keep the manual flow.
+                self._auto_resume.pop(run_id, None)
+                continue
+            if self.active or self.settings_saving or run_id in self._resuming:
+                continue
+            self._auto_resume.pop(run_id, None)
+            self.continue_run(run)
 
     def revoke_folder(self):
         item = self.folders.currentItem()

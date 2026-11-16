@@ -392,6 +392,8 @@
   "agent_persistence_session": "Jednorazowy",
   "agent_persistence_durable": "Trwały",
   "agent_folder_path_label": "Ścieżka:",
+  "agent_folder_required_label": "Żądane przez agenta:",
+  "agent_folder_mismatch_warning": "Wybrany folder nie obejmuje żądanego pliku ani folderu. Zadanie nie może być kontynuowane, dopóki nie udostępnisz wymaganego folderu.",
   "agent_executing_tool": "Agent wykonuje: {tool}",
   "stats_total_tokens": "Łącznie tokenów",
   "stats_total_task_time": "Łączny czas zadania",

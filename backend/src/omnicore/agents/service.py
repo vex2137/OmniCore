@@ -450,6 +450,9 @@ class Agents:
             if support["status"] == "unsupported" and settings.protocol == "auto":
                 raise TextError("agent_model_unsupported", 422)
             parent = self.record(request.retry_of) if request.retry_of else None
+            if parent and parent.get("continued_by"):
+                # A folder-grant continuation already exists; never fork a second run.
+                raise TextError("agent_retry_unavailable", 409)
             if parent and (
                 parent["conversation_id"] != conversation_id
                 or (
@@ -511,6 +514,7 @@ class Agents:
                 step_limit=settings.max_steps,
                 web_access=settings.web_access,
                 folder_intent=intent,
+                available_tools=[sch["function"]["name"] for sch in schemas(settings)],
                 _request_fs_hint=fs_hint,
                 suggested_folder_name=suggested_folder,
                 requested_folder_path=requested_path,
