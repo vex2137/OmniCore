@@ -42,7 +42,9 @@ jobs:
         with:
           cache-read-only: false
       - name: Install pinned SDK packages
-        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;29.0.14206865' 'cmake;3.31.6'
+      - name: Build pinned llama.cpp Android arm64 CPU/Vulkan binary
+        run: python3 scripts/build_android_native.py --sdk "$ANDROID_SDK_ROOT" --jobs 4
       - name: Unit tests, Android lint and signed test APKs
         working-directory: apps/android
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest

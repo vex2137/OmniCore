@@ -62,3 +62,20 @@ tasks.withType<Test>().configureEach {
         else excludeTestsMatching("*.RealBackendTest")
     }
 }
+
+val verifyNativeInferenceBinary by
+    tasks.registering {
+        doLast {
+            val nativeLib = file("src/main/jniLibs/arm64-v8a/libomnicore_llama.so")
+            if (!nativeLib.isFile || nativeLib.length() < 1_000_000L) {
+                throw GradleException(
+                    "Missing native Android inference binary at ${nativeLib.absolutePath}. " +
+                        "Run: python3 scripts/build_android_native.py --sdk <ANDROID_SDK_ROOT>"
+                )
+            }
+        }
+    }
+
+tasks.matching { it.name == "packageDebug" || it.name == "packageRelease" }.configureEach {
+    dependsOn(verifyNativeInferenceBinary)
+}

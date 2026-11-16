@@ -1,0 +1,23 @@
+{
+  "llamaCommit": "620d2225cc436ab0b001e3200e590e3b286ef9ab",
+  "llamaVersion": "b11669",
+  "abi": "arm64-v8a",
+  "minApi": 28,
+  "ndk": "29.0.14206865",
+  "vulkan": true,
+  "binarySha256": "b21159c2dde1d2d4758d3208e74966ee9161151616764d100618914185996d25",
+  "sources": [
+    {
+      "url": "https://codeload.github.com/ggml-org/llama.cpp/tar.gz/620d2225cc436ab0b001e3200e590e3b286ef9ab",
+      "sha256": "1d4a987d9bd048f6e93107e838026438df70fbde237fc0c69c63d600512b4bd9"
+    },
+    {
+      "url": "https://codeload.github.com/KhronosGroup/SPIRV-Headers/tar.gz/vulkan-sdk-1.4.313.0",
+      "sha256": "f68be549d74afb61600a1e3a7d1da1e6b7437758c8e77d664909f88f302c5ac1"
+    },
+    {
+      "url": "https://codeload.github.com/KhronosGroup/Vulkan-Headers/tar.gz/vulkan-sdk-1.4.335.0",
+      "sha256": "269e95cc5138ea0a0d52fcb0ee19102add2560fedf5a43b1b5c17780c2775764"
+    }
+  ]
+}

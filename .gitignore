@@ -26,3 +26,5 @@ build/
 local.properties
 *.jks
 *.keystore
+
+apps/android/app/src/main/jniLibs/**/*.so
