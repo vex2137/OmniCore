@@ -16,6 +16,7 @@ import kotlinx.coroutines.withContext
 
 // All durable chat/model data belongs to the backend. This is a transient API projection.
 data class UiState(
+    val localMode: Boolean = false,
     val connected: Boolean = false,
     val connecting: Boolean = false,
     val authorizationFailed: Boolean = false,
@@ -59,10 +60,12 @@ class OmniViewModel(
     private val settings: ClientSettings,
     private val repository: (String, String) -> OmniRepository = ::OmniApi,
     private val io: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
+    private val localRepository: (() -> OmniRepository)? = null,
 ) : ViewModel() {
     private val mutable =
         MutableStateFlow(
             UiState(
+                localMode = settings.localMode && localRepository != null,
                 url = settings.url,
                 trustedLan = settings.trustedLan,
                 theme = settings.theme,
@@ -82,7 +85,8 @@ class OmniViewModel(
     private var pendingConversation: String? = null
 
     init {
-        if (settings.url.isNotBlank()) connect()
+        if (settings.localMode && localRepository != null) connectLocal()
+        else if (settings.url.isNotBlank()) connect()
     }
 
     private fun error(exception: Exception) {
@@ -132,7 +136,61 @@ class OmniViewModel(
         api = null
     }
 
+    fun setLocalMode(enabled: Boolean) {
+        if (mutable.value.busy || mutable.value.generating) return
+        val canLocal = enabled && localRepository != null
+        settings.localMode = canLocal
+        mutable.update { it.copy(localMode = canLocal, error = null) }
+        if (canLocal) {
+            connectLocal()
+        } else {
+            closeTransport()
+            mutable.update { it.copy(connected = false, conversations = emptyList(), models = emptyList(), messages = emptyList(), engines = emptyList(), generation = null) }
+            if (settings.url.isNotBlank()) connect()
+        }
+    }
+
+    fun connectLocal() {
+        val factory = localRepository ?: return
+        if (mutable.value.busy) return
+        closeTransport()
+        mutable.update {
+            it.copy(
+                localMode = true,
+                busy = true,
+                connecting = true,
+                authorizationFailed = false,
+                connected = false,
+                error = null,
+                reconnecting = false,
+            )
+        }
+        viewModelScope.launch {
+            var candidate: OmniRepository? = null
+            try {
+                val service = withContext(io) { factory() }
+                candidate = service
+                val health = withContext(io) { service.health() }
+                api = service
+                candidate = null
+                mutable.update { it.copy(connected = true, health = health, reconnecting = false) }
+                refresh(service)
+            } catch (e: Exception) {
+                candidate?.close()
+                closeTransport()
+                mutable.update { it.copy(connected = false) }
+                error(e)
+            } finally {
+                mutable.update { it.copy(busy = false, connecting = false) }
+            }
+        }
+    }
+
     fun connect() {
+        if (mutable.value.localMode && localRepository != null) {
+            connectLocal()
+            return
+        }
         if (mutable.value.busy) return
         closeTransport()
         mutable.update {
@@ -186,6 +244,7 @@ class OmniViewModel(
     private fun scheduleReconnect() {
         if (
             paused ||
+                mutable.value.localMode ||
                 settings.url.isBlank() ||
                 mutable.value.authorizationFailed ||
                 recovery?.isActive == true
@@ -241,6 +300,7 @@ class OmniViewModel(
                 withContext(io) {
                     if (newToken.isNotEmpty() || clearToken) settings.storeToken(newToken)
                     settings.url = url
+                    settings.localMode = false
                     settings.trustedLan = trustedLan
                 }
                 if (url != mutable.value.url) {
@@ -250,13 +310,14 @@ class OmniViewModel(
                     pendingConversation = null
                     mutable.update {
                         UiState(
+                            localMode = false,
                             url = url,
                             trustedLan = trustedLan,
                             theme = it.theme,
                             language = it.language,
                         )
                     }
-                } else mutable.update { it.copy(url = url, trustedLan = trustedLan, busy = false) }
+                } else mutable.update { it.copy(localMode = false, url = url, trustedLan = trustedLan, busy = false) }
                 connect()
             } catch (e: Exception) {
                 mutable.update { it.copy(busy = false) }
@@ -575,12 +636,22 @@ class OmniViewModel(
         epoch++
         events?.cancel()
         events = null
+        if (mutable.value.localMode && mutable.value.generating) {
+            val activeId = mutable.value.generation?.id
+            val service = api
+            if (activeId != null && service != null) {
+                viewModelScope.launch(io) { runCatching { service.cancel(activeId) } }
+            }
+        }
     }
 
     fun resume() {
         val wasPaused = paused
         paused = false
-        if (wasPaused && settings.url.isNotBlank()) connect()
+        if (wasPaused) {
+            if (mutable.value.localMode && localRepository != null) connectLocal()
+            else if (settings.url.isNotBlank()) connect()
+        }
     }
 
     private fun pollDownloads(service: OmniRepository) {

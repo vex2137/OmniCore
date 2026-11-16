@@ -19,7 +19,10 @@ class MainActivity : AppCompatActivity() {
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                OmniViewModel(SecureSettings(applicationContext)) as T
+                OmniViewModel(
+                    SecureSettings(applicationContext),
+                    localRepository = { LocalOmniRepository(applicationContext) },
+                ) as T
         }
     }
     private val networkCallback =

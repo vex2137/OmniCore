@@ -20,6 +20,14 @@ class SecureSettings(context: Context) : ClientSettings {
             preferences.edit().putString("url", value).apply()
         }
 
+    override var localMode: Boolean
+        get() =
+            if (preferences.contains("local_mode")) preferences.getBoolean("local_mode", true)
+            else url.isBlank()
+        set(value) {
+            preferences.edit().putBoolean("local_mode", value).apply()
+        }
+
     override var trustedLan: Boolean
         get() = preferences.getBoolean("trusted_lan", false)
         set(value) {

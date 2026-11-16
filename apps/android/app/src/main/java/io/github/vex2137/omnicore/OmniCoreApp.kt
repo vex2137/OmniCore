@@ -3,6 +3,8 @@
 package io.github.vex2137.omnicore
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -574,6 +576,10 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
     var path by remember { mutableStateOf("") }
     var removing by remember { mutableStateOf<ModelInfo?>(null) }
     var engine by rememberSaveable { mutableStateOf("all") }
+    val picker =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) vm.importModel(uri.toString())
+        }
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
         contentPadding = PaddingValues(vertical = 16.dp),
@@ -593,13 +599,16 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
         }
         item {
             OutlinedButton(
-                onClick = { importing = true },
+                onClick = {
+                    if (s.localMode) picker.launch(arrayOf("*/*")) else importing = true
+                },
                 enabled = s.connected && !s.busy && !s.generating,
+                modifier = Modifier.testTag("import_model_button"),
             ) {
-                Text(stringResource(R.string.import_model))
+                Text(stringResource(if (s.localMode) R.string.import_local_model else R.string.import_model))
             }
         }
-        item { ModelDownloads(s, vm) }
+        if (!s.localMode) item { ModelDownloads(s, vm) }
         item {
             Choice(
                 listOf("all" to stringResource(R.string.all_engines)) +
@@ -735,6 +744,23 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(R.string.execution_mode), style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = s.localMode,
+                onClick = { vm.setLocalMode(true) },
+                enabled = !s.busy && !s.generating,
+                label = { Text(stringResource(R.string.mode_on_device)) },
+                modifier = Modifier.testTag("mode_local"),
+            )
+            FilterChip(
+                selected = !s.localMode,
+                onClick = { vm.setLocalMode(false) },
+                enabled = !s.busy && !s.generating,
+                label = { Text(stringResource(R.string.mode_remote)) },
+                modifier = Modifier.testTag("mode_remote"),
+            )
+        }
         Text(stringResource(R.string.connection_hint))
         OutlinedTextField(
             url,

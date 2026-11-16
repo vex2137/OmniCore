@@ -48,14 +48,19 @@ fun GenerationSettings(s: UiState, vm: OmniViewModel) {
     if (llama) {
         Text(stringResource(R.string.processing_backend))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val gpuKey = if (s.localMode) "vulkan" else "cuda"
+            val gpuLabel = if (s.localMode) R.string.mode_vulkan else R.string.mode_cuda
             listOf(
                     "auto" to R.string.mode_auto,
                     "cpu" to R.string.mode_cpu,
-                    "cuda" to R.string.mode_cuda,
+                    gpuKey to gpuLabel,
                 )
                 .forEach { (mode, label) ->
                     FilterChip(
-                        selected = device == mode || (mode == "cuda" && device.startsWith("CUDA")),
+                        selected =
+                            device == mode ||
+                                (mode == "cuda" && device.startsWith("CUDA")) ||
+                                (mode == "vulkan" && device.startsWith("Vulkan")),
                         onClick = { device = mode },
                         label = { Text(stringResource(label)) },
                     )

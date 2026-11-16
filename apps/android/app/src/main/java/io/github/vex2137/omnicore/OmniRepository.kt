@@ -75,6 +75,9 @@ interface OmniRepository {
 
 interface ClientSettings {
     var url: String
+    var localMode: Boolean
+        get() = false
+        set(_) {}
     var trustedLan: Boolean
     var theme: String
     var language: String

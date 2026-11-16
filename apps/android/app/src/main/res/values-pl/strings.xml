@@ -156,6 +156,11 @@ Pobrać ten plik na komputer backendu?</string>
   <string name="mode_auto">Auto</string>
   <string name="mode_cpu">CPU</string>
   <string name="mode_cuda">CUDA</string>
+  <string name="mode_vulkan">Vulkan</string>
+  <string name="execution_mode">Tryb inferencji</string>
+  <string name="mode_on_device">Lokalnie na telefonie (Offline)</string>
+  <string name="mode_remote">Zdalny backend</string>
+  <string name="import_local_model">Importuj GGUF z urządzenia</string>
   <string name="error_gpu">Backend nie mógł użyć GPU. Wybierz Auto dla fallback CPU lub sprawdź diagnostykę silnika na komputerze.</string>
   <string name="launcher_name">OmniCore RC</string>
 </resources>
