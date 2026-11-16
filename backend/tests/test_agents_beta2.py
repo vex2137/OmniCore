@@ -880,3 +880,121 @@ def test_casual_prompts_skip_folder_grant_while_fs_requests_prompt(tmp_path):
         await agents.service.generations.close()
 
     asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    "xml_call",
+    [
+        "<tool_call>\n  <function=calculate>\n    "
+        "<parameter=expression>1847 * 293</parameter>\n  </function>\n</tool_call>",
+        "<tool_call>\n<function=calculate>\n<parameter=expression>\n"
+        "  1847 * 293\n</parameter>\n</function>\n</tool_call>",
+        "```xml\n<tool_call>\n  <function=calculate>\n    "
+        "<parameter=expression>1847 * 293</parameter>\n  </function>\n</tool_call>\n```",
+    ],
+)
+def test_lfm3_xml_tool_call_executes_real_calculate_tool(tmp_path, xml_call):
+    async def exercise():
+        agents, conv, engine = setup(tmp_path, [xml_call, "541171"])
+        record = await agents.submit(conv.id, AgentRequest(content="Calculate 1847 * 293"))
+        await agents.tasks[record["id"]]
+        result = agents.record(record["id"])
+        assert result["state"] == "completed"
+        assert [s["tool"] for s in result["steps"]] == ["calculate"]
+        assert result["steps"][0]["state"] == "completed"
+        assert result["steps"][0]["result_summary"] == {"value": 541171}
+        assert "541171" in engine.messages[1][-1].content
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        "<tool_call><function=calculate><parameter=expression>1847 * 293</parameter></function>",
+        "<tool_call><function=calculate><parameter=expression>1847 * 293</parameter></tool_call>",
+        "<tool_call><function=calculate><parameter=expression>1847 * 293</function></tool_call>",
+        "<tool_call><function=calculate><stray>oops</stray><parameter=expression>1+1</parameter></function></tool_call>",
+        "<tool_call><function=calculate><parameter=expression>1+1</parameter></function></tool_call><tool_call><function=calculate><parameter=expression>2+2</parameter></function></tool_call>",
+    ],
+)
+def test_lfm3_xml_malformed_tags_are_rejected(malformed):
+    with pytest.raises(TextError) as exc:
+        parse_turn(malformed, native=False)
+    assert exc.value.code == "agent_protocol_invalid"
+
+
+def test_lfm3_xml_unknown_tool_and_invalid_arguments_are_blocked(tmp_path):
+    async def exercise():
+        agents, conv, _ = setup(
+            tmp_path,
+            [
+                "<tool_call>\n<function=shell_exec>\n<parameter=cmd>id</parameter>\n</function>\n</tool_call>",
+                "Refused unknown tool.",
+            ],
+        )
+        unknown_run = await agents.submit(conv.id, AgentRequest(content="run shell"))
+        await agents.tasks[unknown_run["id"]]
+        res_unknown = agents.record(unknown_run["id"])
+        assert res_unknown["steps"][0]["tool"] == "shell_exec"
+        assert res_unknown["steps"][0]["state"] == "failed"
+        assert res_unknown["steps"][0]["error_code"] == "agent_unknown_tool"
+
+        agents2, conv2, _ = setup(
+            tmp_path / "b",
+            [
+                "<tool_call>\n<function=calculate>\n<parameter=expression>__import__('os').system('id')</parameter>\n</function>\n</tool_call>",
+                "Invalid expression.",
+            ],
+        )
+        bad_expr = await agents2.submit(conv2.id, AgentRequest(content="bad calc"))
+        await agents2.tasks[bad_expr["id"]]
+        res_bad = agents2.record(bad_expr["id"])
+        assert res_bad["steps"][0]["state"] == "failed"
+        assert res_bad["steps"][0]["error_code"] == "agent_invalid_calculation"
+
+        agents3, conv3, _ = setup(
+            tmp_path / "c",
+            [
+                "<tool_call>\n<function=calculate>\n</function>\n</tool_call>",
+                "Missing expression.",
+            ],
+        )
+        missing_arg = await agents3.submit(conv3.id, AgentRequest(content="missing arg"))
+        await agents3.tasks[missing_arg["id"]]
+        res_missing = agents3.record(missing_arg["id"])
+        assert res_missing["steps"][0]["state"] == "failed"
+        assert res_missing["steps"][0]["error_code"] == "agent_invalid_arguments"
+
+        await agents.close()
+        await agents.service.generations.close()
+        await agents2.close()
+        await agents2.service.generations.close()
+        await agents3.close()
+        await agents3.service.generations.close()
+
+    asyncio.run(exercise())
+
+
+def test_qwen_json_protocol_still_executes_calculate(tmp_path):
+    async def exercise():
+        agents, conv, _ = setup(
+            tmp_path,
+            [
+                "<think>Calculating</think>\n"
+                '{"kind": "tool", "name": "calculate", "arguments": {"expression": "1847 * 293"}}',
+                '{"kind": "final", "text": "541171"}',
+            ],
+        )
+        record = await agents.submit(conv.id, AgentRequest(content="Calculate 1847 * 293"))
+        await agents.tasks[record["id"]]
+        result = agents.record(record["id"])
+        assert result["state"] == "completed"
+        assert [s["tool"] for s in result["steps"]] == ["calculate"]
+        assert result["steps"][0]["result_summary"] == {"value": 541171}
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())

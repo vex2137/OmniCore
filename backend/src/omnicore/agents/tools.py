@@ -116,7 +116,10 @@ def calculate(expression):
         ast.Mod: operator.mod,
         ast.Pow: operator.pow,
     }
-    tree = ast.parse(expression, mode="eval")
+    try:
+        tree = ast.parse(expression.strip(), mode="eval")
+    except SyntaxError as exc:
+        raise TextError("agent_invalid_calculation", 422) from exc
     if len(list(ast.walk(tree))) > 64:
         raise TextError("agent_calculation_limit", 422)
 

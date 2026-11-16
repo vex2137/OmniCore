@@ -41,7 +41,7 @@ _TOOL_CALL_RE = re.compile(
 _XML_FUNC_RE = re.compile(r"^\s*<function=([a-zA-Z0-9_-]+)>\s*([\s\S]*?)\s*</function>\s*$")
 _XML_PARAM_RE = re.compile(r"<parameter=([a-zA-Z0-9_-]+)>\r?\n?([\s\S]*?)\r?\n?</parameter>")
 _FENCE_RE = re.compile(
-    r"^\s*(?:(?P<prefix>[^{}`<>]*?)\s*)?```(?:json)?\s*(?P<body>\{[\s\S]*?\})\s*```\s*$"
+    r"^\s*(?:(?P<prefix>[^{}`<>]*?)\s*)?```(?:json|xml)?\s*(?P<body>(?:\{[\s\S]*?\}|<tool_call>[\s\S]*?</tool_call>))\s*```\s*$"
 )
 _EMBEDDED_PROTO_RE = re.compile(r'\{\s*"(?:kind|name|tool|arguments|tool_calls|steps|final)"\s*:')
 _TRAILING_FINAL_JSON_RE = re.compile(
@@ -143,6 +143,12 @@ def _parse_non_native(response: str) -> dict:
     text = _THINK_BLOCK_RE.sub("", response).strip()
     if not text or "<think>" in text or "</think>" in text:
         raise TextError("agent_protocol_invalid", 422)
+    fence_match = _FENCE_RE.fullmatch(text)
+    if fence_match and fence_match.group("body").lstrip().startswith("<tool_call>"):
+        prefix = (fence_match.group("prefix") or "").strip()
+        if prefix and _looks_like_broken_protocol(prefix):
+            raise TextError("agent_protocol_invalid", 422)
+        text = fence_match.group("body").strip()
     tool_match = _TOOL_CALL_RE.fullmatch(text)
     if tool_match:
         prefix = (tool_match.group("prefix") or "").strip()
@@ -154,8 +160,12 @@ def _parse_non_native(response: str) -> dict:
         fn_match = _XML_FUNC_RE.fullmatch(inner)
         if fn_match:
             fn_name = fn_match.group(1)
+            fn_body = fn_match.group(2)
+            # Reject unclosed <parameter=...> tags or stray content outside valid parameter tags.
+            if _XML_PARAM_RE.sub("", fn_body).strip():
+                raise TextError("agent_protocol_invalid", 422)
             params: dict = {}
-            for key, raw_val in _XML_PARAM_RE.findall(fn_match.group(2)):
+            for key, raw_val in _XML_PARAM_RE.findall(fn_body):
                 val = re.sub(r"^\r?\n|\r?\n$", "", raw_val)
                 if key in _INT_PARAM_NAMES and val.strip().isdigit():
                     params[key] = int(val.strip())
