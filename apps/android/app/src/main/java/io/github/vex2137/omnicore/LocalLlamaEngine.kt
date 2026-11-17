@@ -17,9 +17,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import java.util.regex.Pattern
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -30,6 +28,13 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
+data class VulkanDeviceInfo(
+    val id: String,
+    val name: String,
+    val vendor: String,
+    val heapMiB: Long? = null,
+)
+
 data class LocalEngineSnapshot(
     val available: Boolean,
     val loaded: Boolean,
@@ -39,6 +44,10 @@ data class LocalEngineSnapshot(
     val gpuActive: Boolean = false,
     val offloadedLayers: Int = 0,
     val deviceName: String? = null,
+    val deviceVendor: String? = null,
+    val reportedHeapMiB: Long? = null,
+    val vulkanApiVersion: String? = null,
+    val vulkanHardwareLevel: Int? = null,
     val gpuDevices: List<String> = emptyList(),
     val fallbackReason: String? = null,
     val ramBytes: Long? = null,
@@ -71,17 +80,16 @@ class LocalLlamaEngine(
     private val binaryProvider: () -> File,
     private val sdkLevel: Int = Build.VERSION.SDK_INT,
     private val cpuThreads: Int = Runtime.getRuntime().availableProcessors().coerceIn(1, 4),
-    private val vulkanFeatureAvailable: Boolean = false,
+    private val vulkanApiVersion: String? = null,
+    private val vulkanHardwareLevel: Int? = null,
 ) {
     constructor(context: Context) : this(
         binaryProvider = {
             File(context.applicationInfo.nativeLibraryDir, "libomnicore_llama.so")
         },
         sdkLevel = Build.VERSION.SDK_INT,
-        vulkanFeatureAvailable =
-            context.packageManager.systemAvailableFeatures.any {
-                it.name == "android.hardware.vulkan.version"
-            },
+        vulkanApiVersion = readVulkanApiVersion(context),
+        vulkanHardwareLevel = readVulkanHardwareLevel(context),
     )
 
     private val epoch = AtomicLong(0)
@@ -95,23 +103,27 @@ class LocalLlamaEngine(
     private var loadedModelPath: String? = null
     private var loadedModelName: String? = null
     private var loadedContext: Int = 2048
+    private var loadedLayerTarget: Int = 0
     private var apiKey: String = ""
     private var endpoint: String = ""
     private var gpuMode: Boolean = false
     private var gpuConfirmed: Boolean = false
     @Volatile private var offloadedLayers: Int = 0
     private var deviceName: String? = null
+    private var deviceVendor: String? = null
+    private var reportedHeapMiB: Long? = null
     private var fallbackReason: String? = null
     private var loadSeconds: Double? = null
     private var lastLog: String = ""
     private var gpuDiagnostics: GpuDiagnostics? = null
-    private var probedDevices: List<String> = emptyList()
+    private var probedDevices: List<VulkanDeviceInfo> = emptyList()
 
     fun isBinaryAvailable(): Boolean = binaryProvider().isFile && sdkLevel >= 28
 
     fun snapshot(): LocalEngineSnapshot {
         val p = process
         val alive = p != null && p.isAlive && loadedModelId != null
+        val firstDev = probedDevices.firstOrNull()
         return LocalEngineSnapshot(
             available = isBinaryAvailable(),
             loaded = alive,
@@ -120,8 +132,12 @@ class LocalLlamaEngine(
             backend = if (gpuMode) "vulkan" else "cpu-native",
             gpuActive = alive && gpuConfirmed,
             offloadedLayers = if (alive) offloadedLayers else 0,
-            deviceName = deviceName,
-            gpuDevices = probedDevices,
+            deviceName = deviceName ?: firstDev?.name,
+            deviceVendor = deviceVendor ?: firstDev?.vendor,
+            reportedHeapMiB = reportedHeapMiB ?: firstDev?.heapMiB,
+            vulkanApiVersion = vulkanApiVersion,
+            vulkanHardwareLevel = vulkanHardwareLevel,
+            gpuDevices = probedDevices.map { "${it.id}: ${it.name}" },
             fallbackReason = fallbackReason,
             ramBytes = if (alive) readProcessRssBytes(p) else null,
             loadSeconds = loadSeconds,
@@ -134,9 +150,8 @@ class LocalLlamaEngine(
         val version = epoch.get()
         return runCatching {
             val output = runProbe(version)
-            val found = parseVulkanDevices(output)
-            probedDevices = found.map { "${it.first}: ${it.second}" }
-            probedDevices
+            probedDevices = parseVulkanDeviceInfos(output)
+            probedDevices.map { "${it.id}: ${it.name}" }
         }.getOrElse { emptyList() }
     }
 
@@ -152,41 +167,44 @@ class LocalLlamaEngine(
             val version = epoch.get()
             val alive = process?.isAlive == true
             val normalizedMode = normalizeMode(devicePreference)
+            val targetGpuLayers =
+                if (normalizedMode == "cpu") 0 else gpuLayers.takeIf { it > 0 } ?: 99
             if (
                 alive &&
                     loadedModelId == modelId &&
                     loadedModelPath == modelFile.absolutePath &&
                     loadedContext == contextSize &&
-                    ((normalizedMode == "cpu" && !gpuMode) || (normalizedMode != "cpu"))
+                    loadedLayerTarget == targetGpuLayers &&
+                    ((normalizedMode == "cpu" && !gpuMode) || (normalizedMode != "cpu" && gpuMode))
             ) {
                 return
             }
             if (!isBinaryAvailable()) throw ApiFailure("engine_unavailable")
             if (!modelFile.isFile) throw ApiFailure("model_not_found")
             fallbackReason = null
-            deviceName = null
 
             if (normalizedMode != "cpu") {
-                val diag = GpuDiagnostics(gpuLayers.coerceIn(1, 999), contextSize)
+                val diag = GpuDiagnostics(targetGpuLayers, contextSize)
                 gpuDiagnostics = diag
                 try {
                     val output = runProbe(version, diag)
-                    val devices = parseVulkanDevices(output)
-                    probedDevices = devices.map { "${it.first}: ${it.second}" }
-                    val chosen = devices.firstOrNull()
+                    probedDevices = parseVulkanDeviceInfos(output)
+                    val chosen = probedDevices.firstOrNull()
                     if (chosen == null) {
                         fallbackReason = "no-compatible-gpu"
                         diag.fail(ApiFailure("gpu_unavailable"), null)
                     } else {
-                        deviceName = chosen.second
-                        diag.selected(chosen.first)
+                        deviceName = chosen.name
+                        deviceVendor = chosen.vendor
+                        reportedHeapMiB = chosen.heapMiB
+                        diag.selected(chosen.id)
                         startServer(
                             modelId = modelId,
                             modelName = modelName,
                             modelFile = modelFile,
                             contextSize = contextSize,
-                            vulkanDevice = chosen.first,
-                            gpuLayers = gpuLayers.coerceIn(1, 999),
+                            vulkanDevice = chosen.id,
+                            gpuLayers = targetGpuLayers,
                             version = version,
                             diag = diag,
                         )
@@ -196,8 +214,22 @@ class LocalLlamaEngine(
                     checkEpoch(version)
                     val exit = process?.let { if (it.isAlive) null else it.exitValue() }
                     diag.fail(e, exit)
-                    fallbackReason = diag.fallbackReason()
                     stopProcess()
+                    // Structural model errors must never silently retry or be masked as GPU failures.
+                    if (
+                        e is ApiFailure &&
+                            e.code in
+                            setOf(
+                                "unsupported_architecture",
+                                "unsupported_quantization",
+                                "missing_tokenizer",
+                                "invalid_gguf",
+                                "incomplete_gguf",
+                            )
+                    ) {
+                        throw e
+                    }
+                    fallbackReason = diag.fallbackReason()
                 }
                 if (normalizedMode == "gpu") throw ApiFailure("gpu_unavailable")
             }
@@ -239,6 +271,9 @@ class LocalLlamaEngine(
             checkEpoch(version)
             val normalizedMode = normalizeMode(parameters.device)
             if (!gpuMode || normalizedMode == "gpu") throw e
+            if (e is ApiFailure && e.code in setOf("context_limit_exceeded", "empty_response", "reasoning_limit_reached")) {
+                throw e
+            }
             // Safe GPU-to-CPU fallback when Vulkan inference fails before completing.
             synchronized(lock) {
                 gpuDiagnostics?.recordStage("inference")
@@ -338,7 +373,12 @@ class LocalLlamaEngine(
 
         try {
             conn.outputStream.use { it.write(payload.toByteArray(StandardCharsets.UTF_8)) }
-            if (conn.responseCode != 200) throw ApiFailure("invalid_response")
+            if (conn.responseCode != 200) {
+                val errText =
+                    runCatching { conn.errorStream?.bufferedReader()?.readText().orEmpty() }
+                        .getOrDefault("")
+                throw ApiFailure(classifyHttpError(errText))
+            }
             BufferedReader(InputStreamReader(conn.inputStream, StandardCharsets.UTF_8)).use {
                 reader ->
                 while (true) {
@@ -375,11 +415,19 @@ class LocalLlamaEngine(
                     chunk["timings"]?.let { if (it is JsonObject) timingsObj = it }
                 }
             }
+            if (contentBuf.isEmpty()) {
+                if (reasoningBuf.isNotEmpty() && finishReason == "length") {
+                    throw ApiFailure("reasoning_limit_reached")
+                }
+                throw ApiFailure("empty_response")
+            }
             val totalSeconds = ((System.nanoTime() - startedNs) / 1e9).coerceAtLeast(0.001)
-            val inputTokens = usageObj?.get("prompt_tokens")?.jsonPrimitive?.intOrNull
-                ?: timingsObj?.get("prompt_n")?.jsonPrimitive?.intOrNull
-            val outputTokens = usageObj?.get("completion_tokens")?.jsonPrimitive?.intOrNull
-                ?: timingsObj?.get("predicted_n")?.jsonPrimitive?.intOrNull
+            val inputTokens =
+                usageObj?.get("prompt_tokens")?.jsonPrimitive?.intOrNull
+                    ?: timingsObj?.get("prompt_n")?.jsonPrimitive?.intOrNull
+            val outputTokens =
+                usageObj?.get("completion_tokens")?.jsonPrimitive?.intOrNull
+                    ?: timingsObj?.get("predicted_n")?.jsonPrimitive?.intOrNull
             val predictedPerSec =
                 timingsObj?.get("predicted_per_second")?.jsonPrimitive?.doubleOrNull
                     ?: outputTokens?.let { it / totalSeconds }
@@ -457,6 +505,8 @@ class LocalLlamaEngine(
                 "--ubatch-size",
                 "64",
                 "--no-webui",
+                "-lv",
+                "4",
                 "--n-gpu-layers",
                 if (vulkanDevice == null) "0" else gpuLayers.toString(),
                 "--device",
@@ -513,30 +563,18 @@ class LocalLlamaEngine(
             loadedModelPath = modelFile.absolutePath
             loadedModelName = modelName
             loadedContext = contextSize
+            loadedLayerTarget = if (vulkanDevice == null) 0 else gpuLayers
             gpuMode = vulkanDevice != null
             gpuConfirmed = false
             loadSeconds = (System.nanoTime() - startedNs) / 1e9
             diag?.loaded(offloadedLayers)
         } catch (e: Exception) {
             if (!p.isAlive) reader.join(500)
-            val detail = synchronized(this) { lastLog.lowercase(Locale.ROOT) }
+            val detail = synchronized(this) { lastLog }
             stopProcess()
-            if (vulkanDevice == null && e.message != "cancelled") {
-                if (
-                    detail.contains("out of memory") ||
-                        detail.contains("bad_alloc") ||
-                        detail.contains("allocation failed")
-                ) {
-                    throw ApiFailure("out_of_memory")
-                }
-                if (
-                    detail.contains("unknown model architecture") ||
-                        detail.contains("failed to load model") ||
-                        detail.contains("invalid gguf")
-                ) {
-                    throw ApiFailure("invalid_gguf")
-                }
-            }
+            if (e is ApiFailure && e.code == "cancelled") throw e
+            val classified = classifyStartupLog(detail)
+            if (classified != null) throw ApiFailure(classified)
             throw e
         }
     }
@@ -597,6 +635,7 @@ class LocalLlamaEngine(
         loadedModelId = null
         loadedModelPath = null
         loadedModelName = null
+        loadedLayerTarget = 0
         gpuMode = false
         gpuConfirmed = false
         offloadedLayers = 0
@@ -629,7 +668,8 @@ class LocalLlamaEngine(
 
     companion object {
         private val OFFLOAD_PATTERN = Pattern.compile("offloaded (\\d+)/\\d+ layers to GPU")
-        private val VULKAN_DEVICE_PATTERN = Pattern.compile("(?m)^\\s*(Vulkan\\d+):\\s*(.+)$")
+        private val VULKAN_DEVICE_PATTERN =
+            Pattern.compile("(?m)^\\s*(Vulkan\\d+):\\s*(.+?)(?:\\s*\\((\\d+)\\s*MiB,\\s*(\\d+)\\s*MiB free\\))?\\s*$")
         private val SOFTWARE_RENDERER_RE =
             Regex("(?i).*(llvmpipe|lavapipe|swiftshader|software|cpu).*")
 
@@ -643,17 +683,92 @@ class LocalLlamaEngine(
                 else -> "auto"
             }
 
-        fun parseVulkanDevices(output: String): List<Pair<String, String>> {
-            val result = ArrayList<Pair<String, String>>()
+        fun inferVendor(deviceName: String): String {
+            val lower = deviceName.lowercase(Locale.ROOT)
+            return when {
+                "mali" in lower || "immortalis" in lower -> "ARM Mali"
+                "adreno" in lower -> "Qualcomm Adreno"
+                "powervr" in lower -> "Imagination PowerVR"
+                "xclipse" in lower -> "Samsung Xclipse"
+                "nvidia" in lower || "geforce" in lower -> "NVIDIA"
+                "amd" in lower || "radeon" in lower -> "AMD"
+                "intel" in lower -> "Intel"
+                else -> "Unknown"
+            }
+        }
+
+        fun parseVulkanDeviceInfos(output: String): List<VulkanDeviceInfo> {
+            val result = ArrayList<VulkanDeviceInfo>()
             val matcher = VULKAN_DEVICE_PATTERN.matcher(output)
             while (matcher.find()) {
                 val id = matcher.group(1)?.trim().orEmpty()
                 val name = matcher.group(2)?.trim().orEmpty()
+                val heap = matcher.group(3)?.toLongOrNull()
                 if (id.isNotEmpty() && name.isNotEmpty() && !SOFTWARE_RENDERER_RE.matches(name)) {
-                    result.add(id to name)
+                    result.add(VulkanDeviceInfo(id = id, name = name, vendor = inferVendor(name), heapMiB = heap))
                 }
             }
             return result
         }
+
+        fun parseVulkanDevices(output: String): List<Pair<String, String>> =
+            parseVulkanDeviceInfos(output).map { it.id to it.name }
+
+        fun classifyStartupLog(log: String): String? {
+            val lower = log.lowercase(Locale.ROOT)
+            return when {
+                "unknown model architecture" in lower ||
+                    "unsupported model architecture" in lower ||
+                    "arch not supported" in lower -> "unsupported_architecture"
+                "unsupported quantization" in lower ||
+                    "unknown tensor type" in lower ||
+                    "unsupported file_type" in lower ||
+                    "unsupported ftype" in lower -> "unsupported_quantization"
+                "missing tokenizer" in lower ||
+                    "no tokenizer" in lower ||
+                    "failed to load vocab" in lower -> "missing_tokenizer"
+                "exceeds the available context" in lower ||
+                    "n_ctx" in lower && "exceed" in lower -> "context_limit_exceeded"
+                "out of memory" in lower ||
+                    "bad_alloc" in lower ||
+                    "allocation failed" in lower ||
+                    "vk_error_out_of_device_memory" in lower ||
+                    "vk_error_out_of_host_memory" in lower -> "out_of_memory"
+                "not a gguf" in lower ||
+                    "invalid gguf" in lower ||
+                    "corrupted" in lower ||
+                    "truncated" in lower ||
+                    "bad magic" in lower -> "invalid_gguf"
+                else -> null
+            }
+        }
+
+        fun classifyHttpError(body: String): String {
+            val lower = body.lowercase(Locale.ROOT)
+            return when {
+                "exceeds the available context" in lower ||
+                    "context size" in lower ||
+                    "prompt is too long" in lower -> "context_limit_exceeded"
+                "out of memory" in lower -> "out_of_memory"
+                else -> "invalid_response"
+            }
+        }
+
+        private fun readVulkanApiVersion(context: Context): String? {
+            val feat =
+                context.packageManager.systemAvailableFeatures.firstOrNull {
+                    it.name == "android.hardware.vulkan.version"
+                } ?: return null
+            val v = feat.version
+            val major = (v shr 22) and 0x3ff
+            val minor = (v shr 12) and 0x3ff
+            val patch = v and 0xfff
+            return "$major.$minor.$patch"
+        }
+
+        private fun readVulkanHardwareLevel(context: Context): Int? =
+            context.packageManager.systemAvailableFeatures
+                .firstOrNull { it.name == "android.hardware.vulkan.level" }
+                ?.version
     }
 }

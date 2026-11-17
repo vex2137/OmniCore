@@ -21,9 +21,17 @@ fun GenerationSettings(s: UiState, vm: OmniViewModel) {
     var context by
         rememberSaveable(s.parameters) { mutableStateOf(s.parameters.context.toString()) }
     var device by rememberSaveable(s.parameters) { mutableStateOf(s.parameters.device) }
+    var gpuLayersText by
+        rememberSaveable(s.parameters) {
+            mutableStateOf(
+                if (s.parameters.device == "cpu") "0"
+                else (s.parameters.gpuLayers.takeIf { it > 0 } ?: 99).toString()
+            )
+        }
     val llama = s.models.firstOrNull { it.id == s.selectedModel }?.backend != "ollama"
     var thinking by rememberSaveable(s.parameters) { mutableStateOf(s.parameters.thinking) }
     var prompt by rememberSaveable(s.parameters) { mutableStateOf(s.parameters.systemPrompt) }
+    val parsedLayers = gpuLayersText.toIntOrNull()?.coerceIn(0, 999) ?: 0
     val parameters =
         s.parameters.copy(
             temperature = temperature.toDoubleOrNull() ?: Double.NaN,
@@ -35,7 +43,7 @@ fun GenerationSettings(s: UiState, vm: OmniViewModel) {
             device = if (llama) device else s.parameters.device,
             gpuLayers =
                 if (!llama) s.parameters.gpuLayers
-                else if (device == "cpu") 0 else s.parameters.gpuLayers.takeIf { it > 0 } ?: 99,
+                else if (device == "cpu") 0 else parsedLayers.takeIf { it > 0 } ?: 99,
         )
     Text(stringResource(R.string.generation), style = MaterialTheme.typography.titleMedium)
     Text(
@@ -61,10 +69,24 @@ fun GenerationSettings(s: UiState, vm: OmniViewModel) {
                             device == mode ||
                                 (mode == "cuda" && device.startsWith("CUDA")) ||
                                 (mode == "vulkan" && device.startsWith("Vulkan")),
-                        onClick = { device = mode },
+                        onClick = {
+                            device = mode
+                            if (mode == "cpu") gpuLayersText = "0"
+                            else if ((gpuLayersText.toIntOrNull() ?: 0) <= 0) gpuLayersText = "99"
+                        },
                         label = { Text(stringResource(label)) },
                     )
                 }
+        }
+        if (device != "cpu") {
+            OutlinedTextField(
+                gpuLayersText,
+                { gpuLayersText = it.filter(Char::isDigit).take(4) },
+                label = { Text(stringResource(R.string.gpu_layers_setting)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth().testTag("parameter_gpu_layers"),
+            )
         }
     }
     listOf(

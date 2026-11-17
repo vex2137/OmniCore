@@ -3,7 +3,6 @@ package io.github.vex2137.omnicore
 import android.app.ActivityManager
 import android.content.Context
 import android.net.Uri
-import android.os.Build
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -11,6 +10,9 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
 /**
@@ -40,6 +42,10 @@ class LocalOmniRepository(
 
     private val executor = Executors.newSingleThreadExecutor()
     private val jobs = ConcurrentHashMap<String, ActiveJob>()
+    private val verifiedModels = ConcurrentHashMap.newKeySet<String>()
+    private val unsupportedModels = ConcurrentHashMap.newKeySet<String>()
+    private val mutableImportProgress = MutableStateFlow<Pair<Float, String>?>(null)
+    val importProgress: StateFlow<Pair<Float, String>?> = mutableImportProgress.asStateFlow()
 
     override suspend fun health(): Health =
         Health(status = "ok", version = BuildConfig.VERSION_NAME)
@@ -50,6 +56,13 @@ class LocalOmniRepository(
     override suspend fun models(): List<ModelInfo> =
         withContext(io) {
             modelsStore.list().map { rec ->
+                val compat =
+                    when {
+                        !engine.isBinaryAvailable() -> "unsupported"
+                        rec.id in unsupportedModels -> "unsupported"
+                        rec.id in verifiedModels -> "tested"
+                        else -> "unverified"
+                    }
                 ModelInfo(
                     id = rec.id,
                     name = rec.name,
@@ -57,7 +70,9 @@ class LocalOmniRepository(
                     format = "gguf",
                     sizeBytes = rec.sizeBytes,
                     quantization = rec.quantization,
-                    compatibility = if (engine.isBinaryAvailable()) "unverified" else "unsupported",
+                    compatibility = compat,
+                    architecture = rec.architecture,
+                    contextLength = rec.contextLength,
                 )
             }
         }
@@ -67,22 +82,38 @@ class LocalOmniRepository(
             val snap = engine.snapshot()
             val gpuDevices =
                 if (snap.gpuDevices.isNotEmpty()) snap.gpuDevices else engine.probeVulkanDevices()
+            val afterProbe = engine.snapshot()
             val caps =
                 buildList {
                     add("cpu")
                     if (gpuDevices.isNotEmpty()) add("vulkan")
                 }
+            val vulkanInfo =
+                VulkanCapabilityInfo(
+                    supported = afterProbe.vulkanApiVersion != null || gpuDevices.isNotEmpty(),
+                    apiVersion = afterProbe.vulkanApiVersion,
+                    hardwareLevel = afterProbe.vulkanHardwareLevel,
+                    deviceName = afterProbe.deviceName,
+                    vendor = afterProbe.deviceVendor,
+                    reportedHeapMiB = afterProbe.reportedHeapMiB,
+                    unifiedMemory = true,
+                    offloadSupported = gpuDevices.isNotEmpty(),
+                    activeLayers = if (afterProbe.gpuActive) afterProbe.offloadedLayers else 0,
+                    fallbackReason = afterProbe.fallbackReason,
+                    diagnosticSummary = afterProbe.gpuDiagnosticSummary,
+                )
             listOf(
                 EngineDiagnostic(
                     info =
                         EngineInfo(
                             id = "llama.cpp-android",
-                            version = "b11669",
-                            available = snap.available,
+                            version = "c3df4b7e",
+                            available = afterProbe.available,
                             capabilities = caps,
-                            resources = Resources(ram = snap.ramBytes ?: totalDeviceRamBytes()),
+                            resources = Resources(ram = afterProbe.ramBytes ?: totalDeviceRamBytes()),
                         ),
                     gpuDevices = gpuDevices,
+                    vulkan = vulkanInfo,
                 )
             )
         }
@@ -101,7 +132,13 @@ class LocalOmniRepository(
         withContext(io) { conversationsStore.rename(id, title) }
 
     override suspend fun selectModel(conversationId: String, modelId: String) =
-        withContext(io) { conversationsStore.selectModel(conversationId, modelId) }
+        withContext(io) {
+            conversationsStore.selectModel(conversationId, modelId)
+            val snap = engine.snapshot()
+            if (snap.loaded && snap.loadedModelId != modelId) {
+                engine.unload()
+            }
+        }
 
     override suspend fun saveParameters(id: String, parameters: Parameters) =
         withContext(io) { conversationsStore.saveParameters(id, parameters) }
@@ -111,25 +148,35 @@ class LocalOmniRepository(
 
     override suspend fun generate(id: String, payload: GenerationRequest): Generation =
         withContext(io) {
-            val modelId = payload.modelId ?: throw ApiFailure("model_required")
+            val modelId = payload.modelId
             val model = modelsStore.find(modelId) ?: throw ApiFailure("model_not_found")
             val modelFile = File(model.path)
             if (!modelFile.isFile) throw ApiFailure("model_not_found")
+            if (!model.hasTokenizer) throw ApiFailure("missing_tokenizer")
 
-            val userMsg =
-                Message(
-                    id = UUID.randomUUID().toString().replace("-", ""),
-                    role = "user",
-                    content = payload.content,
-                    status = "completed",
-                )
-            conversationsStore.appendMessage(id, userMsg)
+            val historyBefore = conversationsStore.messages(id)
+            val last = historyBefore.lastOrNull()
+            // Do not duplicate an identical pending/failed user message on retry.
+            if (last == null || last.role != "user" || last.content != payload.content) {
+                val userMsg =
+                    Message(
+                        id = UUID.randomUUID().toString().replace("-", ""),
+                        role = "user",
+                        content = payload.content,
+                        status = "completed",
+                    )
+                conversationsStore.appendMessage(id, userMsg)
+            }
 
             val params = payload.parameters ?: conversationsStore.get(id)?.parameters ?: Parameters()
+            val clampedParams =
+                model.contextLength?.let { modelMax ->
+                    if (params.context > modelMax) params.copy(context = modelMax) else params
+                } ?: params
             val history = conversationsStore.messages(id)
             val promptMessages = buildList {
-                if (params.systemPrompt.isNotBlank()) {
-                    add("system" to params.systemPrompt.trim())
+                if (clampedParams.systemPrompt.isNotBlank()) {
+                    add("system" to clampedParams.systemPrompt.trim())
                 }
                 history.takeLast(24).forEach { msg ->
                     if (msg.role in setOf("user", "assistant") && msg.content.isNotBlank()) {
@@ -158,7 +205,7 @@ class LocalOmniRepository(
                             modelName = model.name,
                             modelFile = modelFile,
                             messages = promptMessages,
-                            parameters = params,
+                            parameters = clampedParams,
                         ) { content, reasoning ->
                             publish(
                                 active,
@@ -169,6 +216,8 @@ class LocalOmniRepository(
                                 ),
                             )
                         }
+                    verifiedModels.add(model.id)
+                    unsupportedModels.remove(model.id)
                     val completed =
                         active.generation.copy(
                             state = "completed",
@@ -183,6 +232,7 @@ class LocalOmniRepository(
                             ttftSeconds = result.ttftSeconds,
                             firstAnswerSeconds = result.firstAnswerSeconds,
                             generationSeconds = result.generationSeconds,
+                            modelLoadSeconds = engine.snapshot().loadSeconds,
                             contextUsedTokens = result.contextUsedTokens,
                             contextLimitTokens = result.contextLimitTokens,
                             finishReason = result.finishReason,
@@ -203,6 +253,9 @@ class LocalOmniRepository(
                     publish(active, completed)
                 } catch (e: Exception) {
                     val code = (e as? ApiFailure)?.code ?: "model_load_failed"
+                    if (code in setOf("unsupported_architecture", "unsupported_quantization", "missing_tokenizer")) {
+                        unsupportedModels.add(model.id)
+                    }
                     val state = if (code == "cancelled") "cancelled" else "failed"
                     val partial = active.generation.content
                     if (state == "cancelled" && partial.isNotBlank()) {
@@ -243,17 +296,30 @@ class LocalOmniRepository(
             cancelled
         }
 
-    override suspend fun load(id: String, parameters: Parameters) =
+    override suspend fun load(id: String, parameters: Parameters): Unit =
         withContext(io) {
             val model = modelsStore.find(id) ?: throw ApiFailure("model_not_found")
-            engine.prepare(
-                modelId = model.id,
-                modelName = model.name,
-                modelFile = File(model.path),
-                contextSize = parameters.context,
-                devicePreference = parameters.device,
-                gpuLayers = parameters.gpuLayers,
-            )
+            if (!model.hasTokenizer) throw ApiFailure("missing_tokenizer")
+            val clampedCtx =
+                model.contextLength?.let { minOf(parameters.context, it) } ?: parameters.context
+            try {
+                engine.prepare(
+                    modelId = model.id,
+                    modelName = model.name,
+                    modelFile = File(model.path),
+                    contextSize = clampedCtx,
+                    devicePreference = parameters.device,
+                    gpuLayers = parameters.gpuLayers,
+                )
+                verifiedModels.add(model.id)
+                unsupportedModels.remove(model.id)
+                Unit
+            } catch (e: ApiFailure) {
+                if (e.code in setOf("unsupported_architecture", "unsupported_quantization", "missing_tokenizer")) {
+                    unsupportedModels.add(model.id)
+                }
+                throw e
+            }
         }
 
     override suspend fun unload(id: String) =
@@ -268,10 +334,17 @@ class LocalOmniRepository(
     override suspend fun importModel(path: String) {
         withContext(io) {
             val trimmed = path.trim()
-            if (trimmed.startsWith("content://") && context != null) {
-                modelsStore.importContentUri(context, Uri.parse(trimmed))
-            } else {
-                modelsStore.importLocalFile(File(trimmed))
+            if (trimmed.isBlank()) throw ApiFailure("model_not_found")
+            try {
+                if (trimmed.startsWith("content://") && context != null) {
+                    modelsStore.importContentUri(context, Uri.parse(trimmed)) { pct, name ->
+                        mutableImportProgress.value = pct to name
+                    }
+                } else {
+                    modelsStore.importLocalFile(File(trimmed))
+                }
+            } finally {
+                mutableImportProgress.value = null
             }
         }
     }
@@ -320,6 +393,10 @@ class LocalOmniRepository(
         snapshot(active.generation)
         return StreamHandle { active.listeners.remove(pair) }
     }
+
+    fun loadedModelId(): String? = engine.snapshot().loadedModelId
+
+    fun activeSnapshot(): LocalEngineSnapshot = engine.snapshot()
 
     override fun close() {
         engine.close()

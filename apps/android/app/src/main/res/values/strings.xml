@@ -169,6 +169,20 @@ Download this file onto the backend computer?</string>
   <string name="error_model_not_found">Model file could not be opened or is no longer accessible.</string>
   <string name="error_model_permission">Permission to read the selected model file was denied.</string>
   <string name="error_model_load">Failed to load the model on-device. Check model size, format, and available RAM.</string>
+  <string name="error_unsupported_architecture">This GGUF model architecture is not supported by the bundled inference runtime.</string>
+  <string name="error_unsupported_quantization">This GGUF quantization format is not supported by the bundled inference runtime.</string>
+  <string name="error_missing_tokenizer">This GGUF file is missing required tokenizer metadata.</string>
+  <string name="error_incomplete_gguf">The selected GGUF file is incomplete or truncated.</string>
+  <string name="error_unsupported_gguf_version">Unsupported GGUF file version (expected v2 or v3).</string>
+  <string name="error_multipart_gguf">Split multi-part GGUF files are not supported on-device yet.</string>
+  <string name="gpu_layers_setting">GPU layers (0 = CPU only, 99 = all)</string>
+  <string name="importing_model_progress">Importing %1$s (%2$d%%)</string>
+  <string name="model_loaded_badge">Loaded</string>
+  <string name="selected_model">Selected</string>
+  <string name="export_diagnostics">Copy diagnostics</string>
+  <string name="diagnostics_copied">Diagnostics copied</string>
+  <string name="unified_memory_not_vram">Unified system RAM (no dedicated VRAM)</string>
+  <string name="gpu_vendor">GPU vendor</string>
   <string name="error_gpu">The backend could not use GPU. Select Auto for CPU fallback, or check engine diagnostics on the computer.</string>
   <string name="launcher_name">OmniCore RC</string>
 </resources>

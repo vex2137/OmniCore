@@ -6,11 +6,9 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import java.io.DataInputStream
 import java.io.File
-import java.io.FileInputStream
+import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.InputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.UUID
@@ -24,31 +22,41 @@ data class LocalModelRecord(
     val uri: String? = null,
     val sizeBytes: Long,
     val quantization: String? = null,
+    val architecture: String? = null,
+    val contextLength: Int? = null,
+    val hasTokenizer: Boolean = true,
     val managedFile: Boolean = false,
 )
 
 /**
- * Manages on-device GGUF models with GGUF header validation, SAF URI permission
- * persistence, and zero unnecessary duplicate copies.
+ * Manages on-device GGUF models with bounded GGUF metadata/completeness validation,
+ * SAF URI permission persistence, cleanup of failed imports, and zero duplicate copies.
  */
 class LocalModelStore(private val rootDir: File) {
     private val modelsDir = File(rootDir, "omnicore-models").apply { mkdirs() }
     private val catalogFile = File(rootDir, "omnicore-local-models.json")
     private val lock = Any()
 
-    fun list(): List<LocalModelRecord> = synchronized(lock) { loadCatalog() }
+    init {
+        // Clean up leftover partial files from interrupted imports without touching registered models.
+        modelsDir.listFiles { f -> f.name.endsWith(".gguf.partial") }?.forEach { it.delete() }
+    }
 
-    fun find(id: String): LocalModelRecord? = synchronized(lock) { loadCatalog().firstOrNull { it.id == id } }
+    fun list(): List<LocalModelRecord> = synchronized(lock) { loadAndEnrichCatalog() }
+
+    fun find(id: String): LocalModelRecord? =
+        synchronized(lock) { loadAndEnrichCatalog().firstOrNull { it.id == id } }
 
     fun fileFor(id: String): File? = find(id)?.let { File(it.path) }
 
     fun importLocalFile(source: File, displayName: String? = null): LocalModelRecord {
         if (!source.isFile || !source.canRead()) throw ApiFailure("model_not_found")
-        FileInputStream(source).use { validateGgufHeader(it) }
+        val meta = GgufReader.inspect(source)
         val name =
             (displayName ?: source.nameWithoutExtension)
                 .removeSuffix(".gguf")
-                .ifBlank { source.nameWithoutExtension }
+                .removeSuffix(".GGUF")
+                .ifBlank { meta.name.ifBlank { source.nameWithoutExtension } }
         val record =
             LocalModelRecord(
                 id = UUID.randomUUID().toString().replace("-", ""),
@@ -56,7 +64,10 @@ class LocalModelStore(private val rootDir: File) {
                 path = source.absolutePath,
                 uri = null,
                 sizeBytes = source.length(),
-                quantization = inferQuantization(source.name),
+                quantization = inferQuantization(source.name) ?: meta.quantization,
+                architecture = meta.architecture,
+                contextLength = meta.contextLength,
+                hasTokenizer = meta.hasTokenizer,
                 managedFile = false,
             )
         synchronized(lock) {
@@ -66,7 +77,11 @@ class LocalModelStore(private val rootDir: File) {
         return record
     }
 
-    fun importContentUri(context: Context, uri: Uri): LocalModelRecord {
+    fun importContentUri(
+        context: Context,
+        uri: Uri,
+        onProgress: (Float, String) -> Unit = { _, _ -> },
+    ): LocalModelRecord {
         runCatching {
             context.contentResolver.takePersistableUriPermission(
                 uri,
@@ -82,9 +97,9 @@ class LocalModelStore(private val rootDir: File) {
         val baseName = cleanName.removeSuffix(".gguf").removeSuffix(".GGUF").ifBlank { "Model" }
 
         synchronized(lock) {
-            loadCatalog().firstOrNull { it.uri == uri.toString() && File(it.path).isFile }?.let {
-                return it
-            }
+            loadAndEnrichCatalog()
+                .firstOrNull { it.uri == uri.toString() && File(it.path).isFile }
+                ?.let { return it }
         }
 
         if (reportedSize > 0 && modelsDir.usableSpace < reportedSize + 64L * 1024L * 1024L) {
@@ -94,12 +109,15 @@ class LocalModelStore(private val rootDir: File) {
         val id = UUID.randomUUID().toString().replace("-", "")
         val part = File(modelsDir, "$id.gguf.partial")
         val target = File(modelsDir, "$id.gguf")
+        onProgress(0f, baseName)
         try {
             val stream =
                 try {
                     context.contentResolver.openInputStream(uri)
                 } catch (_: SecurityException) {
                     throw ApiFailure("model_permission_denied")
+                } catch (_: FileNotFoundException) {
+                    throw ApiFailure("model_not_found")
                 } ?: throw ApiFailure("model_not_found")
 
             stream.use { input ->
@@ -111,7 +129,9 @@ class LocalModelStore(private val rootDir: File) {
                         throw ApiFailure("invalid_gguf")
                     }
                 }
-                validateGgufHeaderBytes(header)
+                GgufReader.validateMagicHeader(header)
+                var copied = 8L
+                var lastPct = -1
                 FileOutputStream(part).use { out ->
                     out.write(header)
                     val buf = ByteArray(1024 * 1024)
@@ -119,10 +139,20 @@ class LocalModelStore(private val rootDir: File) {
                         val n = input.read(buf)
                         if (n == -1) break
                         out.write(buf, 0, n)
+                        copied += n
+                        if (reportedSize > 0) {
+                            val progress = (copied.toDouble() / reportedSize).toFloat().coerceIn(0f, 0.99f)
+                            val pct = (progress * 100).toInt()
+                            if (pct != lastPct) {
+                                lastPct = pct
+                                onProgress(progress, baseName)
+                            }
+                        }
                     }
                     out.fd.sync()
                 }
             }
+            val meta = GgufReader.inspect(part)
             try {
                 Files.move(
                     part.toPath(),
@@ -133,27 +163,30 @@ class LocalModelStore(private val rootDir: File) {
             } catch (_: UnsupportedOperationException) {
                 Files.move(part.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
+            onProgress(1f, baseName)
+            val record =
+                LocalModelRecord(
+                    id = id,
+                    name = baseName,
+                    path = target.absolutePath,
+                    uri = uri.toString(),
+                    sizeBytes = target.length(),
+                    quantization = inferQuantization(cleanName) ?: meta.quantization,
+                    architecture = meta.architecture,
+                    contextLength = meta.contextLength,
+                    hasTokenizer = meta.hasTokenizer,
+                    managedFile = true,
+                )
+            synchronized(lock) { saveCatalog(loadCatalog() + record) }
+            return record
         } catch (e: Exception) {
             part.delete()
             target.delete()
             if (e is ApiFailure) throw e
             if (e is SecurityException) throw ApiFailure("model_permission_denied")
-            if (e is java.io.FileNotFoundException) throw ApiFailure("model_not_found")
+            if (e is FileNotFoundException) throw ApiFailure("model_not_found")
             throw ApiFailure("model_import_failed")
         }
-
-        val record =
-            LocalModelRecord(
-                id = id,
-                name = baseName,
-                path = target.absolutePath,
-                uri = uri.toString(),
-                sizeBytes = target.length(),
-                quantization = inferQuantization(cleanName),
-                managedFile = true,
-            )
-        synchronized(lock) { saveCatalog(loadCatalog() + record) }
-        return record
     }
 
     fun remove(context: Context?, id: String) {
@@ -203,6 +236,28 @@ class LocalModelStore(private val rootDir: File) {
         return name to size
     }
 
+    private fun loadAndEnrichCatalog(): List<LocalModelRecord> {
+        val records = loadCatalog()
+        var changed = false
+        val enriched =
+            records.map { rec ->
+                if (rec.architecture == null || rec.contextLength == null) {
+                    val inspected = runCatching { GgufReader.inspect(File(rec.path)) }.getOrNull()
+                    if (inspected != null) {
+                        changed = true
+                        rec.copy(
+                            architecture = rec.architecture ?: inspected.architecture,
+                            quantization = rec.quantization ?: inspected.quantization,
+                            contextLength = rec.contextLength ?: inspected.contextLength,
+                            hasTokenizer = inspected.hasTokenizer,
+                        )
+                    } else rec
+                } else rec
+            }
+        if (changed) runCatching { saveCatalog(enriched) }
+        return enriched
+    }
+
     private fun loadCatalog(): List<LocalModelRecord> {
         if (!catalogFile.isFile) return emptyList()
         return runCatching {
@@ -214,12 +269,16 @@ class LocalModelStore(private val rootDir: File) {
     private fun saveCatalog(records: List<LocalModelRecord>) {
         val tmp = File(rootDir, "omnicore-local-models.json.tmp")
         tmp.writeText(WireJson.encodeToString(records))
-        Files.move(
-            tmp.toPath(),
-            catalogFile.toPath(),
-            StandardCopyOption.REPLACE_EXISTING,
-            StandardCopyOption.ATOMIC_MOVE,
-        )
+        runCatching {
+            Files.move(
+                tmp.toPath(),
+                catalogFile.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE,
+            )
+        }.onFailure {
+            Files.move(tmp.toPath(), catalogFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
     }
 
     companion object {
@@ -233,21 +292,7 @@ class LocalModelStore(private val rootDir: File) {
             } catch (_: Exception) {
                 throw ApiFailure("invalid_gguf")
             }
-            validateGgufHeaderBytes(header)
-        }
-
-        fun validateGgufHeaderBytes(header: ByteArray) {
-            if (
-                header.size < 8 ||
-                    header[0] != 'G'.code.toByte() ||
-                    header[1] != 'G'.code.toByte() ||
-                    header[2] != 'U'.code.toByte() ||
-                    header[3] != 'F'.code.toByte()
-            ) {
-                throw ApiFailure("invalid_gguf")
-            }
-            val version = ByteBuffer.wrap(header, 4, 4).order(ByteOrder.LITTLE_ENDIAN).int
-            if (version !in 1..3) throw ApiFailure("invalid_gguf")
+            GgufReader.validateMagicHeader(header)
         }
 
         fun inferQuantization(filename: String): String? =

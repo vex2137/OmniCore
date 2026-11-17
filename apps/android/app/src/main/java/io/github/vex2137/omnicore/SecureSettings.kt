@@ -73,14 +73,18 @@ class SecureSettings(context: Context) : ClientSettings {
         }
 
     override var parameters: Parameters
-        get() =
-            try {
+        get() {
+            if (!preferences.contains("parameters")) {
+                return if (localMode) Parameters(device = "auto", gpuLayers = 99) else Parameters()
+            }
+            return try {
                 WireJson.decodeFromString<Parameters>(
                     preferences.getString("parameters", "{}") ?: "{}"
                 )
             } catch (_: Exception) {
                 Parameters()
             }
+        }
         set(value) {
             preferences
                 .edit()

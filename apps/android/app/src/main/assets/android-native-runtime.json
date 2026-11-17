@@ -1,15 +1,15 @@
 {
-  "llamaCommit": "620d2225cc436ab0b001e3200e590e3b286ef9ab",
-  "llamaVersion": "b11669",
+  "llamaCommit": "c3df4b7e22a1ac38da663552d19e649dd97ca936",
+  "llamaVersion": "c3df4b7e",
   "abi": "arm64-v8a",
   "minApi": 28,
   "ndk": "29.0.14206865",
   "vulkan": true,
-  "binarySha256": "b21159c2dde1d2d4758d3208e74966ee9161151616764d100618914185996d25",
+  "binarySha256": "7aad396b8ae904474e739bbd9fc38c12b972e89f8116805828c96050540a7f0f",
   "sources": [
     {
-      "url": "https://codeload.github.com/ggml-org/llama.cpp/tar.gz/620d2225cc436ab0b001e3200e590e3b286ef9ab",
-      "sha256": "1d4a987d9bd048f6e93107e838026438df70fbde237fc0c69c63d600512b4bd9"
+      "url": "https://codeload.github.com/ggml-org/llama.cpp/tar.gz/c3df4b7e22a1ac38da663552d19e649dd97ca936",
+      "sha256": "d82221b4491ba3879ec55786eaf0cc7cae468b05951b12e508e8c614b49f4374"
     },
     {
       "url": "https://codeload.github.com/KhronosGroup/SPIRV-Headers/tar.gz/vulkan-sdk-1.4.313.0",

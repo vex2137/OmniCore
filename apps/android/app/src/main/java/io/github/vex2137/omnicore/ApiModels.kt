@@ -28,6 +28,7 @@ data class Message(
     val statistics: GenerationStatistics? = null,
     val status: String = "completed",
     @SerialName("generation_id") val generationId: String? = null,
+    @SerialName("error_code") val errorCode: String? = null,
 )
 
 @Serializable
@@ -40,6 +41,8 @@ data class ModelInfo(
     val quantization: String? = null,
     val license: String? = null,
     val compatibility: String = "unverified",
+    val architecture: String? = null,
+    @SerialName("context_length") val contextLength: Int? = null,
 )
 
 @Serializable
@@ -58,9 +61,25 @@ data class EngineInfo(
 )
 
 @Serializable
+data class VulkanCapabilityInfo(
+    val supported: Boolean = false,
+    val apiVersion: String? = null,
+    val hardwareLevel: Int? = null,
+    val deviceName: String? = null,
+    val vendor: String? = null,
+    val reportedHeapMiB: Long? = null,
+    val unifiedMemory: Boolean = true,
+    val offloadSupported: Boolean = false,
+    val activeLayers: Int = 0,
+    val fallbackReason: String? = null,
+    val diagnosticSummary: String? = null,
+)
+
+@Serializable
 data class EngineDiagnostic(
     val info: EngineInfo,
     @SerialName("gpu_devices") val gpuDevices: List<String> = emptyList(),
+    val vulkan: VulkanCapabilityInfo? = null,
 )
 
 @Serializable

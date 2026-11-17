@@ -16,12 +16,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ANDROID_APP = ROOT / "apps" / "android" / "app" / "src" / "main"
-LLAMA_COMMIT = "620d2225cc436ab0b001e3200e590e3b286ef9ab"
+LLAMA_COMMIT = "c3df4b7e22a1ac38da663552d19e649dd97ca936"
 SOURCES = [
     (
         "llama-src",
         f"https://codeload.github.com/ggml-org/llama.cpp/tar.gz/{LLAMA_COMMIT}",
-        "1d4a987d9bd048f6e93107e838026438df70fbde237fc0c69c63d600512b4bd9",
+        "d82221b4491ba3879ec55786eaf0cc7cae468b05951b12e508e8c614b49f4374",
     ),
     (
         "spirv-headers",
@@ -43,7 +43,7 @@ def sha256(path: Path) -> str:
 
 def run(cmake_bin: Path, *command):
     env = {**os.environ, "PATH": f"{cmake_bin.parent}{os.pathsep}{os.environ.get('PATH', '')}"}
-    subprocess.run([str(x) for x in command], check=True, env=env)
+    subprocess.run([str(x) for x in command], check=True, env=env)  # noqa: S603 — explicit NDK build tools, no shell.
 
 
 def main():
@@ -143,7 +143,7 @@ def main():
         "-DLLAMA_OPENSSL=OFF",
         "-DLLAMA_CURL=OFF",
         "-DLLAMA_SERVER_WEBUI=OFF",
-        "-DLLAMA_BUILD_NUMBER=11669",
+        "-DLLAMA_BUILD_NUMBER=11900",
         f"-DLLAMA_BUILD_COMMIT={LLAMA_COMMIT}",
         f"-DVulkan_GLSLC_EXECUTABLE={ndk}/shader-tools/linux-x86_64/glslc",
         f"-DVulkan_INCLUDE_DIR={work}/vulkan-headers/include",
@@ -175,7 +175,7 @@ def main():
     assets.mkdir(parents=True, exist_ok=True)
     manifest = {
         "llamaCommit": LLAMA_COMMIT,
-        "llamaVersion": "b11669",
+        "llamaVersion": "c3df4b7e",
         "abi": "arm64-v8a",
         "minApi": 28,
         "ndk": "29.0.14206865",

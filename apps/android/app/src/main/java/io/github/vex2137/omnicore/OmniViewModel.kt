@@ -42,6 +42,9 @@ data class UiState(
     val health: Health? = null,
     val diagnostics: Diagnostics = Diagnostics(),
     val reconnecting: Boolean = false,
+    val loadedModelId: String? = null,
+    val importProgress: Float? = null,
+    val importingModelName: String? = null,
 ) {
     val connectionStatus: ConnectionStatus
         get() =
@@ -84,6 +87,7 @@ class OmniViewModel(
     private var pending: GenerationRequest? = null
     private var pendingConversation: String? = null
     private var pendingImport: String? = null
+    private var importProgressJob: Job? = null
 
     init {
         if (settings.localMode && localRepository != null) connectLocal()
@@ -143,6 +147,7 @@ class OmniViewModel(
         events?.cancel()
         events = null
         downloadUpdates?.cancel()
+        importProgressJob?.cancel()
         recovery?.cancel()
         api?.close()
         api = null
@@ -185,6 +190,7 @@ class OmniViewModel(
                 val health = withContext(io) { service.health() }
                 api = service
                 candidate = null
+                observeLocalImportProgress(service)
                 mutable.update { it.copy(connected = true, health = health, reconnecting = false) }
                 refresh(service)
             } catch (e: Exception) {
@@ -385,9 +391,11 @@ class OmniViewModel(
         else
             action { service ->
                 service.selectModel(conversation, id)
+                val loadedId = (service as? LocalOmniRepository)?.loadedModelId()
                 mutable.update { previous ->
                     previous.copy(
                         selectedModel = id,
+                        loadedModelId = loadedId,
                         conversations =
                             previous.conversations.map {
                                 if (it.id == conversation) it.copy(modelId = id) else it
@@ -414,6 +422,7 @@ class OmniViewModel(
         val engines = service.engines()
         val downloads = service.downloads()
         val diagnostics = service.diagnostics()
+        val loadedId = (service as? LocalOmniRepository)?.loadedModelId()
         mutable.update { previous ->
             previous.copy(
                 conversations = conversations,
@@ -421,6 +430,7 @@ class OmniViewModel(
                 engines = engines,
                 downloads = downloads,
                 diagnostics = diagnostics,
+                loadedModelId = loadedId,
                 selectedModel =
                     previous.selectedModel?.takeIf { id -> models.any { it.id == id } }
                         ?: models.firstOrNull()?.id,
@@ -626,6 +636,20 @@ class OmniViewModel(
                 viewModelScope.launch {
                     try {
                         loadMessages(service, record.conversationId)
+                        if (mutable.value.localMode) {
+                            val models = service.models()
+                            val engines = service.engines()
+                            val diagnostics = service.diagnostics()
+                            val loadedId = (service as? LocalOmniRepository)?.loadedModelId()
+                            mutable.update {
+                                it.copy(
+                                    models = models,
+                                    engines = engines,
+                                    diagnostics = diagnostics,
+                                    loadedModelId = loadedId,
+                                )
+                            }
+                        }
                     } catch (e: Exception) {
                         error(e)
                     }
@@ -748,10 +772,64 @@ class OmniViewModel(
         }
     }
 
+    private fun observeLocalImportProgress(service: OmniRepository) {
+        importProgressJob?.cancel()
+        val local = service as? LocalOmniRepository ?: return
+        importProgressJob =
+            viewModelScope.launch {
+                local.importProgress.collect { pair ->
+                    mutable.update {
+                        it.copy(importProgress = pair?.first, importingModelName = pair?.second)
+                    }
+                }
+            }
+    }
+
+    /** Export redacted diagnostic metadata (never includes prompts, responses, or file paths). */
+    fun diagnosticReportText(): String {
+        val s = mutable.value
+        return buildString {
+            appendLine("OmniCore ${BuildConfig.VERSION_NAME} Diagnostics")
+            appendLine("Mode: ${if (s.localMode) "on-device" else "remote"}")
+            appendLine("Status: ${s.connectionStatus}")
+            s.engines.forEach { diag ->
+                appendLine(
+                    "Engine: ${diag.info.id} (${diag.info.version ?: "unknown"}), " +
+                        "available=${diag.info.available}, caps=${diag.info.capabilities.joinToString()}"
+                )
+                diag.vulkan?.let { vk ->
+                    appendLine(
+                        "Vulkan: supported=${vk.supported}, api=${vk.apiVersion ?: "n/a"}, " +
+                            "level=${vk.hardwareLevel ?: "n/a"}, device=${vk.deviceName ?: "none"}, " +
+                            "vendor=${vk.vendor ?: "n/a"}, heapMiB=${vk.reportedHeapMiB ?: "n/a"}, " +
+                            "unifiedMemory=${vk.unifiedMemory}, activeLayers=${vk.activeLayers}, " +
+                            "fallback=${vk.fallbackReason ?: "none"}"
+                    )
+                    vk.diagnosticSummary?.let { appendLine("VulkanStartup: $it") }
+                }
+            }
+            val model = s.models.firstOrNull { it.id == (s.loadedModelId ?: s.selectedModel) }
+            model?.let {
+                appendLine(
+                    "ActiveModel: ${it.name} arch=${it.architecture ?: "unknown"} " +
+                        "quant=${it.quantization ?: "unknown"} ctx=${it.contextLength ?: "n/a"} compat=${it.compatibility}"
+                )
+            }
+            s.generation?.let { g ->
+                appendLine(
+                    "LastGeneration: state=${g.state}, err=${g.errorCode ?: "none"}, " +
+                        "device=${g.executionDevice ?: "n/a"}, layers=${g.gpuOffloadedLayers ?: 0}, " +
+                        "tok/s=${g.tokensPerSecond ?: "n/a"}, ttft=${g.ttftSeconds ?: "n/a"}"
+                )
+            }
+        }
+    }
+
     override fun onCleared() {
         epoch++
         events?.cancel()
         downloadUpdates?.cancel()
+        importProgressJob?.cancel()
         recovery?.cancel()
         api?.close()
     }

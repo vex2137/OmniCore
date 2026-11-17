@@ -175,39 +175,48 @@ fun OmniCoreApp(vm: OmniViewModel, onLanguage: (String) -> Unit) {
 }
 
 @Composable
+private fun errorMessageRes(code: String): Int =
+    when (code) {
+        "connection_error",
+        "not_connected" -> R.string.error_connection
+        "token_for_new_host" -> R.string.error_new_host
+        "unauthorized" -> R.string.error_auth
+        "invalid_url" -> R.string.error_url
+        "https_required" -> R.string.error_https
+        "invalid_token" -> R.string.error_token
+        "token_unavailable" -> R.string.error_keystore
+        "invalid_parameters" -> R.string.error_parameters
+        "model_required" -> R.string.error_model
+        "conversation_required" -> R.string.error_conversation
+        "empty_response" -> R.string.error_empty_response
+        "reasoning_limit_reached" -> R.string.error_reasoning_limit
+        "context_limit_exceeded" -> R.string.error_context_limit
+        "gpu_unavailable",
+        "gpu_offload_unverified",
+        "cuda_runtime_unavailable",
+        "gpu_layers_required" -> R.string.error_gpu
+        "out_of_memory" -> R.string.error_memory
+        "engine_unavailable" -> R.string.error_engine
+        "unsupported_architecture" -> R.string.error_unsupported_architecture
+        "unsupported_quantization" -> R.string.error_unsupported_quantization
+        "missing_tokenizer" -> R.string.error_missing_tokenizer
+        "incomplete_gguf" -> R.string.error_incomplete_gguf
+        "unsupported_gguf_version" -> R.string.error_unsupported_gguf_version
+        "multipart_gguf_unsupported" -> R.string.error_multipart_gguf
+        "invalid_gguf" -> R.string.error_invalid_gguf
+        "insufficient_storage" -> R.string.error_insufficient_storage
+        "model_import_failed" -> R.string.error_model_import
+        "model_not_found" -> R.string.error_model_not_found
+        "model_permission_denied" -> R.string.error_model_permission
+        "model_load_failed",
+        "model_load_timeout" -> R.string.error_model_load
+        "stream_disconnected" -> R.string.error_stream
+        else -> R.string.error_generic
+    }
+
+@Composable
 private fun ErrorBanner(code: String, dismiss: () -> Unit) {
-    val text =
-        when (code) {
-            "connection_error",
-            "not_connected" -> R.string.error_connection
-            "token_for_new_host" -> R.string.error_new_host
-            "unauthorized" -> R.string.error_auth
-            "invalid_url" -> R.string.error_url
-            "https_required" -> R.string.error_https
-            "invalid_token" -> R.string.error_token
-            "token_unavailable" -> R.string.error_keystore
-            "invalid_parameters" -> R.string.error_parameters
-            "model_required" -> R.string.error_model
-            "conversation_required" -> R.string.error_conversation
-            "empty_response" -> R.string.error_empty_response
-            "reasoning_limit_reached" -> R.string.error_reasoning_limit
-            "context_limit_exceeded" -> R.string.error_context_limit
-            "gpu_unavailable",
-            "gpu_offload_unverified",
-            "cuda_runtime_unavailable",
-            "gpu_layers_required" -> R.string.error_gpu
-            "out_of_memory" -> R.string.error_memory
-            "engine_unavailable" -> R.string.error_engine
-            "invalid_gguf" -> R.string.error_invalid_gguf
-            "insufficient_storage" -> R.string.error_insufficient_storage
-            "model_import_failed" -> R.string.error_model_import
-            "model_not_found" -> R.string.error_model_not_found
-            "model_permission_denied" -> R.string.error_model_permission
-            "model_load_failed",
-            "model_load_timeout" -> R.string.error_model_load
-            "stream_disconnected" -> R.string.error_stream
-            else -> R.string.error_generic
-        }
+    val text = errorMessageRes(code)
     Surface(
         color = MaterialTheme.colorScheme.errorContainer,
         shape = MaterialTheme.shapes.medium,
@@ -234,7 +243,7 @@ private fun HomeScreen(s: UiState, vm: OmniViewModel, navigate: (Int) -> Unit) {
             Text(stringResource(R.string.headline), style = MaterialTheme.typography.headlineMedium)
         }
         item { Text(stringResource(R.string.home_hint)) }
-        if (s.url.isBlank())
+        if (!s.localMode && s.url.isBlank())
             item {
                 ElevatedCard(Modifier.fillMaxWidth().testTag("first_run")) {
                     Column(
@@ -263,16 +272,20 @@ private fun HomeScreen(s: UiState, vm: OmniViewModel, navigate: (Int) -> Unit) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         stringResource(
-                            when (s.connectionStatus) {
-                                ConnectionStatus.Connected -> R.string.connected
-                                ConnectionStatus.Connecting -> R.string.connecting
-                                ConnectionStatus.Unauthorized -> R.string.auth_failed
-                                ConnectionStatus.Disconnected -> R.string.disconnected
+                            when {
+                                s.localMode && s.connected -> R.string.local_ready
+                                s.connectionStatus == ConnectionStatus.Connected -> R.string.connected
+                                s.connectionStatus == ConnectionStatus.Connecting -> R.string.connecting
+                                s.connectionStatus == ConnectionStatus.Unauthorized -> R.string.auth_failed
+                                else -> R.string.disconnected
                             }
                         ),
                         style = MaterialTheme.typography.titleLarge,
                     )
-                    Text(s.url.ifBlank { stringResource(R.string.url_example) })
+                    Text(
+                        if (s.localMode) stringResource(R.string.mode_on_device)
+                        else s.url.ifBlank { stringResource(R.string.url_example) }
+                    )
                     Text(stringResource(R.string.models_count, s.models.size))
                     Button(onClick = { navigate(if (s.connected) 1 else 3) }) {
                         Text(stringResource(if (s.connected) R.string.chat else R.string.configure))
@@ -402,34 +415,68 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
                 MessageBubble(it.role, it.content, it.modelName, it.statistics, it.reasoningContent)
             }
             s.generation?.let { job ->
-                item {
-                    MessageBubble(
-                        "assistant",
-                        job.content,
-                        job.modelName,
-                        job.statistics(),
-                        job.reasoningContent,
-                    )
+                val hasVisibleText = job.content.isNotBlank() || job.reasoningContent.isNotBlank()
+                if (job.state == "failed" && !hasVisibleText) {
+                    val errCode = job.errorCode ?: "model_load_failed"
+                    item {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            shape = MaterialTheme.shapes.large,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    stringResource(errorMessageRes(errCode), errCode),
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                TextButton(onClick = vm::retryMessage, enabled = s.connected && !s.busy) {
+                                    Text(stringResource(R.string.retry_message))
+                                }
+                            }
+                        }
+                    }
+                } else if (hasVisibleText || !job.terminal) {
+                    item {
+                        MessageBubble(
+                            "assistant",
+                            job.content,
+                            job.modelName,
+                            job.statistics(),
+                            job.reasoningContent,
+                        )
+                    }
                 }
             }
             if (s.selectedConversation == null)
                 item { Text(stringResource(R.string.no_conversations), Modifier.padding(16.dp)) }
         }
         s.generation?.let { job ->
-            Text(
-                stringResource(
-                    when (job.state) {
-                        "queued" -> R.string.queued
-                        "running" -> R.string.running
-                        "completed" -> R.string.completed
-                        "cancelled" -> R.string.cancelled
-                        "interrupted" -> R.string.interrupted
-                        else -> R.string.failed
-                    }
-                ) + (job.tokensPerSecond?.let { " · %.1f tok/s".format(it) } ?: ""),
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.testTag("generation_status"),
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (!job.terminal) {
+                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                }
+                Text(
+                    stringResource(
+                        when (job.state) {
+                            "queued" -> R.string.queued
+                            "running" -> R.string.running
+                            "completed" -> R.string.completed
+                            "cancelled" -> R.string.cancelled
+                            "interrupted" -> R.string.interrupted
+                            else -> R.string.failed
+                        }
+                    ) + (job.tokensPerSecond?.let { " · %.1f tok/s".format(it) } ?: ""),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.testTag("generation_status"),
+                )
+            }
         }
         Row(Modifier.imePadding().padding(vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
             OutlinedTextField(
@@ -562,6 +609,7 @@ private fun Choice(
         ) {
             Text(
                 items.find { it.first == selected }?.second ?: hint,
+                modifier = Modifier.weight(1f, fill = false),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -619,6 +667,29 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
                 Text(stringResource(if (s.localMode) R.string.import_local_model else R.string.import_model))
             }
         }
+        if (s.importProgress != null) {
+            item {
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val pct = (s.importProgress * 100).toInt().coerceIn(0, 100)
+                        Text(
+                            stringResource(
+                                R.string.importing_model_progress,
+                                s.importingModelName.orEmpty(),
+                                pct,
+                            ),
+                            style = MaterialTheme.typography.titleSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        LinearProgressIndicator(
+                            progress = { s.importProgress.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+        }
         if (!s.localMode) item { ModelDownloads(s, vm) }
         item {
             Choice(
@@ -635,10 +706,34 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
             ->
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(model.name, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "${model.backend} · ${model.format} · ${model.quantization.orEmpty()} · ${size(model.sizeBytes)}"
-                    )
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            model.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (s.loadedModelId == model.id) {
+                            AssistChip(
+                                onClick = {},
+                                label = { Text(stringResource(R.string.model_loaded_badge)) },
+                            )
+                        }
+                    }
+                    val metaParts =
+                        listOfNotNull(
+                            model.backend,
+                            model.architecture,
+                            model.quantization?.takeIf { it.isNotBlank() },
+                            model.contextLength?.let { "ctx $it" },
+                            size(model.sizeBytes),
+                        )
+                    Text(metaParts.joinToString(" · "))
                     Text(
                         stringResource(
                             when (model.compatibility) {
@@ -659,7 +754,12 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
                             onClick = { vm.selectModel(model.id) },
                             enabled = s.connected && !s.busy && !s.generating,
                         ) {
-                            Text(stringResource(R.string.choose_model))
+                            Text(
+                                stringResource(
+                                    if (s.selectedModel == model.id) R.string.selected_model
+                                    else R.string.choose_model
+                                )
+                            )
                         }
                         IconButton(
                             onClick = { removing = model },
@@ -669,7 +769,7 @@ private fun ModelsScreen(s: UiState, vm: OmniViewModel) {
                         }
                     }
                     Row {
-                        if (model.backend == "llama.cpp")
+                        if (model.backend.startsWith("llama.cpp"))
                             TextButton(
                                 onClick = { vm.loadModel(model.id) },
                                 enabled = s.connected && !s.busy && !s.generating,
@@ -844,6 +944,8 @@ private fun SettingsScreen(s: UiState, vm: OmniViewModel, onLanguage: (String) -
 
 @Composable
 private fun DiagnosticsScreen(s: UiState, vm: OmniViewModel) {
+    val clipboard = LocalClipboardManager.current
+    var copiedReport by remember { mutableStateOf(false) }
     LazyColumn(
         Modifier.fillMaxSize().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -856,21 +958,38 @@ private fun DiagnosticsScreen(s: UiState, vm: OmniViewModel) {
         }
         item {
             Text(stringResource(R.string.diagnostics_hint))
-            Text(s.url)
+            if (!s.localMode && s.url.isNotBlank()) Text(s.url)
             Text(
                 stringResource(
-                    when (s.connectionStatus) {
-                        ConnectionStatus.Connected -> R.string.connected
-                        ConnectionStatus.Connecting -> R.string.connecting
-                        ConnectionStatus.Unauthorized -> R.string.auth_failed
-                        ConnectionStatus.Disconnected -> R.string.disconnected
+                    when {
+                        s.localMode && s.connected -> R.string.local_ready
+                        s.connectionStatus == ConnectionStatus.Connected -> R.string.connected
+                        s.connectionStatus == ConnectionStatus.Connecting -> R.string.connecting
+                        s.connectionStatus == ConnectionStatus.Unauthorized -> R.string.auth_failed
+                        else -> R.string.disconnected
                     }
                 )
             )
         }
         item {
-            Button(onClick = vm::connect, enabled = !s.busy) {
-                Text(stringResource(R.string.reconnect))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = vm::connect, enabled = !s.busy) {
+                    Text(stringResource(if (s.localMode) R.string.refresh else R.string.reconnect))
+                }
+                OutlinedButton(
+                    onClick = {
+                        clipboard.setText(AnnotatedString(vm.diagnosticReportText()))
+                        copiedReport = true
+                    },
+                    modifier = Modifier.testTag("export_diagnostics"),
+                ) {
+                    Text(
+                        stringResource(
+                            if (copiedReport) R.string.diagnostics_copied
+                            else R.string.export_diagnostics
+                        )
+                    )
+                }
             }
         }
         s.generation?.let { record ->
@@ -915,13 +1034,28 @@ private fun EngineCard(record: EngineDiagnostic) {
             Text(
                 stringResource(R.string.vram) +
                     ": " +
-                    (record.info.resources.vram?.let(::size) ?: "—")
+                    (record.info.resources.vram?.let(::size)
+                        ?: if (record.vulkan?.unifiedMemory == true)
+                            stringResource(R.string.unified_memory_not_vram)
+                        else "—")
             )
             Text(
                 stringResource(R.string.gpu) +
                     ": " +
                     record.gpuDevices.joinToString().ifBlank { stringResource(R.string.none) }
             )
+            record.vulkan?.let { vk ->
+                vk.apiVersion?.let { ver ->
+                    Text("Vulkan API: $ver (level ${vk.hardwareLevel ?: 0})")
+                }
+                vk.vendor?.let { v -> Text("${stringResource(R.string.gpu_vendor)}: $v") }
+                if (vk.activeLayers > 0) {
+                    Text("${stringResource(R.string.offloaded_layers)}: ${vk.activeLayers}")
+                }
+                vk.fallbackReason?.let { fb ->
+                    Text("${stringResource(R.string.cpu_fallback)} ($fb)")
+                }
+            }
         }
     }
 }

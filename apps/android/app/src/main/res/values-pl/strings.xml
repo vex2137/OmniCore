@@ -169,6 +169,20 @@ Pobrać ten plik na komputer backendu?</string>
   <string name="error_model_not_found">Nie można otworzyć pliku modelu lub plik nie jest już dostępny.</string>
   <string name="error_model_permission">Brak uprawnień do odczytu wybranego pliku modelu.</string>
   <string name="error_model_load">Nie udało się załadować modelu lokalnie. Sprawdź rozmiar, format i dostępną pamięć RAM.</string>
+  <string name="error_unsupported_architecture">Architektura tego modelu GGUF nie jest obsługiwana przez wbudowany silnik inferencji.</string>
+  <string name="error_unsupported_quantization">Format kwantyzacji tego pliku GGUF nie jest obsługiwany przez wbudowany silnik inferencji.</string>
+  <string name="error_missing_tokenizer">W tym pliku GGUF brakuje wymaganych metadanych tokenizera.</string>
+  <string name="error_incomplete_gguf">Wybrany plik GGUF jest niekompletny lub uszkodzony.</string>
+  <string name="error_unsupported_gguf_version">Nieobsługiwana wersja pliku GGUF (wymagana v2 lub v3).</string>
+  <string name="error_multipart_gguf">Podzielone wieloczęściowe pliki GGUF nie są jeszcze obsługiwane lokalnie.</string>
+  <string name="gpu_layers_setting">Warstwy GPU (0 = tylko CPU, 99 = wszystkie)</string>
+  <string name="importing_model_progress">Importowanie %1$s (%2$d%%)</string>
+  <string name="model_loaded_badge">Załadowany</string>
+  <string name="selected_model">Wybrany</string>
+  <string name="export_diagnostics">Kopiuj diagnostykę</string>
+  <string name="diagnostics_copied">Skopiowano diagnostykę</string>
+  <string name="unified_memory_not_vram">Współdzielony RAM systemu (brak dedykowanego VRAM)</string>
+  <string name="gpu_vendor">Producent GPU</string>
   <string name="error_gpu">Backend nie mógł użyć GPU. Wybierz Auto dla fallback CPU lub sprawdź diagnostykę silnika na komputerze.</string>
   <string name="launcher_name">OmniCore RC</string>
 </resources>
