@@ -391,6 +391,82 @@ http.server.HTTPServer(("127.0.0.1", port), Handler).serve_forever()
     }
 
     @Test
+    fun localCancellationPersistsPartialMessageAndStatisticsWithoutRace() {
+        val dir = tempDir()
+        val gguf = File(dir, "slow-Q4_K_M.gguf")
+        writeFakeGguf(gguf, architecture = "lfm3", name = "Slow LFM3", contextLength = 2048)
+
+        val script =
+            File(dir, "libomnicore_llama.so").apply {
+                writeText(
+                    """#!/usr/bin/env python3
+import http.server, json, sys, time
+
+args = sys.argv[1:]
+if "--list-devices" in args:
+    sys.exit(0)
+port = int(args[args.index("--port") + 1])
+print("load_tensors: offloaded 0/12 layers to GPU", flush=True)
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def do_GET(self):
+        self.send_response(200); self.end_headers(); self.wfile.write(b'{"status":"ok"}')
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length", "0"))
+        _ = self.rfile.read(n)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        for tok in ("Partial ", "answer ", "slow1 ", "slow2 "):
+            self.wfile.write(("data: " + json.dumps({"choices":[{"delta":{"content":tok},"finish_reason":None}]}) + "\n\n").encode())
+            self.wfile.flush()
+            time.sleep(0.05 if "Partial" in tok else 2.0)
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
+
+http.server.HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+""".trimIndent()
+                )
+                setExecutable(true)
+            }
+
+        val engine = LocalLlamaEngine(binaryProvider = { script }, sdkLevel = 36, cpuThreads = 2)
+        val repo = LocalOmniRepository(null, engine, LocalModelStore(dir), LocalConversationStore(dir))
+        runBlocking {
+            repo.importModel(gguf.absolutePath)
+            val model = repo.models().single()
+            val conv = repo.create("Cancel Test", model.id, Parameters(device = "cpu"))
+            val job =
+                repo.generate(
+                    conv.id,
+                    GenerationRequest(
+                        content = "Count",
+                        requestKey = "req-cancel",
+                        modelId = model.id,
+                        parameters = Parameters(device = "cpu"),
+                    ),
+                )
+            val deadline = System.currentTimeMillis() + 15_000
+            while (System.currentTimeMillis() < deadline) {
+                if (repo.generation(job.id).content.contains("Partial")) break
+                delay(50)
+            }
+            val cancelled = repo.cancel(job.id)
+            assertEquals("cancelled", cancelled.state)
+            assertEquals("cancelled", cancelled.finishReason)
+            assertNotNull(cancelled.generationSeconds)
+            assertTrue((cancelled.outputTokens ?: 0) >= 1)
+            val saved = repo.messages(conv.id).last()
+            assertEquals("cancelled", saved.status)
+            assertTrue(saved.content.contains("Partial"))
+            assertNotNull(saved.statistics)
+            assertEquals("cancelled", saved.statistics?.finishReason)
+            repo.close()
+        }
+    }
+
+    @Test
     fun safPickerPauseResumeAndImportFromMultipleFoldersRegistersModelsWithoutConnectionError() =
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)

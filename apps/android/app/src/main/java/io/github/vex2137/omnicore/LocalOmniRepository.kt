@@ -5,9 +5,11 @@ import android.content.Context
 import android.net.Uri
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +40,7 @@ class LocalOmniRepository(
         val listeners: CopyOnWriteArrayList<Pair<(Generation) -> Unit, (String) -> Unit>> =
             CopyOnWriteArrayList(),
         val seq: AtomicLong = AtomicLong(0),
+        val done: CompletableFuture<Generation> = CompletableFuture(),
     )
 
     private val executor = Executors.newSingleThreadExecutor()
@@ -250,15 +253,54 @@ class LocalOmniRepository(
                             generationId = jobId,
                         ),
                     )
-                    publish(active, completed)
+                    val terminal = publish(active, completed)
+                    active.done.complete(terminal)
                 } catch (e: Exception) {
                     val code = (e as? ApiFailure)?.code ?: "model_load_failed"
                     if (code in setOf("unsupported_architecture", "unsupported_quantization", "missing_tokenizer")) {
                         unsupportedModels.add(model.id)
                     }
                     val state = if (code == "cancelled") "cancelled" else "failed"
-                    val partial = active.generation.content
-                    if (state == "cancelled" && partial.isNotBlank()) {
+                    val partialResult = (e as? CancelledGenerationFailure)?.partial
+                    val partial =
+                        partialResult?.content?.ifEmpty { active.generation.content }
+                            ?: active.generation.content
+                    val partialReasoning =
+                        partialResult?.reasoning?.ifEmpty { active.generation.reasoningContent }
+                            ?: active.generation.reasoningContent
+                    val snap = engine.snapshot()
+                    val terminalBase =
+                        if (state == "cancelled") {
+                            active.generation.copy(
+                                state = "cancelled",
+                                content = partial,
+                                reasoningContent = partialReasoning,
+                                errorCode = null,
+                                tokensPerSecond = partialResult?.tokensPerSecond ?: active.generation.tokensPerSecond,
+                                gpuOffloadedLayers =
+                                    partialResult?.gpuOffloadedLayers
+                                        ?: if (snap.gpuActive) snap.offloadedLayers else 0,
+                                executionDevice =
+                                    partialResult?.executionDevice
+                                        ?: if (snap.gpuActive) (snap.deviceName ?: "Vulkan") else "CPU",
+                                fallbackReason = partialResult?.fallbackReason ?: snap.fallbackReason,
+                                inputTokens = partialResult?.inputTokens,
+                                outputTokens = partialResult?.outputTokens,
+                                ttftSeconds = partialResult?.ttftSeconds,
+                                firstAnswerSeconds = partialResult?.firstAnswerSeconds,
+                                generationSeconds = partialResult?.generationSeconds,
+                                modelLoadSeconds = snap.loadSeconds,
+                                contextUsedTokens = partialResult?.contextUsedTokens,
+                                contextLimitTokens = partialResult?.contextLimitTokens ?: clampedParams.context,
+                                finishReason = "cancelled",
+                            )
+                        } else {
+                            active.generation.copy(
+                                state = "failed",
+                                errorCode = code,
+                            )
+                        }
+                    if (state == "cancelled" && (partial.isNotBlank() || partialReasoning.isNotBlank())) {
                         conversationsStore.appendMessage(
                             id,
                             Message(
@@ -266,19 +308,15 @@ class LocalOmniRepository(
                                 role = "assistant",
                                 content = partial,
                                 modelName = model.name,
-                                reasoningContent = active.generation.reasoningContent,
+                                reasoningContent = partialReasoning,
+                                statistics = terminalBase.statistics(),
                                 status = "cancelled",
                                 generationId = jobId,
                             ),
                         )
                     }
-                    publish(
-                        active,
-                        active.generation.copy(
-                            state = state,
-                            errorCode = if (state == "failed") code else null,
-                        ),
-                    )
+                    val terminal = publish(active, terminalBase)
+                    active.done.complete(terminal)
                 }
             }
             initial
@@ -291,9 +329,14 @@ class LocalOmniRepository(
         withContext(io) {
             val active = jobs[id] ?: throw ApiFailure("not_found")
             engine.cancelGeneration()
-            val cancelled = active.generation.copy(state = "cancelled")
-            publish(active, cancelled)
-            cancelled
+            runCatching { active.done.get(2, TimeUnit.SECONDS) }.getOrElse {
+                val cancelled = publish(
+                    active,
+                    active.generation.copy(state = "cancelled", finishReason = "cancelled"),
+                )
+                active.done.complete(cancelled)
+                cancelled
+            }
         }
 
     override suspend fun load(id: String, parameters: Parameters): Unit =
@@ -403,10 +446,11 @@ class LocalOmniRepository(
         executor.shutdownNow()
     }
 
-    private fun publish(active: ActiveJob, next: Generation) {
+    private fun publish(active: ActiveJob, next: Generation): Generation {
         val numbered = next.copy(sequence = active.seq.incrementAndGet())
         active.generation = numbered
         active.listeners.forEach { (cb, _) -> cb(numbered) }
+        return numbered
     }
 
     private fun totalDeviceRamBytes(): Long? {

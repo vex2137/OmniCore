@@ -24,6 +24,30 @@ android {
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true; buildConfig = true }
     splits { abi { isEnable = true; reset(); include("arm64-v8a", "x86_64"); isUniversalApk = false } }
+    val releaseKeystorePath = System.getenv("OMNICORE_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
+    val releaseKeyAlias = System.getenv("OMNICORE_KEY_ALIAS")?.takeIf { it.isNotBlank() }
+    val releaseKeystorePassword = System.getenv("OMNICORE_KEYSTORE_PASSWORD")
+    val releaseKeyPassword = System.getenv("OMNICORE_KEY_PASSWORD")
+    if (
+        releaseKeystorePath != null &&
+            releaseKeyAlias != null &&
+            !releaseKeystorePassword.isNullOrEmpty() &&
+            !releaseKeyPassword.isNullOrEmpty()
+    ) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+        buildTypes {
+            getByName("release") {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+    }
     packaging {
         jniLibs.useLegacyPackaging = true
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"

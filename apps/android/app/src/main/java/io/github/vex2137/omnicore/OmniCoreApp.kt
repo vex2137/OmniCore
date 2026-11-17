@@ -11,6 +11,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -411,8 +412,18 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 12.dp),
         ) {
-            items(messages) {
-                MessageBubble(it.role, it.content, it.modelName, it.statistics, it.reasoningContent)
+            itemsIndexed(
+                items = messages,
+                key = { index, message -> "${index}_${message.id}" },
+            ) { _, message ->
+                MessageBubble(
+                    message.role,
+                    message.content,
+                    message.modelName,
+                    message.statistics,
+                    message.reasoningContent,
+                    isStreaming = false,
+                )
             }
             s.generation?.let { job ->
                 val hasVisibleText = job.content.isNotBlank() || job.reasoningContent.isNotBlank()
@@ -447,6 +458,7 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
                             job.modelName,
                             job.statistics(),
                             job.reasoningContent,
+                            isStreaming = !job.terminal,
                         )
                     }
                 }
@@ -539,12 +551,13 @@ private fun ChatScreen(s: UiState, vm: OmniViewModel) {
 }
 
 @Composable
-private fun MessageBubble(
+internal fun MessageBubble(
     role: String,
     content: String,
     modelName: String? = null,
     statistics: GenerationStatistics? = null,
     reasoningContent: String = "",
+    isStreaming: Boolean = false,
 ) {
     val clipboard = LocalClipboardManager.current
     Surface(
@@ -586,7 +599,7 @@ private fun MessageBubble(
                     }
             }
             SelectionContainer { Text(content, style = MaterialTheme.typography.bodyLarge) }
-            statistics?.let { GenerationDetails(it) }
+            statistics?.let { GenerationDetails(it, isStreaming = isStreaming) }
         }
     }
 }

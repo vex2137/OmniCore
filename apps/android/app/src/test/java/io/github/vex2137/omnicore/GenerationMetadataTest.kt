@@ -36,4 +36,67 @@ class GenerationMetadataTest {
             WireJson.decodeFromString<Parameters>(WireJson.encodeToString(parameters)),
         )
     }
+
+    @Test
+    fun compactAndExpandedGenerationStatisticsFormatAllMetricsIncludingCancellation() {
+        val full =
+            GenerationStatistics(
+                gpuOffloadedLayers = 25,
+                executionDevice = "Mali-G720 MC7",
+                inputTokens = 14,
+                outputTokens = 61,
+                ttftSeconds = 7.16,
+                firstAnswerSeconds = 7.16,
+                generationSeconds = 11.63,
+                modelLoadSeconds = 5.35,
+                contextUsedTokens = 75,
+                contextLimitTokens = 2048,
+                finishReason = "stop",
+                tokensPerSecond = 13.43,
+            )
+        val compact = formatCompactMetrics(full, "Cancelled")
+        assertEquals(2, compact.size)
+        assertTrue(compact[0].contains("13") && compact[0].contains("tok/s"))
+        assertTrue(compact[1].contains("11") && compact[1].contains("s"))
+
+        val labels =
+            StatLabels(
+                speed = "Speed",
+                inputTokens = "Input tokens",
+                outputTokens = "Output tokens",
+                ttft = "TTFT",
+                firstAnswer = "First answer",
+                generationTime = "Elapsed",
+                modelLoadTime = "Model load",
+                context = "Context",
+                finishReason = "Finish",
+                completed = "Completed",
+                finishLength = "token limit",
+                cancelled = "Cancelled",
+                failed = "Failed",
+                offloadedLayers = "Layers on GPU",
+                device = "Device",
+                cpuFallback = "CPU fallback",
+            )
+        val entries = buildStatEntries(full, labels)
+        val byLabel = entries.associate { it.label to it.value }
+        assertTrue(byLabel["Speed"]!!.contains("tok/s"))
+        assertEquals("14", byLabel["Input tokens"])
+        assertEquals("61", byLabel["Output tokens"])
+        assertTrue(byLabel["Context"]!!.startsWith("75/2048"))
+        assertEquals("Completed", byLabel["Finish"])
+        assertEquals("25", byLabel["Layers on GPU"])
+        assertEquals("Mali-G720 MC7", byLabel["Device"])
+
+        val cancelled =
+            full.copy(finishReason = "cancelled", tokensPerSecond = 8.42, generationSeconds = 3.21)
+        val compactCancelled = formatCompactMetrics(cancelled, "Cancelled")
+        assertEquals("Cancelled", compactCancelled[0])
+        assertTrue(compactCancelled.any { it.contains("tok/s") })
+        assertTrue(compactCancelled.any { it.contains("s") })
+
+        val ttftOnly = GenerationStatistics(ttftSeconds = 0.85, outputTokens = 12)
+        val compactFallback = formatCompactMetrics(ttftOnly, "Cancelled")
+        assertTrue(compactFallback.single().startsWith("TTFT "))
+    }
 }

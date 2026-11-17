@@ -50,4 +50,4 @@ object ConnectionPolicy {
     }
 }
 
-class ApiFailure(val code: String) : Exception(code)
+open class ApiFailure(val code: String) : Exception(code)

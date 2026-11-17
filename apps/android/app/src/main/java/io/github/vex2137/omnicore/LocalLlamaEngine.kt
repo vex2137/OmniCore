@@ -72,6 +72,8 @@ data class LocalGenerationResult(
     val fallbackReason: String?,
 )
 
+class CancelledGenerationFailure(val partial: LocalGenerationResult) : ApiFailure("cancelled")
+
 /**
  * Manages the pinned on-device llama-server binary (arm64 CPU + Vulkan).
  * Bound strictly to 127.0.0.1 with an ephemeral per-launch API key.
@@ -268,6 +270,7 @@ class LocalLlamaEngine(
         return try {
             executeChatStream(messages, parameters, version, onDelta)
         } catch (e: Exception) {
+            if (e is CancelledGenerationFailure) throw e
             checkEpoch(version)
             val normalizedMode = normalizeMode(parameters.device)
             if (!gpuMode || normalizedMode == "gpu") throw e
@@ -367,9 +370,48 @@ class LocalLlamaEngine(
         var firstAnswerSeconds: Double? = null
         val contentBuf = StringBuilder()
         val reasoningBuf = StringBuilder()
+        var streamedChunks = 0
         var finishReason = "stop"
         var usageObj: JsonObject? = null
         var timingsObj: JsonObject? = null
+
+        fun snapshotResult(finalFinishReason: String): LocalGenerationResult {
+            val totalSeconds = ((System.nanoTime() - startedNs) / 1e9).coerceAtLeast(0.001)
+            val inputTokens =
+                usageObj?.get("prompt_tokens")?.jsonPrimitive?.intOrNull
+                    ?: timingsObj?.get("prompt_n")?.jsonPrimitive?.intOrNull
+            val rawOutputTokens =
+                usageObj?.get("completion_tokens")?.jsonPrimitive?.intOrNull
+                    ?: timingsObj?.get("predicted_n")?.jsonPrimitive?.intOrNull
+            val effectiveOutputTokens = rawOutputTokens ?: streamedChunks.takeIf { it > 0 }
+            val predictedPerSec =
+                timingsObj?.get("predicted_per_second")?.jsonPrimitive?.doubleOrNull
+                    ?: effectiveOutputTokens?.let { it / totalSeconds }
+            val confirmedGpu = gpuMode && offloadedLayers > 0 && (effectiveOutputTokens ?: 0) > 0
+            if (confirmedGpu) {
+                gpuConfirmed = true
+                gpuDiagnostics?.confirmed()
+            }
+            return LocalGenerationResult(
+                content = contentBuf.toString(),
+                reasoning = reasoningBuf.toString(),
+                finishReason = finalFinishReason,
+                inputTokens = inputTokens,
+                outputTokens = effectiveOutputTokens,
+                ttftSeconds = ttftSeconds,
+                firstAnswerSeconds = firstAnswerSeconds,
+                generationSeconds = totalSeconds,
+                tokensPerSecond = predictedPerSec,
+                contextUsedTokens =
+                    if (inputTokens != null && effectiveOutputTokens != null) {
+                        inputTokens + effectiveOutputTokens
+                    } else null,
+                contextLimitTokens = loadedContext,
+                gpuOffloadedLayers = if (confirmedGpu || (gpuMode && offloadedLayers > 0)) offloadedLayers else 0,
+                executionDevice = if (confirmedGpu || (gpuMode && offloadedLayers > 0)) (deviceName ?: "Vulkan") else "CPU",
+                fallbackReason = fallbackReason,
+            )
+        }
 
         try {
             conn.outputStream.use { it.write(payload.toByteArray(StandardCharsets.UTF_8)) }
@@ -397,6 +439,7 @@ class LocalLlamaEngine(
                                 delta["reasoning_content"]?.jsonPrimitive?.contentOrNull.orEmpty()
                             val cDelta = delta["content"]?.jsonPrimitive?.contentOrNull.orEmpty()
                             if (rDelta.isNotEmpty() || cDelta.isNotEmpty()) {
+                                streamedChunks++
                                 val elapsed = (System.nanoTime() - startedNs) / 1e9
                                 if (ttftSeconds == null) ttftSeconds = elapsed
                                 if (cDelta.isNotEmpty() && firstAnswerSeconds == null) {
@@ -421,40 +464,12 @@ class LocalLlamaEngine(
                 }
                 throw ApiFailure("empty_response")
             }
-            val totalSeconds = ((System.nanoTime() - startedNs) / 1e9).coerceAtLeast(0.001)
-            val inputTokens =
-                usageObj?.get("prompt_tokens")?.jsonPrimitive?.intOrNull
-                    ?: timingsObj?.get("prompt_n")?.jsonPrimitive?.intOrNull
-            val outputTokens =
-                usageObj?.get("completion_tokens")?.jsonPrimitive?.intOrNull
-                    ?: timingsObj?.get("predicted_n")?.jsonPrimitive?.intOrNull
-            val predictedPerSec =
-                timingsObj?.get("predicted_per_second")?.jsonPrimitive?.doubleOrNull
-                    ?: outputTokens?.let { it / totalSeconds }
-
-            // Confirm GPU offloading only when the backend reported offloaded layers AND generated tokens.
-            val confirmedGpu = gpuMode && offloadedLayers > 0 && (outputTokens ?: 0) > 0
-            gpuConfirmed = confirmedGpu
-            if (confirmedGpu) gpuDiagnostics?.confirmed()
-
-            return LocalGenerationResult(
-                content = contentBuf.toString(),
-                reasoning = reasoningBuf.toString(),
-                finishReason = finishReason,
-                inputTokens = inputTokens,
-                outputTokens = outputTokens,
-                ttftSeconds = ttftSeconds,
-                firstAnswerSeconds = firstAnswerSeconds,
-                generationSeconds = totalSeconds,
-                tokensPerSecond = predictedPerSec,
-                contextUsedTokens =
-                    if (inputTokens != null && outputTokens != null) inputTokens + outputTokens
-                    else null,
-                contextLimitTokens = loadedContext,
-                gpuOffloadedLayers = if (confirmedGpu) offloadedLayers else 0,
-                executionDevice = if (confirmedGpu) (deviceName ?: "Vulkan") else "CPU",
-                fallbackReason = fallbackReason,
-            )
+            return snapshotResult(finishReason)
+        } catch (e: Exception) {
+            if (epoch.get() != version || (e is ApiFailure && e.code == "cancelled")) {
+                throw CancelledGenerationFailure(snapshotResult("cancelled"))
+            }
+            throw e
         } finally {
             conn.disconnect()
             if (activeConnection === conn) activeConnection = null

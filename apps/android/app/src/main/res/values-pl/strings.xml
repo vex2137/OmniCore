@@ -7,7 +7,7 @@
   <string name="settings">Ustawienia</string>
   <string name="diagnostics">Diagnostyka</string>
   <string name="headline">Twoje AI. Twój komputer.</string>
-  <string name="home_hint">Natywny klient Android dla backendu OmniCore. Modele działają na Twoim komputerze.</string>
+  <string name="home_hint">Uruchamiaj lokalne modele GGUF offline na telefonie lub połącz się ze zdalnym backendem OmniCore.</string>
   <string name="connected">Połączono</string>
   <string name="disconnected">Rozłączono</string>
   <string name="connecting">Łączenie…</string>
@@ -75,9 +75,9 @@
   <string name="max_tokens">Tokeny odpowiedzi</string>
   <string name="context">Rozmiar kontekstu</string>
   <string name="system_prompt">Instrukcja systemowa</string>
-  <string name="about">OmniCore %1$s · build testowy
+  <string name="about">OmniCore %1$s
 Kotlin / Compose / Material 3
-Klient API; bez inferencji na telefonie.</string>
+Lokalny silnik llama.cpp (CPU / Vulkan) oraz klient zdalnego backendu.</string>
   <string name="diagnostics_hint">Diagnostyka połączenia i silników. Tokeny i treść rozmów nie trafiają do logów.</string>
   <string name="current_job">Bieżące zadanie</string>
   <string name="ram">RAM silnika</string>
@@ -184,5 +184,7 @@ Pobrać ten plik na komputer backendu?</string>
   <string name="unified_memory_not_vram">Współdzielony RAM systemu (brak dedykowanego VRAM)</string>
   <string name="gpu_vendor">Producent GPU</string>
   <string name="error_gpu">Backend nie mógł użyć GPU. Wybierz Auto dla fallback CPU lub sprawdź diagnostykę silnika na komputerze.</string>
-  <string name="launcher_name">OmniCore RC</string>
+  <string name="stats_details">Szczegóły</string>
+  <string name="stats_hide_details">Ukryj</string>
+  <string name="launcher_name">OmniCore</string>
 </resources>
