@@ -359,7 +359,7 @@ def test_diagnostics_beta3_redacts_models_and_excludes_prompts(desktop):
     assert "private conversation" not in raw
     assert report["models"][0]["size_bytes"] == 123
     assert report["last_generation"]["error_code"] == "engine_timeout"
-    assert report["build"]["channel"] == "beta"
+    assert report["build"]["channel"] == "stable"
 
 
 def test_agent_gui_plain_text_no_banner_and_persisted_step_cards(

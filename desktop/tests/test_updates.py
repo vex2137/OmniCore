@@ -136,7 +136,7 @@ def test_update_panel_recovers_from_network_error(qtbot, monkeypatch):
 
 
 def test_beta_build_defaults_to_beta_channel_and_preserves_saved_choice(tmp_path):
-    assert DesktopConfig().update_channel == "beta"
+    assert DesktopConfig().update_channel == "stable"
     path = tmp_path / "desktop.json"
-    DesktopConfig(update_channel="stable").save(path)
-    assert DesktopConfig.load(path).update_channel == "stable"
+    DesktopConfig(update_channel="beta").save(path)
+    assert DesktopConfig.load(path).update_channel == "beta"

@@ -1,6 +1,12 @@
 # OmniCore
 OmniCore is an open-source local AI platform. It provides native Linux and Android clients for text models; image generation and other modules are planned.
 
+## OmniCore 1.0.0
+
+Gałąź `release/1.0.0` przygotowuje wydanie `1.0.0` (Android + Linux x86_64 AppImage):
+- **Android (`1.0.0`, `versionCode 11`):** kompaktowa stopka statystyk odpowiedzi (`Szybkość · Czas · Szczegóły`) z rozwijanym panelem pełnych metryk, zapis częściowej treści i statystyk po anulowaniu, silnik `llama.cpp` (`c3df4b7e`) z obsługą `lfm3` i diagnostyką Vulkan, strukturalna walidacja GGUF oraz zachowanie danych przy aktualizacji z Beta 4. Szczegóły: [RELEASE_NOTES_1.0.0.md](docs/RELEASE_NOTES_1.0.0.md).
+- **Linux Desktop (`1.0.0`):** poprawione przezroczyste pola wyboru (`QCheckBox`) we wszystkich 7 motywach, skalowanie interfejsu `80–200%`, bezpieczne limity VRAM tylko dla CUDA oraz wbudowany silnik CPU `llama.cpp` (`c3df4b7e`) w paczce AppImage (z automatycznym wykrywaniem lokalnego silnika CUDA).
+
 ## Rozwój: 0.2.0 Beta 4
 
 Gałąź `feature/0.2.0-beta4` bazuje na `0.2.0-beta.3` i ma kanoniczną wersję

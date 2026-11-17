@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.0
+
+### Android
+- Compact assistant message statistics footer (`speed · elapsed · Details`) with accessible expandable full metrics panel supporting EN/PL and light/dark themes.
+- Preserved partial assistant output and cancellation metrics cleanly without losing message state on stop.
+- Upgraded pinned on-device `llama.cpp` runtime (`c3df4b7e`) with `lfm3` architecture support, Vulkan/Mali-G720 offload diagnostics, structural GGUF v2/v3 validation (`GgufReader`), unified-memory-safe reporting, and clean `OmniCore` release metadata.
+- Added optional release keystore signing configuration (`OMNICORE_KEYSTORE_*` environment variables) in Gradle while keeping debug and unsigned APKs clearly distinguished.
+
+### Linux Desktop & Backend
+- Fixed black rectangular background bleed on Settings checkboxes (`Włącz opcjonalną integrację z Ollamą`, `Myślenie (tylko zgodne szablony modeli)`) across all 7 themes and 80–200% UI scales, with custom HiDPI checkmark icons and explicit disabled/focus/hover states.
+- Expanded UI scaling support from 80% to 200% with wrapping toolbar/inspector FlowLayout controls and safe topbar compaction.
+- Restricted engine VRAM budget estimation (`_available_vram_bytes`) strictly to CUDA devices.
+- Updated `1.0.0` version provenance, OpenAPI contracts, and Android `versionCode` (`10` -> `11`).
+
 ## 0.1.0-rc.1
 
 - Automatyczne wykrywanie lokalnych silników CUDA, niezależnie od silnika CPU w AppImage.

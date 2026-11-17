@@ -18,7 +18,7 @@ def test_version_has_one_source_and_matches_installed_package():
     assert distribution_version() == canonical
     assert __version__ == package_version() == str(Version(canonical))
     assert Version(importlib.metadata.version("omnicore")) == Version(__version__)
-    assert release_channel() == "beta"
+    assert release_channel() == "stable"
 
 
 def test_source_provenance_is_explicit_about_missing_build_date():
@@ -26,4 +26,4 @@ def test_source_provenance_is_explicit_about_missing_build_date():
     assert info["version"] == distribution_version()
     assert len(info["source_commit"]) == 40
     assert info["built_at"] is None
-    assert info["channel"] == "beta"
+    assert info["channel"] == "stable"
