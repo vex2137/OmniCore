@@ -92,6 +92,7 @@ from omnicore.desktop.styles import (
     app_icon,
     build_stylesheet,
     ensure_arrow_icon,
+    ensure_check_icon,
     make_divider,
     polish_property,
 )
@@ -1406,6 +1407,7 @@ class MainWindow(QMainWindow):
         form.addRow(self.label("ollama_url"), self.ollama_url)
         self.ollama_enabled = QCheckBox()
         self.ollama_enabled.setChecked(self.config.ollama_enabled)
+        self.ollama_enabled.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         self._texts.append((self.ollama_enabled, "ollama_enabled"))
         form.addRow(self.ollama_enabled)
         adv_outer.addWidget(make_divider())
@@ -1451,6 +1453,7 @@ class MainWindow(QMainWindow):
         self._sync_offload_controls()
         self.thinking = QCheckBox(self.tr("thinking"))
         self.thinking.setChecked(self.config.parameters.get("thinking", False))
+        self.thinking.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         self._texts.append((self.thinking, "thinking"))
         gen_form.addRow(self.thinking)
         self.system_prompt = QPlainTextEdit(self.config.parameters.get("system_prompt", ""))
@@ -2350,6 +2353,8 @@ class MainWindow(QMainWindow):
             "down_muted": ensure_arrow_icon("down", t.muted),
             "up": ensure_arrow_icon("up", t.fg),
             "up_muted": ensure_arrow_icon("up", t.muted),
+            "check": ensure_check_icon(t.accent_text),
+            "check_muted": ensure_check_icon(t.muted),
         }
         qt_palette = QPalette()
         for role, hex_color in (

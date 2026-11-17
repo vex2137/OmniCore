@@ -344,3 +344,59 @@ def test_beta3_settings_form_bounded_and_compact(desktop, qtbot):
     w.ui_scale.setValue(125)
     qtbot.wait(30)
     assert w.settings_container.maximumWidth() == round(850 * 1.25)
+
+
+def test_checkboxes_match_card_surface_across_themes_and_scales(desktop, qtbot):
+    from PySide6.QtGui import QColor
+
+    from omnicore.desktop.themes import resolve_theme_tokens
+
+    w = desktop
+    w.onboarding.hide()
+    w.resize(1440, 900)
+    w.navigate(2)
+    w.advanced_toggle.setChecked(True)
+    qtbot.wait(30)
+    assert w.advanced_settings.isVisible()
+
+    for theme in ("system", "light", "midnight", "graphite", "oled", "ocean", "forest"):
+        w.theme.setCurrentIndex(w.theme.findData(theme))
+        qtbot.wait(20)
+        qss = w.styleSheet()
+        assert "QCheckBox" in qss
+        assert "background: transparent" in qss
+        assert "QCheckBox::indicator:checked" in qss
+        assert "QCheckBox::indicator:disabled" in qss
+        assert "QCheckBox:focus" in qss
+        tokens = resolve_theme_tokens(
+            theme, system_dark=w._theme_dark, custom_accent=w.config.accent
+        )
+        expected_panel = QColor(tokens.panel)
+
+        for box in (w.ollama_enabled, w.thinking):
+            assert box.isVisible()
+            for checked in (False, True):
+                box.setChecked(checked)
+                box.setEnabled(True)
+                qtbot.wait(10)
+                shot = w.advanced_settings.grab().toImage()
+                origin = box.mapTo(w.advanced_settings, box.rect().topRight())
+                # Sample composited pixel inside the checkbox away from indicator/text.
+                sample_px = shot.pixelColor(
+                    max(0, origin.x() - 3), min(shot.height() - 1, origin.y() + 3)
+                )
+                assert abs(sample_px.red() - expected_panel.red()) <= 3
+                assert abs(sample_px.green() - expected_panel.green()) <= 3
+                assert abs(sample_px.blue() - expected_panel.blue()) <= 3
+                if tokens.bg != tokens.panel:
+                    assert sample_px != QColor(tokens.bg)
+            box.setEnabled(False)
+            qtbot.wait(5)
+            assert not box.isEnabled()
+            box.setEnabled(True)
+
+    for scale in (80, 100, 125, 150, 175, 200):
+        w.ui_scale.setValue(scale)
+        qtbot.wait(20)
+        for box in (w.ollama_enabled, w.thinking):
+            assert box.width() >= box.minimumSizeHint().width(), (scale, box.text())

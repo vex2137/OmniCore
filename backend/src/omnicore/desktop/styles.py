@@ -14,9 +14,8 @@ from omnicore.desktop.themes import ThemeTokens
 _ARROW_CACHE: dict[tuple[str, str], str] = {}
 
 
-def ensure_arrow_icon(direction: str, color: str) -> str:
-    """Render a crisp directional arrow PNG cached in a user-private temp dir."""
-    key = (direction, color)
+def _cached_icon(key: tuple[str, str], prefix: str, color: str, draw) -> str:
+    """Render and cache a small PNG UI indicator icon in a user-private temp dir."""
     cached = _ARROW_CACHE.get(key)
     if cached and Path(cached).is_file():
         return cached
@@ -24,24 +23,43 @@ def ensure_arrow_icon(direction: str, color: str) -> str:
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing)
-    pen = QPen(QColor(color), 2.4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-    painter.setPen(pen)
-    if direction == "up":
-        painter.drawPolyline(
-            QPolygonF([QPointF(5.5, 15.0), QPointF(12.0, 8.5), QPointF(18.5, 15.0)])
-        )
-    else:
-        painter.drawPolyline(
-            QPolygonF([QPointF(5.5, 9.0), QPointF(12.0, 15.5), QPointF(18.5, 9.0)])
-        )
+    painter.setPen(QPen(QColor(color), 2.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    draw(painter)
     painter.end()
     safe_color = re.sub(r"[^0-9a-fA-F]", "", color) or "fg"
     icon_dir = Path(tempfile.gettempdir()) / f"omnicore-ui-icons-{os.getuid()}"
     icon_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    icon_path = icon_dir / f"arrow-{direction}-{safe_color}.png"
+    icon_path = icon_dir / f"{prefix}-{safe_color}.png"
     pixmap.save(str(icon_path), "PNG")
     _ARROW_CACHE[key] = str(icon_path)
     return str(icon_path)
+
+
+def ensure_arrow_icon(direction: str, color: str) -> str:
+    """Render a crisp directional arrow PNG cached in a user-private temp dir."""
+
+    def draw(painter):
+        if direction == "up":
+            painter.drawPolyline(
+                QPolygonF([QPointF(5.5, 15.0), QPointF(12.0, 8.5), QPointF(18.5, 15.0)])
+            )
+        else:
+            painter.drawPolyline(
+                QPolygonF([QPointF(5.5, 9.0), QPointF(12.0, 15.5), QPointF(18.5, 9.0)])
+            )
+
+    return _cached_icon((f"arrow-{direction}", color), f"arrow-{direction}", color, draw)
+
+
+def ensure_check_icon(color: str) -> str:
+    """Render a crisp checkbox checkmark PNG cached in a user-private temp dir."""
+
+    def draw(painter):
+        painter.drawPolyline(
+            QPolygonF([QPointF(5.5, 12.5), QPointF(10.0, 17.0), QPointF(18.5, 7.5)])
+        )
+
+    return _cached_icon(("check", color), "check", color, draw)
 
 
 def app_icon(kind: str, color: str, size: int = 18) -> QIcon:
@@ -319,6 +337,8 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
     down_muted = arrows["down_muted"]
     up_icon = arrows["up"]
     up_muted = arrows["up_muted"]
+    check_icon = arrows.get("check") or ensure_check_icon(t.accent_text)
+    check_muted = arrows.get("check_muted") or ensure_check_icon(t.muted)
 
     raw = f"""
         QMainWindow, QDialog, QMessageBox, QMenu, QWidget {{
@@ -655,22 +675,54 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
             border-radius: 8px;
         }}
         QCheckBox {{
+            background: transparent;
             spacing: 8px;
+            padding: 3px 6px;
+            border: 2px solid transparent;
+            border-radius: 6px;
             color: {t.fg};
+        }}
+        QCheckBox:hover {{
+            background: transparent;
+            color: {t.fg};
+        }}
+        QCheckBox:focus {{
+            background: transparent;
+            border: 2px solid {t.accent};
+        }}
+        QCheckBox:disabled {{
+            background: transparent;
+            color: {t.muted};
         }}
         QCheckBox::indicator {{
             width: 16px;
             height: 16px;
             border-radius: 4px;
             border: 1px solid {t.border_strong};
-            background: {t.panel};
+            background: {t.field};
         }}
         QCheckBox::indicator:hover {{
             border-color: {t.accent};
+            background: {t.hover};
         }}
         QCheckBox::indicator:checked {{
-            border: 3px solid {t.panel};
-            background: {t.accent};
+            border: 1px solid {t.accent_button};
+            background: {t.accent_button};
+            image: url("{check_icon}");
+        }}
+        QCheckBox::indicator:checked:hover {{
+            border-color: {t.accent_hover};
+            background: {t.accent_hover};
+            image: url("{check_icon}");
+        }}
+        QCheckBox::indicator:disabled {{
+            border-color: {t.border};
+            background: {t.panel};
+        }}
+        QCheckBox::indicator:checked:disabled {{
+            border-color: {t.border_strong};
+            background: {t.border_strong};
+            image: url("{check_muted}");
         }}
         QLabel#metricTitle {{
             color: {t.muted};
@@ -1063,7 +1115,7 @@ def build_stylesheet(t: ThemeTokens, arrows: dict[str, str], scale: float) -> st
             image: url("{down_muted}");
         }}
         QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QPushButton:focus,
-        QSpinBox:focus, QDoubleSpinBox:focus, QCheckBox:focus,
+        QSpinBox:focus, QDoubleSpinBox:focus,
         QListWidget:focus, QTableWidget:focus, QTextBrowser:focus {{
             border: 2px solid {t.accent};
         }}

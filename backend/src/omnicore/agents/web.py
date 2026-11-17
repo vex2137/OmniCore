@@ -19,7 +19,7 @@ MAX_BYTES = 2_000_000
 CHUNK = 3500
 SEARCH_URL = "https://html.duckduckgo.com/html/"
 TEXT_TYPES = ("text/html", "text/plain", "application/xhtml+xml", "application/json", "text/xml")
-USER_AGENT = "OmniCore-agent/0.2 (+https://github.com/vex2137/OmniCore; user-initiated)"
+USER_AGENT = "OmniCore-agent/1.0 (+https://github.com/vex2137/OmniCore; user-initiated)"
 
 
 class FetchArgs(WireModel):
