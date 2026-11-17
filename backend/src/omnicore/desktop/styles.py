@@ -5,9 +5,9 @@ import re
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
-from PySide6.QtWidgets import QFrame
+from PySide6.QtWidgets import QFrame, QLayout
 
 from omnicore.desktop.themes import ThemeTokens
 
@@ -212,6 +212,86 @@ def app_icon(kind: str, color: str, size: int = 18) -> QIcon:
         painter.drawRoundedRect(QRectF(mid - r, mid - r, r * 2, r * 2), 2.0, 2.0)
     painter.end()
     return QIcon(pixmap)
+
+
+class FlowLayout(QLayout):
+    """Responsive wrapping horizontal layout so toolbar buttons never clip at high UI scales."""
+
+    def __init__(self, parent=None, margin: int = 0, spacing: int = 8):
+        super().__init__(parent)
+        self._items = []
+        self._h_space = spacing
+        self._v_space = spacing
+        self.setContentsMargins(margin, margin, margin, margin)
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def horizontalSpacing(self) -> int:
+        return self._h_space
+
+    def verticalSpacing(self) -> int:
+        return self._v_space
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int):
+        if 0 <= index < len(self._items):
+            return self._items[index]
+        return None
+
+    def takeAt(self, index: int):
+        if 0 <= index < len(self._items):
+            return self._items.pop(index)
+        return None
+
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect: QRect):
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        m = self.contentsMargins()
+        size += QSize(m.left() + m.right(), m.top() + m.bottom())
+        return size
+
+    def _do_layout(self, rect: QRect, *, test_only: bool) -> int:
+        left, top, right, bottom = self.getContentsMargins()
+        effective = rect.adjusted(left, top, -right, -bottom)
+        x = effective.x()
+        y = effective.y()
+        line_height = 0
+        for item in self._items:
+            widget = item.widget()
+            if widget is not None and widget.isHidden():
+                continue
+            item_size = item.sizeHint()
+            next_x = x + item_size.width() + self._h_space
+            if next_x - self._h_space > effective.right() and line_height > 0:
+                x = effective.x()
+                y = y + line_height + self._v_space
+                next_x = x + item_size.width() + self._h_space
+                line_height = 0
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), item_size))
+            x = next_x
+            line_height = max(line_height, item_size.height())
+        return y + line_height - rect.y() + bottom
 
 
 def make_divider(object_name: str = "subtleDivider") -> QFrame:

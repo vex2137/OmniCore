@@ -88,6 +88,7 @@ from omnicore.desktop.resources import (
     format_summary as format_resource_summary,
 )
 from omnicore.desktop.styles import (
+    FlowLayout,
     app_icon,
     build_stylesheet,
     ensure_arrow_icon,
@@ -943,19 +944,17 @@ class MainWindow(QMainWindow):
         refresh_btn = self.button("refresh", self.refresh_models)
         for btn in (import_btn, self.scan_button, sync_btn, refresh_btn):
             btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        action_bar = QHBoxLayout()
-        action_bar.setContentsMargins(0, 0, 0, 0)
-        action_bar.setSpacing(8)
+        action_bar = FlowLayout(spacing=8)
         action_bar.addWidget(import_btn)
         action_bar.addWidget(self.scan_button)
         action_bar.addWidget(sync_btn)
+        action_bar.addWidget(refresh_btn)
+        controls_layout.addLayout(action_bar)
         models_hint = self.label("model_hint")
         models_hint.setObjectName("mutedMeta")
         models_hint.setWordWrap(True)
         models_hint.setMinimumWidth(0)
-        action_bar.addWidget(models_hint, 1)
-        action_bar.addWidget(refresh_btn)
-        controls_layout.addLayout(action_bar)
+        controls_layout.addWidget(models_hint)
 
         self.model_search = QLineEdit()
         self.model_search.textChanged.connect(self.refresh_model_table)
@@ -995,14 +994,14 @@ class MainWindow(QMainWindow):
 
         inspector = QFrame()
         inspector.setObjectName("modelInspector")
-        footer_layout = QHBoxLayout(inspector)
+        footer_layout = QVBoxLayout(inspector)
         footer_layout.setContentsMargins(14, 10, 14, 10)
-        footer_layout.setSpacing(12)
+        footer_layout.setSpacing(8)
         self.model_detail = self.label("model_details")
         self.model_detail.setObjectName("subtleHint")
         self.model_detail.setTextFormat(Qt.PlainText)
         self.model_detail.setWordWrap(True)
-        footer_layout.addWidget(self.model_detail, 1)
+        footer_layout.addWidget(self.model_detail)
         self.favorite_button = self.button("favorite_toggle", self.toggle_favorite_model)
         self.model_authorize_button = self.button(
             "authorize_model_directory", self.authorize_selected_model, primary=True
@@ -1023,15 +1022,17 @@ class MainWindow(QMainWindow):
             self.tr("remove_entry"), self.remove_model
         )
         self.model_actions.setMenu(self.model_actions_menu)
+        footer_actions = FlowLayout(spacing=8)
         for btn in (
             self.model_authorize_button,
             self.load_button,
             self.favorite_button,
             configure_btn,
         ):
-            btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-            footer_layout.addWidget(btn)
-        footer_layout.addWidget(self.model_actions)
+            btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            footer_actions.addWidget(btn)
+        footer_actions.addWidget(self.model_actions)
+        footer_layout.addLayout(footer_actions)
         local.addWidget(inspector)
         self.model_tabs.addTab(installed, "")
 
@@ -1301,7 +1302,7 @@ class MainWindow(QMainWindow):
             self.theme.setItemIcon(index, QIcon(preview))
         appearance_form.addRow(self.label("theme"), self.theme)
         self.ui_scale = QSpinBox()
-        self.ui_scale.setRange(80, 150)
+        self.ui_scale.setRange(80, 200)
         self.ui_scale.setSingleStep(10)
         self.ui_scale.setSuffix(" %")
         self.ui_scale.setValue(self.config.ui_scale)
@@ -1956,13 +1957,26 @@ class MainWindow(QMainWindow):
             )
         self.nav[0].setText("")
         max_text_w = max(48, effective_w - self._scaled(76))
+        nav_avail = max(48, effective_w - 2 * margin_h - 1)
         for button, key in zip(
             (self.nav[1], self.nav[2], self.nav[3]),
             ("models", "settings", "diagnostics"),
             strict=True,
         ):
             button.ensurePolished()
-            button.setText(sidebar_text(self.tr(key), button.fontMetrics(), max_text_w))
+            label = sidebar_text(self.tr(key), button.fontMetrics(), max_text_w)
+            button.setText(label)
+            if button.minimumSizeHint().width() > nav_avail and "\n" not in label:
+                chrome = max(
+                    self._scaled(28),
+                    button.minimumSizeHint().width()
+                    - button.fontMetrics().horizontalAdvance(label),
+                )
+                button.setText(
+                    button.fontMetrics().elidedText(
+                        label, Qt.ElideRight, max(24, nav_avail - chrome)
+                    )
+                )
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1994,7 +2008,7 @@ class MainWindow(QMainWindow):
         full_summary = format_resource_summary(snap, self.tr)
         if hasattr(self, "resource_monitor_btn"):
             pane_w = self._topbar_pane_width()
-            if pane_w < self._scaled(500) and " · " in full_summary:
+            if pane_w < self._scaled(540) and " · " in full_summary:
                 vram_parts = [p for p in full_summary.split(" · ") if "VRAM" in p]
                 ram_parts = [p for p in full_summary.split(" · ") if "RAM" in p]
                 display = (vram_parts or ram_parts or [full_summary])[0]

@@ -948,3 +948,25 @@ HTTPServer(('127.0.0.1', args.port), Handler).serve_forever()
         await engine.stop()
 
     asyncio.run(exercise())
+
+
+def test_available_vram_bytes_ignores_non_cuda_and_reads_cuda(tmp_path, monkeypatch):
+    from omnicore.text import nvidia
+
+    async def fake_devices():
+        return [
+            {"index": 0, "free_bytes": 5_000_000_000, "total_bytes": 8_000_000_000},
+            {"index": 1, "free_bytes": None, "total_bytes": 10_000_000_000},
+        ]
+
+    monkeypatch.setattr(nvidia, "devices", fake_devices)
+
+    async def exercise():
+        engine = LlamaEngine(tmp_path / "cpu")
+        assert await engine._available_vram_bytes("") is None
+        assert await engine._available_vram_bytes("cpu") is None
+        assert await engine._available_vram_bytes("Vulkan0") is None
+        assert await engine._available_vram_bytes("CUDA0") == 5_000_000_000
+        assert await engine._available_vram_bytes("CUDA1") == 8_500_000_000
+
+    asyncio.run(exercise())

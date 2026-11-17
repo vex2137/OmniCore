@@ -84,7 +84,7 @@ class DesktopConfig:
         obj.sidebar_width = max(200, min(360, obj.sidebar_width))
         if not isinstance(obj.ui_scale, int) or isinstance(obj.ui_scale, bool):
             obj.ui_scale = 100
-        obj.ui_scale = max(80, min(150, obj.ui_scale))
+        obj.ui_scale = max(80, min(200, obj.ui_scale))
         if not isinstance(obj.accent, str) or (
             obj.accent and not re.fullmatch(r"#[0-9a-fA-F]{6}", obj.accent)
         ):

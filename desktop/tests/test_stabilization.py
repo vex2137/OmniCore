@@ -24,14 +24,14 @@ def test_palette_contrast():
 def test_scale_is_logical_and_survives_restart(desktop, tmp_path, monkeypatch):
     w = desktop
     monkeypatch.setenv("QT_SCALE_FACTOR", "2")
-    for scale in (80, 100, 150, 100):
+    for scale in (80, 100, 150, 175, 200, 100):
         w.ui_scale.setValue(scale)
         assert f"font: {round(14 * scale / 100)}px" in w.styleSheet()
         assert os.environ["QT_SCALE_FACTOR"] == "2"
-    w.ui_scale.setValue(150)
+    w.ui_scale.setValue(200)
     path = tmp_path / "prefs.json"
     w.config.save(path)
-    assert DesktopConfig.load(path).ui_scale == 150
+    assert DesktopConfig.load(path).ui_scale == 200
 
 
 def test_major_views_resolution_and_scale_matrix(desktop, qtbot):
@@ -77,7 +77,7 @@ def test_major_views_resolution_and_scale_matrix(desktop, qtbot):
         (2, None, "settings"),
         (3, None, "diagnostics"),
     )
-    for scale in (80, 100, 125, 150):
+    for scale in (80, 100, 125, 150, 175, 200):
         w.ui_scale.setValue(scale)
         for width, height in ((1280, 720), (1366, 768), (1920, 1080), (2560, 1440)):
             for page, tab, name in views:
@@ -257,9 +257,14 @@ def test_beta3_all_history_headers_fit_at_narrow_widths(desktop, qtbot):
     w.resize(1280, 720)
     for locale in ("pl-PL", "en-US"):
         w.language.setCurrentIndex(w.language.findData(locale))
-        for scale in (80, 100, 125, 150):
+        for scale in (80, 100, 125, 150, 175, 200):
             w.ui_scale.setValue(scale)
-            for width in (200, 240):
+            widths = (
+                (200, 240)
+                if scale <= 150
+                else (min(360, round(200 * scale / 150)), min(360, round(240 * scale / 150)))
+            )
+            for width in widths:
                 w.sidebar_width.setValue(width)
                 w._fill_conversations()
                 qtbot.wait(20)
@@ -288,7 +293,7 @@ def test_beta3_compact_sidebar_scales_proportionally(desktop, qtbot):
     w.sidebar_width.setValue(320)
     w.toggle_sidebar()
     assert w.config.sidebar_compact
-    for scale in (80, 90, 100, 125, 150):
+    for scale in (80, 90, 100, 125, 150, 175, 200):
         w.ui_scale.setValue(scale)
         qtbot.wait(30)
         expected_sidebar = max(1, round(56 * scale / 100))

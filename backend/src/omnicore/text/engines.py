@@ -488,7 +488,7 @@ class LlamaEngine:
         )
 
     async def _available_vram_bytes(self, selected_device: str) -> int | None:
-        if not selected_device or selected_device == "cpu":
+        if not selected_device or not selected_device.startswith("CUDA"):
             return None
         with suppress(Exception):
             gpu_list = await nvidia.devices()
