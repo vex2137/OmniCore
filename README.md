@@ -12,6 +12,8 @@ Run AI models on your own hardware, manage conversations, monitor inference perf
 [![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/vex2137/OmniCore/releases/tag/v1.0.0)
 [![Release](https://img.shields.io/badge/release-stable-brightgreen)](https://github.com/vex2137/OmniCore/releases)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Linux](https://img.shields.io/badge/Linux-x86__64-orange?logo=linux)](https://github.com/vex2137/OmniCore/releases)
+[![Android](https://img.shields.io/badge/Android-ARM64-green?logo=android)](https://github.com/vex2137/OmniCore/releases)
 
 **[Download](https://github.com/vex2137/OmniCore/releases/latest) · [Features](#-features) · [Installation](#-installation) · [Documentation](#-documentation)**
 
@@ -140,19 +142,6 @@ Android includes compact response statistics with expandable details.
 
 ---
 
-## 🖼️ Screenshots
-
-### Linux Desktop
-
-![OmniCore Linux Desktop](docs/images/linux-desktop.png)
-
-### Android
-
-![OmniCore Android](docs/images/android-chat.png)
-
-> Screenshots may show earlier development builds. The interface may differ from the latest stable release.
-
----
 
 ## 🛠️ Installation
 
