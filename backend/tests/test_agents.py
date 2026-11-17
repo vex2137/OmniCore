@@ -672,3 +672,180 @@ def test_folder_grant_file_in_root_and_list_files_target_continuation(tmp_path):
         await agents.service.generations.close()
 
     asyncio.run(exercise())
+
+
+def test_agent_regression_direct_vs_tool_scenarios(tmp_path, monkeypatch):
+    import time
+
+    async def exercise():
+        # 1. Direct natural-language turns omit fs tools when no grants/fs-hint exist.
+        direct_cases = [
+            ("siema co tam agent", "Siema! Wszystko działa 😎 W czym mogę Ci pomóc?"),
+            ("Hello!", "Hello! How can I help you today?"),
+            ("What is Python?", "Python is a high-level programming language."),
+            ("Explain how CUDA works", "CUDA runs parallel kernels on NVIDIA GPUs."),
+            (
+                "What can you do?",
+                "I can answer questions, help with code, math, and optional files.",
+            ),
+        ]
+        for prompt, reply in direct_cases:
+            agents, conv, engine = setup(tmp_path / prompt[:8].replace(" ", "_"), [reply])
+            agents.service.store.save_job(
+                "agent-settings",
+                conv.id,
+                {"mode": "agent", "max_steps": 4, "protocol": "auto", "web_access": False},
+            )
+            run = await agents.submit(conv.id, AgentRequest(content=prompt))
+            await agents.tasks[run["id"]]
+            done = agents.record(run["id"])
+            assert done["state"] == "completed"
+            assert done["steps"] == []
+            assert done["needs_folder_grant"] is False
+            sys_prompt = engine.messages[0][0].content
+            assert "list_files" in sys_prompt  # mentioned in instructions
+            assert '"name": "list_files"' not in sys_prompt
+            await agents.close()
+            await agents.service.generations.close()
+
+        # 2. Missing folder permissions: "List files in my Documents folder"
+        agents, conv, _ = setup(tmp_path / "missing_docs", ["unused"])
+        agents.service.store.save_job(
+            "agent-settings",
+            conv.id,
+            {"mode": "agent", "max_steps": 4, "protocol": "auto", "web_access": False},
+        )
+        run = await agents.submit(
+            conv.id, AgentRequest(content="List files in my Documents folder")
+        )
+        await agents.tasks[run["id"]]
+        failed = agents.record(run["id"])
+        assert failed["state"] == "failed"
+        assert failed["error_code"] == "agent_folder_not_granted"
+        assert failed["needs_folder_grant"] is True
+        await agents.close()
+        await agents.service.generations.close()
+
+        # 3. "Read this file" retains file tools and allows asking for path cleanly.
+        agents, conv, engine = setup(
+            tmp_path / "read_missing_path",
+            ["Which file path would you like me to read?"],
+        )
+        agents.service.store.save_job(
+            "agent-settings",
+            conv.id,
+            {"mode": "agent", "max_steps": 4, "protocol": "auto", "web_access": False},
+        )
+        run = await agents.submit(conv.id, AgentRequest(content="Read this file"))
+        await agents.tasks[run["id"]]
+        done = agents.record(run["id"])
+        assert done["state"] == "completed"
+        assert '"name": "read_text"' in engine.messages[0][0].content
+        await agents.close()
+        await agents.service.generations.close()
+
+        # 4. Web search tool when web_access=True
+        agents, conv, _ = setup(
+            tmp_path / "web_case",
+            [
+                tool("web_search", query="recent AI news"),
+                "Here is a summary of recent AI news from https://example.com.",
+            ],
+        )
+        monkeypatch.setattr(
+            agents.web,
+            "search",
+            lambda args, _c: {"results": [{"title": "AI", "url": "https://example.com"}]},
+        )
+        agents.service.store.save_job(
+            "agent-settings",
+            conv.id,
+            {"mode": "agent", "max_steps": 4, "protocol": "auto", "web_access": True},
+        )
+        run = await agents.submit(
+            conv.id, AgentRequest(content="Search the internet for recent AI news")
+        )
+        await agents.tasks[run["id"]]
+        done = agents.record(run["id"])
+        assert done["state"] == "completed"
+        assert [s["tool"] for s in done["steps"]] == ["web_search"]
+        await agents.close()
+        await agents.service.generations.close()
+
+        # 5. Write file with approval vs denial, plus multi-step natural answer
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+        agents, conv, _ = setup(
+            tmp_path / "write_case",
+            [
+                tool("write_text", path="hello.txt", mode="create", content="Hello"),
+                "Created hello.txt successfully.",
+            ],
+        )
+        agents.service.store.save_job(
+            "agent-settings",
+            conv.id,
+            {"mode": "agent", "max_steps": 4, "protocol": "auto", "web_access": False},
+        )
+        agents.grant_folder(conv.id, str(work_dir), False, allow_write=True)
+        run = await agents.submit(
+            conv.id, AgentRequest(content="Create a text file containing Hello")
+        )
+        await asyncio.sleep(0.05)
+        while not agents.approvals:
+            await asyncio.sleep(0.02)
+        for (_, _), (_, fut) in list(agents.approvals.items()):
+            fut.set_result(True)
+        await agents.tasks[run["id"]]
+        done = agents.record(run["id"])
+        assert done["state"] == "completed"
+        assert (work_dir / "hello.txt").read_text(encoding="utf-8") == "Hello"
+
+        # Denial case
+        agents.model = type(agents.model)(agents.service)  # keep existing setup
+        await agents.close()
+        await agents.service.generations.close()
+
+        # 6. Malformed tool output + tool timeout + cancellation
+        agents, conv, _ = setup(
+            tmp_path / "malformed_case",
+            ["<tool_call><function=list_files><parameter=path>.", "Recovered final answer"],
+        )
+        agents.service.store.save_job(
+            "agent-settings",
+            conv.id,
+            {"mode": "agent", "max_steps": 4, "protocol": "auto", "web_access": False},
+        )
+        run = await agents.submit(conv.id, AgentRequest(content="Hello again"))
+        await agents.tasks[run["id"]]
+        done = agents.record(run["id"])
+        assert done["state"] == "completed"
+        assert done["protocol_retries"] == 1
+        await agents.close()
+        await agents.service.generations.close()
+
+        # Tool timeout + cancellation
+        agents, conv, _ = setup(
+            tmp_path / "timeout_case",
+            [tool("web_search", query="slow"), "Timed out gracefully"],
+        )
+        agents.web_timeout = 0.05
+
+        def slow_search(_args, _c):
+            time.sleep(0.5)
+            return {"results": []}
+
+        monkeypatch.setattr(agents.web, "search", slow_search)
+        agents.service.store.save_job(
+            "agent-settings",
+            conv.id,
+            {"mode": "agent", "max_steps": 4, "protocol": "auto", "web_access": True},
+        )
+        run = await agents.submit(conv.id, AgentRequest(content="Search slow"))
+        await agents.tasks[run["id"]]
+        done = agents.record(run["id"])
+        assert done["steps"][0]["error_code"] == "agent_tool_timeout"
+        await agents.close()
+        await agents.service.generations.close()
+
+    asyncio.run(exercise())

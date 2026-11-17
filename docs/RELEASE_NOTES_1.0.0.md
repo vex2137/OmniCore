@@ -8,6 +8,8 @@
 - **GGUF & Engine Reliability (from Beta 4):** Pinned `llama.cpp` runtime (`c3df4b7e`) supporting `lfm3` and `qwen35`, bounded structural GGUF v2/v3 header/tensor validation, Vulkan capability/offload reporting without reporting shared system RAM as VRAM, and clean release branding (`OmniCore`).
 
 ### Linux Desktop & Backend (`1.0.0`)
+- **Agent Tool-Use Fix:** Updated the Agent system prompt to respond naturally to greetings, capability questions, and general knowledge without calling tools, and omitted filesystem tools when no folders are granted and no file/folder intent is present (verified on `LFM3 1.7B` and `Qwen3.5 4B`).
+- **Message Bubble Sizing:** Fixed premature wrapping of short user bubbles by re-measuring `SafeMarkdown` after Qt stylesheet polish and dynamically adapting bubble max width (~72% of chat viewport) on resize and inspector drawer toggle.
 - **Checkbox Theme Fix:** Fixed black rectangular background inheritance on Settings checkboxes (`Włącz opcjonalną integrację z Ollamą`, `Myślenie (tylko zgodne szablony modeli)`) across all 7 themes (`system`, `light`, `midnight`, `graphite`, `oled`, `ocean`, `forest`), with HiDPI checkmark indicators and crisp focus/hover/disabled states.
 - **Responsive Scaling (80%–200%):** Wrapping `FlowLayout` toolbars/inspector actions, sidebar nav elision fallback, and compact resource pill thresholds.
 - **CUDA & Memory Safety:** Restricted `_available_vram_bytes` strictly to `CUDA*` devices so unified/CPU systems never treat host RAM as GPU VRAM.

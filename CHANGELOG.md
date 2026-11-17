@@ -9,6 +9,8 @@
 - Added optional release keystore signing configuration (`OMNICORE_KEYSTORE_*` environment variables) in Gradle while keeping debug and unsigned APKs clearly distinguished.
 
 ### Linux Desktop & Backend
+- Fixed Agent mode unnecessarily invoking `list_files` on greetings and general questions (updated conversational-first system prompt and omitted filesystem tools when no folders are granted and no filesystem intent is detected, validated on `LFM3 1.7B` and `Qwen3.5 4B`).
+- Fixed premature word-wrapping of short user message bubbles (`SafeMarkdown` now re-measures with polished fonts and viewport-aware ~72% caps across window resizes and drawer toggles).
 - Fixed black rectangular background bleed on Settings checkboxes (`Włącz opcjonalną integrację z Ollamą`, `Myślenie (tylko zgodne szablony modeli)`) across all 7 themes and 80–200% UI scales, with custom HiDPI checkmark icons and explicit disabled/focus/hover states.
 - Expanded UI scaling support from 80% to 200% with wrapping toolbar/inspector FlowLayout controls and safe topbar compaction.
 - Restricted engine VRAM budget estimation (`_available_vram_bytes`) strictly to CUDA devices.

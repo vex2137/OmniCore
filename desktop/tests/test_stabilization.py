@@ -400,3 +400,92 @@ def test_checkboxes_match_card_surface_across_themes_and_scales(desktop, qtbot):
         qtbot.wait(20)
         for box in (w.ollama_enabled, w.thinking):
             assert box.width() >= box.minimumSizeHint().width(), (scale, box.text())
+
+
+def test_user_and_assistant_bubble_sizing_wrapping_across_scales_themes_and_drawer(desktop, qtbot):
+    from test_desktop import request
+
+    from omnicore.desktop.transcript import SafeMarkdown
+
+    w = desktop
+    w.onboarding.hide()
+    short_samples = [
+        "Hi",
+        "siema co tam agent",
+        "Hello, how are you today?",
+        "Zażółć gęślą jaźń",
+        "Cześć 🚀🎉",
+    ]
+    long_url = "https://example.com/" + "/".join(["segment"] * 18)
+    long_sentence = (
+        "This is a deliberately long two hundred character user message designed to verify "
+        "clean wrapping inside the OmniCore desktop chat viewport at roughly seventy percent width "
+        "without horizontal overflow."
+    )
+    multi_paragraph = "First paragraph with enough context.\n\nSecond paragraph following cleanly."
+    code_msg = "```python\nprint('omnicore-1.0.0')\n```"
+
+    record = request(w, "POST", "/api/v1/text/conversations", {"title": "Bubble Matrix"})
+    all_user = [*short_samples, long_sentence, multi_paragraph, long_url, code_msg]
+    for text in all_user:
+        request(
+            w,
+            "POST",
+            f"/api/v1/text/conversations/{record['id']}/messages",
+            {"role": "user", "content": text},
+        )
+    request(
+        w,
+        "POST",
+        f"/api/v1/text/conversations/{record['id']}/messages",
+        {
+            "role": "assistant",
+            "content": "Siema! Wszystko działa 😎 W czym mogę Ci pomóc?\n\n" + long_url,
+        },
+    )
+    w.navigate(0)
+    w.refresh_conversations(record["id"])
+    qtbot.waitUntil(lambda: len(w.transcript.cards) == len(all_user) + 1)
+
+    for theme in ("system", "light", "midnight", "graphite", "oled", "ocean", "forest"):
+        w.theme.setCurrentIndex(w.theme.findData(theme))
+        qtbot.wait(5)
+
+    for drawer_open in (False, True):
+        if w.context_button.isChecked() != drawer_open:
+            w.context_button.click()
+        for width, height in ((1280, 720), (1366, 768), (1920, 1080), (2560, 1440)):
+            for scale in (80, 100, 125, 150, 175, 200):
+                w.ui_scale.setValue(scale)
+                w.resize(width, height)
+                qtbot.wait(20)
+                vp_w = w.transcript.viewport().width()
+                max_allowed = w.transcript._user_bubble_limit() + 4
+                assert w.transcript.horizontalScrollBar().maximum() == 0
+
+                for idx, _ in enumerate(short_samples):
+                    card = w.transcript.cards[idx]
+                    md = card.findChild(SafeMarkdown)
+                    assert md is not None
+                    block = md.document().begin()
+                    assert block.layout().lineCount() == 1, (
+                        drawer_open,
+                        width,
+                        scale,
+                        short_samples[idx],
+                        md.width(),
+                        md.viewport().width(),
+                    )
+                    assert card.bubble.width() <= max_allowed
+
+                for idx in range(len(short_samples), len(short_samples) + 3):
+                    card = w.transcript.cards[idx]
+                    assert card.bubble.width() <= max_allowed, (
+                        drawer_open,
+                        width,
+                        scale,
+                        idx,
+                        card.bubble.width(),
+                        max_allowed,
+                        vp_w,
+                    )

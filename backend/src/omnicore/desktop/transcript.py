@@ -5,7 +5,7 @@ import math
 import re
 
 from PySide6.QtCore import QEvent, QPointF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QPixmap, QPolygonF, QTextDocument
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap, QPolygonF, QTextDocument, QTextOption
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -165,17 +165,17 @@ class SafeMarkdown(QTextBrowser):
         self.setOpenExternalLinks(False)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._compact_width = compact_width
+        self._compact_limit = compact_width
+        self._compact_width = bool(compact_width)
         self.document().setDocumentMargin(2)
+        option = self.document().defaultTextOption()
+        option.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.document().setDefaultTextOption(option)
         self.document().setMarkdown(
             text, QTextDocument.MarkdownDialectGitHub | QTextDocument.MarkdownNoHTML
         )
-        if compact_width:
-            probe = self.document().clone(self)
-            probe.setTextWidth(-1)
-            self._ideal_width = min(compact_width, max(44, math.ceil(probe.size().width()) + 10))
-            self.setMinimumWidth(44)
-            self.setMaximumWidth(self._ideal_width)
+        if self._compact_width:
+            self._sync_compact_bounds()
             self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         else:
             self._ideal_width = 0
@@ -184,11 +184,46 @@ class SafeMarkdown(QTextBrowser):
         self.document().documentLayout().documentSizeChanged.connect(self.fit)
         self.fit()
 
+    def _compact_chrome_width(self) -> int:
+        margins = self.contentsMargins()
+        vp_margins = self.viewportMargins()
+        return (
+            margins.left()
+            + margins.right()
+            + vp_margins.left()
+            + vp_margins.right()
+            + self.frameWidth() * 2
+        )
+
+    def _sync_compact_bounds(self):
+        if not self._compact_width:
+            return
+        doc = self.document()
+        doc.setDefaultFont(self.font())
+        probe = doc.clone(self)
+        probe.setTextWidth(-1)
+        natural_text_w = math.ceil(max(probe.idealWidth(), probe.size().width()))
+        needed = natural_text_w + self._compact_chrome_width() + 8
+        limit = max(120, int(self._compact_limit or 560))
+        self._ideal_width = min(limit, max(44, needed))
+        self.setMinimumWidth(min(44, self._ideal_width))
+        self.setMaximumWidth(self._ideal_width)
+        self.updateGeometry()
+
+    def update_compact_limit(self, limit: int):
+        if not self._compact_width:
+            return
+        self._compact_limit = max(120, int(limit))
+        self._sync_compact_bounds()
+        self.fit()
+
     def loadResource(self, resource_type, url):
         # No local files, remote image requests, data URLs or external styles from model text.
         return None
 
     def minimumSizeHint(self):
+        if self._compact_width:
+            return QSize(min(44, self._ideal_width), self.height() or 24)
         return QSize(0, self.height() or 24)
 
     def sizeHint(self):
@@ -206,17 +241,21 @@ class SafeMarkdown(QTextBrowser):
 
     def changeEvent(self, event):
         super().changeEvent(event)
-        if event.type() in (QEvent.StyleChange, QEvent.FontChange):
+        if event.type() in (QEvent.StyleChange, QEvent.FontChange, QEvent.Polish):
+            if self._compact_width:
+                self._sync_compact_bounds()
             self.fit()
 
     def fit(self, *_):
         avail = self.viewport().width()
         if self._compact_width:
-            target_w = min(self._ideal_width, avail) if avail >= 40 else self._ideal_width
+            max_text_w = max(40, self._ideal_width - self._compact_chrome_width())
+            target_w = avail if avail >= max_text_w or avail >= 40 else max_text_w
             pad = 6
         else:
             target_w = max(80, avail)
             pad = 10
+        self.document().setDefaultFont(self.font())
         self.document().setTextWidth(target_w)
         height = math.ceil(self.document().size().height()) + pad
         if self.height() != height:
@@ -251,6 +290,7 @@ class MessageCard(QFrame):
         self._grant_folder = grant_folder
         self._continue_run = continue_run
         self._compact_bubble = is_user
+        self._markdown_blocks = []
         self._hover_effects = []
         self._action_buttons = []
         self._info_button = None
@@ -709,9 +749,9 @@ class MessageCard(QFrame):
 
         def flush_prose():
             if prose:
-                self.layout_.addWidget(
-                    SafeMarkdown("".join(prose), body_parent, compact_width=compact_w)
-                )
+                md = SafeMarkdown("".join(prose), body_parent, compact_width=compact_w)
+                self._markdown_blocks.append(md)
+                self.layout_.addWidget(md)
                 prose.clear()
 
         def flush_code():
@@ -770,6 +810,17 @@ class MessageCard(QFrame):
         if fence:
             flush_code()
         flush_prose()
+
+    def update_viewport_width(self, bubble_limit: int):
+        if not self._compact_bubble or not hasattr(self, "bubble"):
+            return
+        cap = max(180, int(bubble_limit))
+        self.bubble.setMaximumWidth(cap)
+        margins = self.bubble.layout().contentsMargins() if self.bubble.layout() else None
+        h_pad = (margins.left() + margins.right()) if margins else 28
+        text_limit = max(120, cap - h_pad - 2)
+        for md in self._markdown_blocks:
+            md.update_compact_limit(text_limit)
 
 
 class ChatTranscript(QScrollArea):
@@ -866,9 +917,21 @@ class ChatTranscript(QScrollArea):
         bar = self.verticalScrollBar()
         self._pin_to_bottom = value >= max(0, bar.maximum() - 40)
 
+    def _user_bubble_limit(self) -> int:
+        vp_w = self.viewport().width()
+        col_w = min(980, vp_w) if vp_w > 0 else 800
+        avail = max(280, col_w - 32)
+        return max(220, min(680, int(avail * 0.72)))
+
+    def _sync_bubble_widths(self):
+        limit = self._user_bubble_limit()
+        for card in self.cards:
+            card.update_viewport_width(limit)
+
     def resizeEvent(self, event):
         was_pinned = self._pin_to_bottom
         super().resizeEvent(event)
+        self._sync_bubble_widths()
         if was_pinned:
             self.scroll_timer.start(0)
 
@@ -943,6 +1006,7 @@ class ChatTranscript(QScrollArea):
             card.deleteLater()
         self.messages, self.locale = messages, locale
         self._previous_can_regenerate = self.can_regenerate
+        self._sync_bubble_widths()
         if self.widget() and self.widget().layout():
             self.widget().layout().activate()
         if at_bottom:
